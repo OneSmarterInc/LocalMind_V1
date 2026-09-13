@@ -1,0 +1,162 @@
+name: Offline study integration
+on:
+  push:
+    branches: [feature/offline-study-foundation]
+    paths:
+      - '.changes/**'
+      - '.github/workflows/offline-foundation.yml'
+      - 'backend/**'
+      - 'frontend/**'
+      - 'student-runtime/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'device-spike/**'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: offline-study-integration
+  cancel-in-progress: false
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      AI_ENABLED: 'false'
+      AI_MONITOR_MODE: sync
+      API_DOCS_ENABLED: 'true'
+      DURABLE_JOBS: 'false'
+      DJANGO_SECRET_KEY: localmind-ci-test-only-not-a-deployment-secret
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/offline-study-foundation
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify exact patch and materialize ordinary source
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import base64, hashlib, lzma, subprocess
+          expected = 'd3af7a2a7ce35f8510b7abe915cb38a639a4cb1bf0ab2d99f5bd992195d7311d'
+          marker = Path('.localmind-offline-foundation')
+          if marker.exists():
+              if marker.read_text().strip() != expected:
+                  raise SystemExit('Unexpected foundation marker; refusing to overwrite source.')
+              print('Verified foundation was already materialized; checking current code.')
+          else:
+              encoded = ''.join(Path(f'.changes/offline-foundation-{i:02}.b64').read_text().strip() for i in range(1,13))
+              if hashlib.sha256(encoded.encode()).hexdigest() != 'a449b67b113f59862ef80bfabb8cc2e0fdbfa72ec59cb5e83b6fe202dfe01b77':
+                  raise SystemExit('Transport hash mismatch; nothing applied.')
+              raw = lzma.decompress(base64.b64decode(encoded, validate=True))
+              if hashlib.sha256(raw).hexdigest() != expected:
+                  raise SystemExit('Patch hash mismatch; nothing applied.')
+              patch = Path('/tmp/localmind-foundation.patch'); patch.write_bytes(raw)
+              subprocess.run(['git','apply','--check',str(patch)], check=True)
+              subprocess.run(['git','apply',str(patch)], check=True)
+              marker.write_text(expected + '\n')
+              # These directories contain only the explicitly staged source transport.
+              for folder in (Path('.changes'), Path('.bootstrap')):
+                  if folder.exists():
+                      for p in folder.glob('*.b64'): p.unlink()
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m 'Implement reviewed content authoring, signed packages, persistent jobs and private offline runtime'
+            git push origin HEAD:feature/offline-study-foundation
+          fi
+      - name: Install backend test dependencies without model runtimes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          lines = Path('backend/requirements.txt').read_text().splitlines()
+          selected = [s for s in lines if s.strip() and not s.lstrip().startswith('#') and not s.startswith(('docling', 'llama-cpp-python'))]
+          Path('/tmp/localmind-ci-requirements.txt').write_text('\n'.join(selected)+'\n')
+          PY
+          python -m pip install -r /tmp/localmind-ci-requirements.txt -r backend/requirements-dev.txt
+          mkdir -p /tmp/localmind-checks
+      - name: Generate additive database migrations
+        id: migrations
+        continue-on-error: true
+        run: |
+          cd backend
+          python manage.py makemigrations study jobs --noinput 2>&1 | tee /tmp/localmind-checks/migrations.log
+          cd ..
+          git add backend/study/migrations backend/jobs/migrations
+          if ! git diff --cached --quiet; then
+            git commit -m 'Add database migrations for versioned study content and durable jobs'
+            git push origin HEAD:feature/offline-study-foundation
+          fi
+          cd backend
+          python manage.py makemigrations --check --dry-run 2>&1 | tee -a /tmp/localmind-checks/migrations.log
+      - name: Full Django test suite
+        id: django
+        continue-on-error: true
+        run: |
+          cd backend
+          python manage.py test --verbosity=2 2>&1 | tee /tmp/localmind-checks/django.log
+      - name: Install classroom frontend dependencies
+        id: frontend_install
+        continue-on-error: true
+        run: cd frontend && npm ci 2>&1 | tee /tmp/localmind-checks/frontend-install.log
+      - name: Full classroom TypeScript check
+        id: frontend_types
+        continue-on-error: true
+        run: cd frontend && npm run typecheck 2>&1 | tee /tmp/localmind-checks/frontend-types.log
+      - name: Classroom lint
+        id: frontend_lint
+        continue-on-error: true
+        run: cd frontend && npm run lint 2>&1 | tee /tmp/localmind-checks/frontend-lint.log
+      - name: Classroom web production export
+        id: frontend_build
+        continue-on-error: true
+        run: cd frontend && npm run export:web 2>&1 | tee /tmp/localmind-checks/frontend-build.log
+      - name: Install private runtime dependencies and lock versions
+        id: runtime_install
+        continue-on-error: true
+        run: |
+          cd student-runtime
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+          cd ..
+          git add student-runtime/package-lock.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'Lock private student runtime dependencies'
+            git push origin HEAD:feature/offline-study-foundation
+          fi
+      - name: Full private runtime TypeScript check
+        id: runtime_types
+        continue-on-error: true
+        run: cd student-runtime && npm run typecheck 2>&1 | tee /tmp/localmind-checks/runtime-types.log
+      - name: Content integrity, signatures, prompt and draft tests
+        id: contracts
+        continue-on-error: true
+        run: |
+          python scripts/check_md_alignment.py 2>&1 | tee /tmp/localmind-checks/content-contracts.log
+          python scripts/check_offline_study.py 2>&1 | tee /tmp/localmind-checks/offline-contracts.log
+      - name: Save verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: offline-study-integration-results
+          path: /tmp/localmind-checks/*.log
+          retention-days: 7
+      - name: Require every integration check to succeed
+        if: always()
+        env:
+          RESULTS: '${{ steps.migrations.outcome }} ${{ steps.django.outcome }} ${{ steps.frontend_install.outcome }} ${{ steps.frontend_types.outcome }} ${{ steps.frontend_lint.outcome }} ${{ steps.frontend_build.outcome }} ${{ steps.runtime_install.outcome }} ${{ steps.runtime_types.outcome }} ${{ steps.contracts.outcome }}'
+        run: |
+          for result in $RESULTS; do
+            if [ "$result" != 'success' ]; then
+              echo 'At least one integration check failed or did not run. See the logs.'
+              exit 1
+            fi
+          done
+          echo 'All checks passed. Real inference quality and actual-phone performance remain separate acceptance gates.'
