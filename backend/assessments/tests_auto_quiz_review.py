@@ -223,7 +223,9 @@ class ShortModulesTests(Base):
         self.assertEqual(auto_quiz.state_for(self.short), "short")
         detail = self.fc.get(f"/api/faculty/documents/{self.doc.id}/").data
         self.assertEqual(detail["auto_quizzes"]["short"], 1)
-        self.assertEqual(detail["auto_quizzes"]["min_chars"], 500)
+        # The effective threshold includes the source capacity of five questions,
+        # not just the configured 500-character minimum for textbook boxes.
+        self.assertEqual(detail["auto_quizzes"]["min_chars"], 1250)
 
     def test_a_job_queued_before_the_limit_is_dropped_when_its_turn_comes(self):
         AutoQuizJob.objects.create(module=self.short, status="pending", source_hash="x")
