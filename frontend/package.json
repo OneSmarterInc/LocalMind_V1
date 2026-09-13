@@ -71,8 +71,7 @@
     "eslint-config-expo": "~10.0.0",
     "typescript": "~5.9.2",
     "esbuild": "0.25.9",
-    "@playwright/test": "1.55.0",
-    "@types/base64-js": "1.5.3"
+    "@playwright/test": "1.55.0"
   },
   "private": true
 }
