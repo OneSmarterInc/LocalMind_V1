@@ -25,7 +25,7 @@ jobs:
           python - <<'PY'
           import pathlib, shutil
           src = pathlib.Path('/tmp/localmind-upstream')
-          excluded = {'.git', 'node_modules', '.venv', '__pycache__', 'media', 'staticfiles', 'wheelhouse', 'dist', '.expo'}
+          excluded = {'.git', '.github', 'node_modules', '.venv', '__pycache__', 'media', 'staticfiles', 'wheelhouse', 'dist', '.expo'}
           for p in src.rglob('*'):
               rel = p.relative_to(src)
               if not p.is_file() or p.is_symlink() or any(s in excluded for s in rel.parts):
