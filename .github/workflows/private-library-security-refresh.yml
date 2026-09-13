@@ -1,0 +1,78 @@
+name: Private library dependency patch refresh
+on:
+  push:
+    branches: [feature/integrated-private-library]
+    paths: ['.github/workflows/private-library-security-refresh.yml']
+permissions:
+  contents: write
+defaults:
+  run:
+    shell: bash
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Update only two explicitly reviewed direct dependency versions
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('frontend/package.json'); data=json.loads(p.read_text())
+          if data['dependencies']['fflate'] not in ('0.8.2','0.8.3'): raise SystemExit('Unexpected fflate version')
+          if data['devDependencies']['@playwright/test'] not in ('1.55.0','1.55.1'): raise SystemExit('Unexpected Playwright version')
+          data['dependencies']['fflate']='0.8.3'
+          data['devDependencies']['@playwright/test']='1.55.1'
+          p.write_text(json.dumps(data,indent=2)+'\n')
+          # Keep the rejection assertion strict and use the actual API wording.
+          p=Path('frontend/tests/private-browser.spec.ts'); text=p.read_text()
+          old="await expect(page.getByText(/not open|locked|denied/i).last()).toBeVisible();"
+          new="await expect(page.getByText('This module has not been opened by faculty.',{exact:true})).toBeVisible();"
+          if old in text:
+              if text.count(old)!=1: raise SystemExit('Ambiguous assertion replacement')
+              text=text.replace(old,new)
+              p.write_text(text)
+          elif new not in text: raise SystemExit('Unrecognized browser assertion; review required')
+          PY
+          cd frontend
+          npm install --package-lock-only --ignore-scripts
+          cd ..
+          git diff --check
+          python - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          before=json.loads(subprocess.check_output(['git','show','HEAD:frontend/package.json']))
+          after=json.loads(Path('frontend/package.json').read_text())
+          before['dependencies']['fflate']='0.8.3'
+          before['devDependencies']['@playwright/test']='1.55.1'
+          if before!=after: raise SystemExit('Unexpected package manifest changes')
+          allowed={'frontend/package.json','frontend/package-lock.json','frontend/tests/private-browser.spec.ts'}
+          changed=set(subprocess.check_output(['git','diff','--name-only']).decode().splitlines())
+          if not changed<=allowed: raise SystemExit('Unexpected source changes')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add frontend/package.json frontend/package-lock.json frontend/tests/private-browser.spec.ts
+          if ! git diff --cached --quiet; then
+            git commit -m 'Patch ZIP64 parser and Playwright certificate advisories; assert exact module denial'
+            git push origin HEAD:feature/integrated-private-library
+          fi
+      - name: Save patch provenance
+        if: always()
+        run: |
+          mkdir -p verification
+          git rev-parse HEAD >verification/dependency-patch-commit.txt
+          git show --stat HEAD >verification/dependency-patch-stat.txt
+          git archive --format=tar.gz -o verification/patched-source.tar.gz HEAD
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: private-library-dependency-patch
+          path: verification/
+          retention-days: 7
