@@ -24,7 +24,7 @@ class Command(BaseCommand):
         parser.add_argument("--url", help="Direct download URL for the .gguf (overrides repo/file settings).")
         parser.add_argument("--from", dest="source", help="Copy an existing local .gguf instead of downloading.")
         parser.add_argument("--force", action="store_true", help="Replace an existing file.")
-        parser.add_argument("--docling", action="store_true", help="Also download Docling's PDF layout models for offline parsing.")
+        parser.add_argument("--docling", action="store_true", help="Also download Docling's PDF layout and table models for offline parsing.")
         parser.add_argument("--skip-llm", action="store_true", help="Only handle the Docling models.")
         parser.add_argument("--monitor", action="store_true",
                             help="Also download the AI monitor's dedicated judge model (AI_MONITOR_MODEL_REPO / AI_MONITOR_MODEL_DOWNLOAD_FILE) "
@@ -114,18 +114,22 @@ class Command(BaseCommand):
             from docling.utils.model_downloader import download_models
         except ImportError as exc:
             raise CommandError(f"docling is not installed ({exc}); PDF parsing needs it. pip install -r requirements.txt")
-        self.stdout.write(f"Downloading Docling layout models into {folder} (a few hundred MB)...")
+        self.stdout.write(f"Downloading Docling layout and table models into {folder}...")
         # The parser uses Docling's default OCR engine (RapidOCR). EasyOCR is
         # not installed and newer Docling releases refuse to download its
         # models without the package, so it is switched off explicitly.
         # Older releases do not know the flag, hence the fallback.
-        kwargs = dict(output_dir=folder, progress=True, with_layout=True, with_tableformer=False, with_code_formula=False,
+        kwargs = dict(output_dir=folder, progress=True, with_layout=True, with_tableformer=True, with_code_formula=False,
                       with_picture_classifier=False)
         try:
             download_models(**kwargs, with_easyocr=False)
         except TypeError:
             download_models(**kwargs)
-        self.stdout.write(self.style.SUCCESS(f"Docling models ready at {folder}"))
+        # Older installs deliberately skipped TableFormer. This marker is
+        # written only after the layout + table downloader succeeds; the
+        # readiness screen asks those installs to refresh their assets once.
+        (folder / "localmind-table-models.ready").write_text("layout+tableformer\n", encoding="utf-8")
+        self.stdout.write(self.style.SUCCESS(f"Docling layout and table models downloaded to {folder}"))
 
     def _check_library(self):
         ok, err = library_available()

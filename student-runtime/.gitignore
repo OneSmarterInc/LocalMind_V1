@@ -1,0 +1,8 @@
+node_modules/
+.expo/
+.test-build/
+android/
+ios/
+*.gguf
+*.db
+*.pem

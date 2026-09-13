@@ -61,7 +61,13 @@ def _text_of(module):
 
 
 def min_chars() -> int:
-    return max(0, int(_cfg("MIN_CHARS", 500) or 0))
+    # Eligibility must agree with generation's per-question source allocation.
+    # MIN_CHARS=0 disables only the extra box-size limit, not source capacity.
+    from .generation import CHARS_PER_MCQ, CHARS_PER_SUBJECTIVE
+    mcqs, written = max(0, int(_cfg("MCQS", 5))), max(0, int(_cfg("SUBJECTIVE", 0)))
+    return max(1, int(_cfg("MIN_CHARS", 500) or 0),
+               mcqs * CHARS_PER_MCQ if mcqs > 1 else 0,
+               written * CHARS_PER_SUBJECTIVE if written > 1 else 0)
 
 
 def too_short(module) -> bool:

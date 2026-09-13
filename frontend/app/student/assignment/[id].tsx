@@ -5,13 +5,16 @@ import { student } from "@/api/endpoints";
 import { useAuth } from "@/auth/AuthContext";
 import { useAction, useAsync } from "@/hooks/useAsync";
 import { useUnsavedWarning } from "@/hooks/useDraft";
-import { clearLocalDraft, useLocalDraft } from "@/hooks/useLocalDraft";
-import { registerGuard } from "@/hooks/unsavedGuard";
+import { useLocalDraft } from "@/hooks/useLocalDraft";
+import { registerGuard, confirmLeave } from "@/hooks/unsavedGuard";
 import { useOnline } from "@/offline/connectivity";
 import { Badge, Button, Card, CardHead, DetailList, ErrorBanner, FormFooter, Input, Loading, Notice, PageHeading, Screen, Split, colors, confirmAsync, fmtDate } from "@/ui";
 
 export default function StudentAssignment() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  return <StudentAssignmentEditor key={id} id={id} />;
+}
+function StudentAssignmentEditor({ id }: { id: string }) {
   const router = useRouter();
   const online = useOnline();
   const q = useAsync(async () => (await student.assignments()).find((a) => a.id === id) ?? null, [id]);
@@ -20,20 +23,20 @@ export default function StudentAssignment() {
   const [rewriting, setRewriting] = useState(false);
   const userId = useAuth().user?.id;
   // The response being written is kept on this device until it is submitted.
-  const { restored, saving: draftSaving, flush } = useLocalDraft([userId, "assignment", id], content, (saved) => { if (typeof saved === "string" && saved.trim()) { setContent(saved); setRewriting(true); } });
+  const { restored, saving: draftSaving, flush, discard: discardDraft, error: draftError } = useLocalDraft([userId, "assignment", id], content, (saved) => { if (typeof saved === "string" && saved.trim()) { setContent(saved); setRewriting(true); } });
   useUnsavedWarning(!!content.trim());
   // The response being written is stored on the device; leaving on purpose writes the last keystroke first.
   useEffect(() => {
     if (!content.trim()) return;
-    return registerGuard({ label: "your assignment response", save: async () => { await flush(); return true; }, discard: () => {} });
-  }, [content, flush]);
+    return registerGuard({ label: "your assignment response", save: flush, discard: async () => { await discardDraft(); setContent(""); setRewriting(false); } });
+  }, [content, flush, discardDraft]);
   const started = useRef(Date.now());
   useEffect(() => { started.current = Date.now(); }, [id]);
   const submit = useAction(async () => {
     const ok = await confirmAsync("Submit your response?", "Check your response before submitting. Your faculty sees exactly what you send.", "Submit", "Keep editing");
     if (!ok) return;
     await student.submitAssignment(id, content.trim(), Math.round((Date.now() - started.current) / 1000));
-    await clearLocalDraft([userId, "assignment", id]);
+    await discardDraft();
     setContent(""); setRewriting(false); await q.reload();
   });
   const a = q.data; const sub = a?.my_submission;
@@ -121,11 +124,11 @@ export default function StudentAssignment() {
               <CardHead title="Write your response" />
               {canSubmit ? (
                 <>
-                  <Input label="Your response" required multiline value={content} onChangeText={setContent} style={{ minHeight: 220 }}
+                  <Input label="Your response" required editable={restored !== null && !submit.busy} multiline value={content} onChangeText={setContent} style={{ minHeight: 220 }}
                     hint="Write your response here. You can review it before confirming submission." />
-                  <ErrorBanner message={submit.error} />
+                  <ErrorBanner message={submit.error ?? draftError} />
                   <FormFooter note={restored === null ? "Restoring your saved response…" : draftSaving ? "Saving your response on this device…" : online ? "A connection is required to submit. Your response is kept on this device as you write." : "You are offline. Keep this page open and submit when you are back online."}>
-                    {rewriting ? <Button title="Cancel" variant="secondary" onPress={() => setRewriting(false)} /> : null}
+                    {rewriting ? <Button title="Cancel" variant="secondary" onPress={() => { void confirmLeave().then(ok => { if (ok) setRewriting(false); }); }} /> : null}
                     <Button title="Review submission" icon="arrow-forward" onPress={() => submit.run()} busy={submit.busy} disabled={!content.trim() || !online || restored === null} />
                   </FormFooter>
                 </>

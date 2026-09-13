@@ -318,9 +318,9 @@ def student_questions(assessment):
     return out
 
 
-def _grade(assessment, submitted_answers):
+def _grade(assessment, submitted_answers, *, source_text=None):
     """Deterministic MCQ grading; subjective via evaluator. Returns (score, results, pending)."""
-    source = _source_text(assessment)
+    source = _source_text(assessment) if source_text is None else source_text
     score, results, pending = 0.0, [], False
     for q in assessment.questions:
         qid = q["id"]
@@ -435,6 +435,14 @@ def submit_attempt(student, attempt_id, submitted_answers, request=None):
             attempt.evaluation_notes = {"late_by_seconds": elapsed - limit * 60}
         attempt.status = AttemptStatus.SUBMITTED
         attempt.save()
+        from jobs.services import enabled, enqueue
+        if enabled() and any(q["type"] != "mcq" for q in attempt.assessment.questions):
+            enqueue("assessment_grade", str(attempt.id), {"attempt_id": str(attempt.id), "source_text": _source_text(attempt.assessment)},
+                    unique=f"assessment-grade:{attempt.id}")
+            from activity.services import record_event
+            record_event(student, "quiz", attempt.time_taken_seconds, subject=attempt.assessment.subject, module=attempt.assessment.module, reference_id=attempt.id)
+            audit.record(student, "quiz.attempt_submitted", attempt, {"status": "submitted", "evaluation": "queued"}, request)
+            return attempt
     score, results, pending = _grade(attempt.assessment, attempt.submitted_answers)
     with transaction.atomic():
         attempt = _finalize(attempt, score, results, pending)
@@ -523,6 +531,13 @@ def re_evaluate(actor, attempt, overrides=None, request=None):
 
     Model calls happen before the transaction opens (see submit_attempt)."""
     _require_manage(actor, attempt.assessment.subject)
+    from jobs.models import Job
+    job = Job.objects.filter(kind="assessment_grade", target=str(attempt.id)).first()
+    if job and attempt.status in (AttemptStatus.SUBMITTED, AttemptStatus.PENDING_EVALUATION) and not attempt.detailed_results:
+        if job.status == "failed":
+            Job.objects.filter(pk=job.id, status="failed").update(status="pending", attempts=0, available_at=timezone.now(), finished_at=None, error="")
+            return attempt
+        raise Conflict("Evaluation is already queued or running. Your submitted answers are saved.", code="EVALUATION_PENDING")
     if attempt.status == AttemptStatus.IN_PROGRESS:
         raise Conflict("The attempt has not been submitted.", code="NOT_SUBMITTED")
     overrides = overrides or {}

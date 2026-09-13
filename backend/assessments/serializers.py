@@ -111,6 +111,13 @@ class AttemptSerializer(serializers.ModelSerializer):
                   "detailed_results", "evaluation_notes", "evaluated_at", "results_released_at"]
 
 
+    def to_representation(self, instance):
+        result = super().to_representation(instance)
+        if instance.status == "submitted":
+            result.update(score=None, percentage=None, passed=None)
+        return result
+
+
 class QuestionInSerializer(serializers.Serializer):
     type = serializers.ChoiceField(choices=["mcq", "subjective"], default="mcq")
     question = serializers.CharField()

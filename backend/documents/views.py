@@ -51,7 +51,8 @@ class DocumentListUploadView(ListAPIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         subject = get_or_404(Subject.objects.visible_to(request.user), pk=data["subject_id"])
-        document = svc.upload_document(request.user, subject, data["file"], data.get("title", ""), request)
+        document = svc.upload_document(request.user, subject, data["file"], data.get("title", ""), request,
+                                       outline_strategy=data["outline_strategy"])
         return Response(DocumentSerializer(document).data, status=status.HTTP_201_CREATED)
 
 

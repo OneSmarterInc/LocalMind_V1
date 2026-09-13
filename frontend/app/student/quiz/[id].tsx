@@ -7,7 +7,7 @@ import type { StartAttempt } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
 import { useAction, useAsync } from "@/hooks/useAsync";
 import { useUnsavedWarning } from "@/hooks/useDraft";
-import { clearLocalDraft, useLocalDraft } from "@/hooks/useLocalDraft";
+import { useLocalDraft } from "@/hooks/useLocalDraft";
 import { registerGuard } from "@/hooks/unsavedGuard";
 import { useOnline } from "@/offline/connectivity";
 import { alertAsync, Badge, Button, Card, CardHead, DetailList, ErrorBanner, Eyebrow, FormFooter, Loading, Notice, OptionCard, PageHeading, ProgressBar, Screen, Split, StepList, colors, confirmAsync, fmtDate, pct } from "@/ui";
@@ -16,6 +16,9 @@ const releaseText = (r?: string, at?: string | null) => (r === "held" ? "After f
 
 export default function StudentQuiz() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  return <StudentQuizEditor key={id} id={id} />;
+}
+function StudentQuizEditor({ id }: { id: string }) {
   const router = useRouter();
   const online = useOnline();
   const info = useAsync(async () => (await student.quizzes()).find((q) => q.id === id) ?? null, [id]);
@@ -28,14 +31,14 @@ export default function StudentQuiz() {
   const start = useAction(async () => { const a = await student.startAttempt(id); setAnswers({}); setAttempt(a); setIndex(0); setReviewing(false); });
   const answersRef = useRef(answers); answersRef.current = answers;
   // Answers are kept on this device per user and attempt, so a refresh or a resumed attempt restores them.
-  const { restored, saving: draftSaving, flush: flushAnswers } = useLocalDraft([userId, "quiz", attempt?.attempt_id], answers, (saved) => setAnswers(saved));
+  const { restored, saving: draftSaving, flush: flushAnswers, discard: discardAnswers, error: draftError } = useLocalDraft([userId, "quiz", attempt?.attempt_id], answers, (saved) => setAnswers(saved));
   const restoredRef = useRef(restored); restoredRef.current = restored;
   useUnsavedWarning(!!attempt && Object.values(answers).some((v) => v?.trim()));
   // Leaving on purpose writes the latest answers to the device first, so the last one is not lost.
   useEffect(() => {
     if (!attempt || !Object.values(answers).some((v) => v?.trim())) return;
-    return registerGuard({ label: "your quiz answers", save: async () => { await flushAnswers(); return true; }, discard: () => {} });
-  }, [attempt, answers, flushAnswers]);
+    return registerGuard({ label: "your quiz answers", save: flushAnswers, discard: async () => { await discardAnswers(); setAnswers({}); } });
+  }, [attempt, answers, flushAnswers, discardAnswers]);
 
   const submit = useAction(async (force = false) => {
     if (!attempt) return;
@@ -48,7 +51,7 @@ export default function StudentQuiz() {
       if (!ok) return;
     }
     const res = await student.submitAttempt(attempt.attempt_id, current);
-    await clearLocalDraft([userId, "quiz", attempt.attempt_id]);
+    await discardAnswers();
     router.replace(`/student/attempt/${res.id}`);
   });
   const submitRef = useRef(submit.run); submitRef.current = submit.run;
@@ -146,7 +149,7 @@ export default function StudentQuiz() {
               </View>
             );
           })}
-          <ErrorBanner message={submit.error} />
+          <ErrorBanner message={submit.error ?? draftError} />
           <FormFooter note={remaining !== null ? "If the time runs out, your answers are submitted as they are." : "You cannot change answers after submitting."}>
             <Button title="Back to questions" variant="secondary" icon="arrow-back" onPress={() => setReviewing(false)} />
             <Button title="Submit answers" icon="checkmark" onPress={() => submit.run()} busy={submit.busy} disabled={restored === null} />
@@ -174,10 +177,10 @@ export default function StudentQuiz() {
             <Text style={{ fontSize: 18, fontWeight: "600", color: colors.ink, lineHeight: 26, marginTop: 10 }}>{question.question}</Text>
             <View style={{ gap: 10, marginTop: 14 }}>
               {question.type === "mcq" ? question.options?.map((o) => (
-                <OptionCard key={o.key} title={o.text} selected={answers[question.id] === o.key} onPress={() => setAnswers((a) => ({ ...a, [question.id]: o.key }))}
+                <OptionCard key={o.key} title={o.text} disabled={restored === null || submit.busy} selected={answers[question.id] === o.key} onPress={() => { if (restored !== null && !submit.busy) setAnswers((a) => ({ ...a, [question.id]: o.key })); }}
                   right={undefined} letter={o.key} />
               )) : (
-                <TextInput multiline value={answers[question.id] ?? ""} onChangeText={(v) => setAnswers((a) => ({ ...a, [question.id]: v }))} placeholder="Write your answer" placeholderTextColor={colors.faint} accessibilityLabel="Your answer"
+                <TextInput editable={restored !== null && !submit.busy} multiline value={answers[question.id] ?? ""} onChangeText={(v) => setAnswers((a) => ({ ...a, [question.id]: v }))} placeholder="Write your answer" placeholderTextColor={colors.faint} accessibilityLabel="Your answer"
                   style={{ minHeight: 160, borderWidth: 1, borderColor: "#D8E0D7", borderRadius: 7, padding: 12, fontSize: 13, color: colors.ink, textAlignVertical: "top", backgroundColor: "#FFFFFF" }} />
               )}
             </View>
@@ -188,7 +191,7 @@ export default function StudentQuiz() {
                 <Button title="Review & submit" variant={last ? "primary" : "secondary"} icon="checkmark" disabled={restored === null} onPress={() => setReviewing(true)} />
               </View>
             </View>
-            <ErrorBanner message={submit.error} />
+            <ErrorBanner message={submit.error ?? draftError} />
           </Card>
         }
         side={

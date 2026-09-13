@@ -59,7 +59,7 @@ export function SelectField({
           paddingHorizontal: 12,
           paddingVertical: 8,
           backgroundColor: value ? colors.tealTint : colors.bg,
-          minWidth: width,
+          width, maxWidth: "100%", minWidth: 0,
         }, pressed && { opacity: 0.8 }]}
       >
         <Ionicons name={icon} size={15} color={value ? colors.primary : colors.muted} />

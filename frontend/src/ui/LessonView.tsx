@@ -1,3 +1,4 @@
+import { SourceContent } from "./SourceContent";
 import React from "react";
 import { Text, View } from "react-native";
 import type { Lesson } from "@/api/types";
@@ -25,7 +26,7 @@ export function LessonView({ lesson, badge = "Saved AI lesson", footer }: { less
       {lesson.sections.map((s, i) => (
         <View key={i} style={{ gap: 8 }}>
           <Text style={{ fontSize: 16, fontWeight: "600", color: colors.ink }}>{String(i + 1).padStart(2, "0")} · {s.heading}</Text>
-          <Text style={{ fontSize: 15, lineHeight: 28, color: "#3F5045" }}>{s.explanation}</Text>
+          <SourceContent text={s.explanation} />
           {s.source_reference ? <Text style={{ fontSize: 11, color: colors.muted }}>From the book: {s.source_reference}</Text> : null}
         </View>
       ))}

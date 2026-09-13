@@ -46,6 +46,8 @@ INSTALLED_APPS = [
     "activity",
     "analytics",
     "ai_monitor",
+    "study",
+    "jobs",
 ]
 
 MIDDLEWARE = [
@@ -429,3 +431,14 @@ LOGGING = {
         "localmind": {"level": env_str("LOG_LEVEL", "INFO"), "propagate": True},
     },
 }
+
+# Private study publishing is separate from classroom grades and authentication.
+DURABLE_JOBS = env_bool("DURABLE_JOBS", not TESTING)
+JOB_LEASE_SECONDS = max(30, env_int("JOB_LEASE_SECONDS", 300))
+STUDY_SIGNING_KEY_PATH = env_str("STUDY_SIGNING_KEY_PATH", "")
+STUDY_SIGNING_KEY_ID = env_str("STUDY_SIGNING_KEY_ID", "")
+STUDY_AUTHOR_MODEL_PATH = env_str("STUDY_AUTHOR_MODEL_PATH", "")
+STUDY_AUTHOR_OLLAMA_MODEL = env_str("STUDY_AUTHOR_OLLAMA_MODEL", "")
+STUDY_AUTHOR_OLLAMA_URL = env_str("STUDY_AUTHOR_OLLAMA_URL", "http://127.0.0.1:11434")
+STUDY_OBSERVATIONS_ENABLED = env_bool("STUDY_OBSERVATIONS_ENABLED", False)
+STUDY_MIN_AGGREGATE_EVENTS = env_int("STUDY_MIN_AGGREGATE_EVENTS", 5)

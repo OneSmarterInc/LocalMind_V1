@@ -70,7 +70,7 @@ class DocumentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Document
         fields = ["id", "subject_id", "subject_code", "title", "original_name", "file_type", "file_size", "status",
-                  "outline_source", "parse_mode", "error_message", "uploaded_by_id", "uploaded_by_name", "published_by_name",
+                  "outline_strategy", "outline_source", "parse_mode", "error_message", "uploaded_by_id", "uploaded_by_name", "published_by_name",
                   "processed_at", "reviewed_at", "published_at", "unpublished_at", "archived_at",
                   "content_version", "last_edited_at", "chapter_count", "module_count", "progress",
                   "processing_started_at", "created_at", "updated_at"]
@@ -99,9 +99,15 @@ class DocumentDetailSerializer(DocumentSerializer):
     missing_source_modules = serializers.SerializerMethodField()
     lessons = serializers.SerializerMethodField()
     auto_quizzes = serializers.SerializerMethodField()
+    background_job = serializers.SerializerMethodField()
 
     class Meta(DocumentSerializer.Meta):
-        fields = DocumentSerializer.Meta.fields + ["extracted_headings", "chapters", "missing_source_modules", "lessons", "auto_quizzes"]
+        fields = DocumentSerializer.Meta.fields + ["extracted_headings", "chapters", "missing_source_modules", "lessons", "auto_quizzes", "background_job"]
+
+    def get_background_job(self, doc) -> dict | None:
+        from jobs.models import Job
+        job = Job.objects.filter(kind="document_parse", target=str(doc.id)).order_by("-created_at").first()
+        return {"id": str(job.id), "status": job.status, "attempts": job.attempts, "error": job.error} if job else None
 
     def get_missing_source_modules(self, doc):
         """Modules kept without text only because student work refers to them;
@@ -120,6 +126,7 @@ class DocumentDetailSerializer(DocumentSerializer):
 
 
 class UploadSerializer(serializers.Serializer):
+    outline_strategy = serializers.ChoiceField(choices=["source", "ai"], default="source")
     subject_id = serializers.UUIDField()
     file = serializers.FileField()
     title = serializers.CharField(max_length=300, required=False, allow_blank=True)

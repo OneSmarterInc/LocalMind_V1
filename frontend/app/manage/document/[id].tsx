@@ -2,12 +2,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
-import { errorMessage } from "@/api/client";
+import { api, errorMessage } from "@/api/client";
 import { manage } from "@/api/endpoints";
 import type { Document, LessonDetail, LessonStatus, OutlineChapter, OutlineModule, OutlineReport } from "@/api/types";
 import { useAction, useAsync } from "@/hooks/useAsync";
 import { useUnsavedWarning } from "@/hooks/useDraft";
-import { registerGuard } from "@/hooks/unsavedGuard";
+import { registerGuard, confirmLeave } from "@/hooks/unsavedGuard";
 import { useDebounced } from "@/hooks/useDebounced";
 import { Badge, Button, Card, CardHead, choiceAsync, CellText, Column, DangerZone, DetailList, Empty, ErrorBanner, FormFooter, Grid, Input, ListRow, Loading, Notice, PageHeading, PageTabs, ProgressBar, Row, Screen, Split, Stepper, Table, TextLink, Tone, colors, confirmAsync, confirmDeleteAsync, fmtDay, fmtSeconds, radius, radiusSm, space } from "@/ui";
 import { HeadingPicker, type Heading } from "@/ui/HeadingPicker";
@@ -28,7 +28,7 @@ export default function DocumentScreen() {
   const doc = useAsync(() => manage.document(id), [id]);
   const subjects = useAsync(() => manage.subjects(), []);
   const d = doc.data;
-  useEffect(() => { if (d?.status !== "processing") return; const t = setInterval(doc.reload, 3000); return () => clearInterval(t); }, [d?.status, doc.reload]);
+  useEffect(() => { if (d?.status !== "processing" && !["pending", "retry", "running"].includes(d?.background_job?.status || "")) return; const t = setInterval(doc.reload, 3000); return () => clearInterval(t); }, [d?.status, d?.background_job?.status, doc.reload]);
   const lessonsBusy = (!!d?.lessons && d.lessons.pending + d.lessons.generating > 0)
     || (!!d?.auto_quizzes && d.auto_quizzes.pending + d.auto_quizzes.generating > 0);
   const { setData: setDoc } = doc;
@@ -47,6 +47,8 @@ export default function DocumentScreen() {
     for (const c of d?.chapters ?? []) for (const m of c.modules) if (m.id && m.quiz_status) map[m.id] = m.quiz_status;
     return map;
   }, [d?.chapters]);
+  const retryJob = useAction(async () => { if (!d?.background_job) return; await api(`/jobs/${d.background_job.id}/`, { method: "POST" }); await doc.reload(); });
+  const jobNotice = d?.background_job && d.background_job.status !== "done" ? <Notice tone={d.background_job.status === "failed" ? "warning" : "info"} title={`Saved processing job: ${d.background_job.status}`} message={d.background_job.error || "Parsing is saved in the job queue. Restarting the local launcher resumes eligible jobs."} action={d.background_job.status === "failed" ? <Button title="Retry saved job" busy={retryJob.busy} onPress={()=>retryJob.run()}/> : undefined}/> : null;
   const queueLessons = useAction(async () => { await manage.generateLessons(id); setDoc(await manage.document(id)); });
   const queueQuizzes = useAction(async () => { await manage.generateAutoQuizzes(id); setDoc(await manage.document(id)); });
   // The outline editor keeps edits locally until Save; a transition offers to save them first.
@@ -66,7 +68,7 @@ export default function DocumentScreen() {
       if (choice === "cancel") return;
       if (choice === "confirm") {
         try {
-          await pending.save();
+          if (!(await pending.save())) return;
         } catch (e) {
           // The draft stays on the Outline tab, with the reason the save failed.
           setTabError(`The outline was not saved, so you are still on the Outline tab. ${errorMessage(e)}`);
@@ -112,6 +114,7 @@ export default function DocumentScreen() {
   if (!editable) {
     return (
       <Screen refreshing={doc.loading} onRefresh={doc.reload}>
+        {jobNotice}<ErrorBanner message={retryJob.error}/>
         <ErrorBanner message={doc.error} onRetry={doc.reload} />
         {doc.loading && !d ? <Loading /> : null}
         {d ? (
@@ -174,6 +177,7 @@ export default function DocumentScreen() {
   if (preview) {
     return (
       <Screen>
+      {jobNotice}<ErrorBanner message={retryJob.error}/>
         <PageHeading eyebrow="FACULTY PREVIEW" title="Preview the student lesson" subtitle={preview.title}
           right={<Button title="Back to readiness" variant="secondary" icon="arrow-back" onPress={() => { setPreview(null); setTab("lessons"); void doc.reload(); }} />} />
         <ModuleLessonPanel moduleId={preview.id} textEdited={false} />
@@ -191,6 +195,7 @@ export default function DocumentScreen() {
     return (
       <Screen refreshing={doc.loading} onRefresh={doc.reload}>
         <PageHeading eyebrow="BOOKS & MODULES" title={`${d!.title} is published.`} subtitle={subtitle} right={statusBadge} />
+      <Button title="Private study publishing" variant="secondary" onPress={() => { void confirmLeave().then(ok => { if (ok) router.push(`/manage/study/${id}`); }); }} />
         <ErrorBanner message={doc.error ?? act.error ?? remove.error} onRetry={doc.error ? doc.reload : undefined} />
         <Notice tone="success" title="Students can now find this book." message="Enrolled students see its open modules, ready lessons and published quizzes." />
         <Grid min={320} gap={20}>
@@ -223,7 +228,9 @@ export default function DocumentScreen() {
 
   return (
     <Screen>
+      {jobNotice}<ErrorBanner message={retryJob.error}/>
       <PageHeading eyebrow="BOOKS & MODULES" title={d!.title} subtitle={subtitle} right={statusBadge} />
+      <Button title="Private study publishing" variant="secondary" onPress={() => { void confirmLeave().then(ok => { if (ok) router.push(`/manage/study/${id}`); }); }} />
       {!live ? stepper(tab === "publish" ? 2 : 1) : null}
       <ErrorBanner message={tabError ?? doc.error ?? act.error ?? remove.error} onRetry={doc.error ? doc.reload : undefined} />
       <PageTabs<DocTab> value={tab} onChange={setTab} tabs={[
@@ -450,11 +457,10 @@ function OutlineWorkspace({ documentId, published, onSaved, onState, lessonStatu
     const added = afterModules.filter((m) => !m.id).length;
     const renamed = afterModules.filter((m) => m.id && beforeModules.get(m.id)?.title !== m.title).length;
     const retexted = afterModules.filter((m) => m.id && m.source_text !== undefined && beforeModules.get(m.id)?.source_text !== m.source_text).length;
-    // A module without text is removed by the server on save, so the
-    // confirmation says so before it happens rather than after.
+    // Empty content is refused; removals must be an explicit edit.
     const emptied = afterModules.filter((m) => !(m.source_text ?? "").trim()).length;
     const lines: string[] = [];
-    if (emptied) lines.push(`${emptied} module${emptied === 1 ? "" : "s"} with no source text will be removed`);
+    if (emptied) lines.push(`${emptied} module${emptied === 1 ? "" : "s"} need source text before saving`);
     if (removedChapters.length) lines.push(`${removedChapters.length} chapter${removedChapters.length === 1 ? "" : "s"} removed`);
     if (removedModules.length) lines.push(`${removedModules.length} module${removedModules.length === 1 ? "" : "s"} removed`);
     if (added) lines.push(`${added} module${added === 1 ? "" : "s"} added`);
@@ -781,10 +787,10 @@ function ModulePane({ number, module: m, index, count, onChange, onMove, onRemov
       <Input label="Source text" required multiline value={m.source_text ?? ""}
         // Editing detaches the module from its mapped heading, so what is typed is what is saved.
         onChangeText={(v) => onChange({ ...m, source_text: v, source_heading_index: null })}
-        placeholder="Paste the passage students should learn from. A module saved without text is removed."
+        placeholder="Paste the passage students should learn from. Add source text before saving."
         style={{ minHeight: 285, lineHeight: 24, backgroundColor: "#FDFEFC" }}
         hint={textEdited ? "Saving queues a new lesson and an unattempted automatic quiz for the edited text." : "Edit the source, not a generated summary. Text changes queue new lessons and an unattempted automatic quiz."} />
-      {empty ? <Notice tone="warning" message="This module has no text. Saving the outline removes it." /> : null}
+      {empty ? <Notice tone="warning" message="This module has no text. Add its source text or explicitly remove the module before saving." /> : null}
       <Row style={{ justifyContent: "space-between" }}>
         <Text style={{ fontSize: 11, color: colors.muted }}>{pages} · {heading ? `Mapped to “${heading.title}”` : "Manually editable"}</Text>
         <Button title="Source mapping" small variant="secondary" icon="git-branch-outline" onPress={() => setMapping((v) => !v)} />

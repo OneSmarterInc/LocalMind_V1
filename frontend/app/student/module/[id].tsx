@@ -1,3 +1,4 @@
+import { SourceContent } from "@/ui/SourceContent";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import { AppState, ScrollView, Text, TextInput, View } from "react-native";
@@ -135,10 +136,8 @@ function LockedHeading({ moduleId }: { moduleId: string }) {
 }
 
 function ReadCard({ module, large, onToggleSize, onLesson }: { module: ModuleFull; large: boolean; onToggleSize: () => void; onLesson?: () => void }) {
-  const blocks = module.source_text.split(/\n{2,}/).map((b) => b.trim()).filter(Boolean);
-  const size = large ? 18 : 15;
   return (
-    <Card style={{ paddingHorizontal: 36, paddingVertical: 28 }}>
+    <Card style={{ paddingHorizontal: 20, paddingVertical: 24 }}>
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 6 }}>
         <Text style={{ fontSize: 11, color: colors.muted }}>Reading view · Your faculty’s source material</Text>
         <Button title={large ? "Normal text" : "Text size"} small variant="secondary" onPress={onToggleSize} accessibilityLabel={large ? "Use normal text size" : "Use larger text"} />
@@ -147,9 +146,7 @@ function ReadCard({ module, large, onToggleSize, onLesson }: { module: ModuleFul
         <Eyebrow>{`${module.document_title ?? "Module"} · Module ${String(module.module_number ?? module.order).padStart(2, "0")}`}</Eyebrow>
       </View>
       <View style={{ maxWidth: 750, gap: 15, marginTop: 6 }}>
-        {blocks.length === 0 ? <Text style={{ color: colors.muted }}>This module has no text yet.</Text> : blocks.map((b, i) => b.startsWith("#")
-          ? <Text key={i} style={{ fontSize: large ? 20 : 17, fontWeight: "600", color: colors.ink, marginTop: 10 }}>{b.replace(/^#+\s*/, "")}</Text>
-          : <Text key={i} style={{ fontSize: size, lineHeight: Math.round(size * 1.9), color: "#3F5045" }}>{b.replace(/\s*\n\s*/g, " ")}</Text>)}
+        <SourceContent text={module.source_text} large={large} />
       </View>
       {onLesson ? <FormFooter note="Continue at your own pace."><Button title="Explore the lesson" icon="arrow-forward" onPress={onLesson} /></FormFooter> : null}
     </Card>

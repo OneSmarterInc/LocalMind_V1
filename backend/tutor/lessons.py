@@ -49,8 +49,8 @@ logger = logging.getLogger("localmind.lessons")
 
 LESSON_SCHEMA = {"type": "object", "properties": {
     "title": {"type": "string"},
-    "learning_objectives": {"type": "array", "minItems": 2, "maxItems": 6, "items": {"type": "string"}},
-    "sections": {"type": "array", "minItems": 2, "maxItems": 8, "items": {"type": "object", "properties": {
+    "learning_objectives": {"type": "array", "minItems": 1, "maxItems": 6, "items": {"type": "string"}},
+    "sections": {"type": "array", "minItems": 1, "maxItems": 8, "items": {"type": "object", "properties": {
         "heading": {"type": "string"}, "explanation": {"type": "string"}, "source_reference": {"type": "string"}},
         "required": ["heading", "explanation", "source_reference"]}},
     "key_terms": {"type": "array", "items": {"type": "object", "properties": {"term": {"type": "string"}, "definition": {"type": "string"}}, "required": ["term", "definition"]}},
@@ -65,7 +65,7 @@ GROUNDING = (
     "4. Write in plain, simple English for a first-time learner.\n"
     "5. Output JSON only.\n"
 )
-LESSON_TASK = ("TASK: Turn the source into a lesson with two to six learning_objectives, two to eight sections "
+LESSON_TASK = ("TASK: Turn the source into a lesson with one to six learning_objectives, one to eight sections "
                "(each with a heading, a clear explanation and a source_reference), the key_terms defined in the "
                "source, and a short summary.")
 
@@ -179,11 +179,6 @@ def fallback_lesson(module) -> dict:
     """A plain lesson made from the source text, for when no AI lesson exists."""
     paragraphs = [p.strip() for p in (module.source_text or "").split("\n\n") if p.strip()] or [(module.source_text or "").strip()]
     sections = [{"heading": f"Part {i}", "explanation": p[:1500], "source_reference": p[:120]} for i, p in enumerate(paragraphs[:8], start=1)]
-    if len(sections) < 2:
-        text = sections[0]["explanation"]
-        half = len(text) // 2
-        sections = [{"heading": "Part 1", "explanation": text[:half], "source_reference": text[:120]},
-                    {"heading": "Part 2", "explanation": text[half:], "source_reference": text[half:half + 120]}]
     return {"title": module.title, "learning_objectives": [f"Read and understand '{module.title}'", "Identify the key ideas in the source text"],
             "sections": sections, "key_terms": [], "summary": "This is a plain summary of the source text; the tutor's full lesson is not available."}
 

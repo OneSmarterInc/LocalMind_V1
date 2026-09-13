@@ -49,6 +49,7 @@ export default function ManageLayout() {
       <Tabs.Screen name="subject/[id]" options={shellScreen({ href: null, title: "Subject" }, { backTo: "/manage/subjects", backLabel: "Subjects" })} />
       <Tabs.Screen name="student/[id]" options={shellScreen({ href: null, title: "Student progress" }, { backTo: "/manage/subjects", backLabel: "Subjects" })} />
       <Tabs.Screen name="document/[id]" options={shellScreen({ href: null, title: "Book" }, { backTo: "/manage/books", backLabel: "Books & modules" })} />
+      <Tabs.Screen name="study/[id]" options={shellScreen({ href: null, title: "Private study publishing" }, { backTo: "/manage/books", backLabel: "Books & modules" })} />
       <Tabs.Screen name="document/upload" options={shellScreen({ href: null, title: "Upload a book" }, { backTo: "/manage/books", backLabel: "Books & modules" })} />
       <Tabs.Screen name="quiz/[id]" options={shellScreen({ href: null, title: "Quiz" }, { backTo: "/manage/quizzes", backLabel: "Quizzes" })} />
       <Tabs.Screen name="attempt/[id]" options={shellScreen({ href: null, title: "Attempt" }, { backTo: "/manage/quizzes", backLabel: "Quizzes" })} />

@@ -15812,6 +15812,13 @@ components:
             * `archived` - Archived
             * `error` - Error
           x-spec-enum-id: b968c96c12997adc
+        outline_strategy:
+          type: string
+          enum:
+          - source
+          - ai
+          default: source
+          description: Preserve source headings by default; AI regrouping is an explicit upload option.
         outline_source:
           type: string
           maxLength: 30

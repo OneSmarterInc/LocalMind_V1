@@ -1,0 +1,13 @@
+{
+  "expo": {
+    "name": "LocalMind Device Spike",
+    "slug": "localmind-device-spike",
+    "version": "0.1.0",
+    "newArchEnabled": true,
+    "orientation": "portrait",
+    "android": { "package": "com.onesmarter.localmind.spike", "allowBackup": false },
+    "ios": { "bundleIdentifier": "com.onesmarter.localmind.spike" },
+    "plugins": ["expo-sqlite", ["llama.rn", { "enableEntitlements": true, "forceCxx20": true, "enableOpenCL": false }]],
+    "updates": { "enabled": false }
+  }
+}

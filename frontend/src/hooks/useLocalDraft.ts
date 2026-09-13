@@ -1,69 +1,51 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useCallback, useEffect, useRef, useState } from "react";
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState } from 'react-native';
+import { DraftPersistence, removeDraft } from './draftPersistence';
+const KEY=(parts:string[])=>`localmind.draft.${parts.join('.')}`;
+export async function clearLocalDraft(parts:(string|null|undefined)[]){if(parts.some(p=>!p))return;await removeDraft(AsyncStorage,KEY(parts as string[]));}
 
-/**
- * Work in progress kept on this device, under the signed-in user and the item it belongs to
- * (a quiz attempt, an assignment), so a refresh, a closed tab or a remount does not lose it.
- * Nothing here is graded or sent anywhere; submitting still goes to the server.
- */
-const KEY = (parts: string[]) => `localmind.draft.${parts.join(".")}`;
-
-export async function clearLocalDraft(parts: (string | null | undefined)[]) {
-  if (parts.some((p) => !p)) return;
-  await AsyncStorage.removeItem(KEY(parts as string[])).catch(() => {});
-}
-
-/**
- * Loads the saved draft once `parts` are known, then saves every change shortly after it is made.
- *
- * - `restored` is null while loading, then true (a draft was restored) or false (nothing was saved).
- * - A draft that arrives after the person has started typing is discarded: their own text always wins.
- * - `flush()` writes the latest value immediately; call it before deliberately leaving the screen.
- * - `saving` is true while a write is pending or running.
- */
-export function useLocalDraft<T>(parts: (string | null | undefined)[], value: T, onRestore: (saved: T) => void) {
-  const ready = parts.every(Boolean);
-  const key = ready ? KEY(parts as string[]) : null;
-  const [restored, setRestored] = useState<boolean | null>(null);
-  const [saving, setSaving] = useState(false);
-  const loadedFor = useRef<string | null>(null);
-  const edited = useRef(false);
-  const firstValue = useRef(true);
-  const valueRef = useRef(value); valueRef.current = value;
-  const restoreRef = useRef(onRestore); restoreRef.current = onRestore;
-
-  useEffect(() => {
-    if (!key || loadedFor.current === key) return;
-    loadedFor.current = key;
-    edited.current = false; firstValue.current = true;
-    setRestored(null); // not known yet for this key: callers that act on the draft must wait
-    void AsyncStorage.getItem(key).then((raw) => {
-      // Typing started while this was loading: that newer text stands, and the old draft is dropped.
-      if (edited.current) { setRestored(false); return; }
-      if (raw) { try { restoreRef.current(JSON.parse(raw) as T); setRestored(true); return; } catch { /* ignore a damaged draft */ } }
-      setRestored(false);
-    }).catch(() => setRestored(false));
-  }, [key]);
-
-  const write = useCallback(async (k: string, v: T) => {
+/** Writes errors visibly and never tells a navigation guard an unsuccessful save succeeded. */
+export function useLocalDraft<T>(parts:(string|null|undefined)[],value:T,onRestore:(saved:T)=>void){
+  const key=parts.every(Boolean)?KEY(parts as string[]):null;
+  const valueRef=useRef(value);valueRef.current=value;
+  const initial=useRef(value);
+  const [generation,setGeneration]=useState(0);
+  const restoreRef=useRef(onRestore);restoreRef.current=onRestore;
+  const [state,setState]=useState<{key:string|null;restored:boolean|null;error:string|null}>({key:null,restored:null,error:null});
+  const [saving,setSaving]=useState(false);
+  const mounted=useRef(true);
+  const controller=useMemo(()=>key?new DraftPersistence(AsyncStorage,key,initial.current):null,[key,generation]);
+  const restored=state.key===key?state.restored:null;
+  const report=useCallback((e:unknown)=>{if(mounted.current)setState(s=>({...s,error:e instanceof Error?e.message:String(e)}));},[]);
+  useEffect(()=>{
+    mounted.current=true;return()=>{mounted.current=false;};
+  },[]);
+  useEffect(()=>{
+    let alive=true;
+    setState({key,restored:null,error:null});
+    if(controller)void controller.load().then(saved=>{
+      if(!alive)return;
+      if(saved!==null)restoreRef.current(saved);
+      setState({key,restored:saved!==null,error:null});
+    }).catch(e=>{if(alive)report(e);});
+    return()=>{alive=false;if(controller&&controller.dirty)void controller.flush().catch(report);};
+  },[controller,key,report]);
+  useEffect(()=>{
+    if(!controller||restored===null)return;
+    controller.update(value);if(!controller.dirty)return;
     setSaving(true);
-    try { await AsyncStorage.setItem(k, JSON.stringify(v)); } catch { /* the draft is a convenience, not a record */ }
-    finally { setSaving(false); }
-  }, []);
-
-  useEffect(() => {
-    if (!key || loadedFor.current !== key) return;
-    if (restored === null) { if (!firstValue.current) edited.current = true; firstValue.current = false; return; }
-    setSaving(true);
-    const t = setTimeout(() => { void write(key, value); }, 300);
-    return () => clearTimeout(t);
-  }, [key, value, restored, write]);
-
-  /** Writes the latest value now; awaited before leaving so the last keystroke is not lost. */
-  const flush = useCallback(async () => {
-    if (!key || restored === null) return;
-    await write(key, valueRef.current);
-  }, [key, restored, write]);
-
-  return { restored, saving, flush };
+    const timer=setTimeout(()=>{void controller.flush().then(()=>{if(mounted.current)setSaving(false);}).catch(e=>{report(e);if(mounted.current)setSaving(false);});},300);
+    return()=>clearTimeout(timer);
+  },[controller,value,restored,report]);
+  const flush=useCallback(async()=>{
+    if(!controller)return false;
+    if(restored===null){await controller.load();return false;} // wait for React to adopt restored content before departure
+    controller.update(valueRef.current);setSaving(true);
+    try{const ok=await controller.flush();setState(s=>({...s,error:null}));return ok;}
+    catch(e){report(e);throw e;}finally{if(mounted.current)setSaving(false);}
+  },[controller,restored,report]);
+  const discard=useCallback(async()=>{if(controller){await controller.discard();setGeneration(g=>g+1);}},[controller]);
+  useEffect(()=>{const sub=AppState.addEventListener('change',s=>{if(s!=='active'&&controller?.dirty)void controller.flush().catch(report);});return()=>sub.remove();},[controller,report]);
+  return {restored,saving,flush,discard,error:state.key===key?state.error:null};
 }

@@ -98,7 +98,10 @@ def check_document_processing() -> dict:
     from documents.services.parser import legacy_doc_support
     doc_ok, doc_reason = legacy_doc_support()
     legacy = "legacy .doc uploads accepted" if doc_ok else f"legacy .doc uploads refused ({doc_reason})"
-    return _component("document_processing", READY, f"docling installed, layout models local ({folder}); {legacy}",
+    if not (folder / "localmind-table-models.ready").is_file():
+        return _component("document_processing", MISSING,
+                          "This installation has not confirmed the table-model download. Run `python manage.py fetch_model --docling --skip-llm` once online, then restart.")
+    return _component("document_processing", READY, f"docling installed, layout/table download recorded ({folder}); {legacy}",
                       artifacts=str(folder), local_artifacts=True, legacy_doc=doc_ok)
 
 

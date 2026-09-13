@@ -58,10 +58,12 @@ export function useAsync<T>(fn: () => Promise<T>, deps: unknown[] = []) {
 
 export function useAction<A extends unknown[], R>(fn: (...args: A) => Promise<R>) {
   const [busy, setBusy] = useState(false);
+  const inFlight = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const run = useCallback(async (...args: A): Promise<R | undefined> => {
-    setBusy(true); setError(null);
-    try { return await fn(...args); } catch (e) { setError(errorMessage(e)); return undefined; } finally { setBusy(false); }
+    if (inFlight.current) return undefined;
+    inFlight.current = true; setBusy(true); setError(null);
+    try { return await fn(...args); } catch (e) { setError(errorMessage(e)); return undefined; } finally { inFlight.current = false; setBusy(false); }
   }, [fn]);
   return { run, busy, error, setError };
 }

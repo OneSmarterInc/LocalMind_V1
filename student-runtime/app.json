@@ -1,0 +1,13 @@
+{
+  "expo": {
+    "name": "LocalMind Private Study",
+    "slug": "localmind-private-study",
+    "version": "0.1.0",
+    "newArchEnabled": true,
+    "orientation": "default",
+    "platforms": ["android", "ios"],
+    "android": {"package": "com.onesmarter.localmind.study", "allowBackup": false},
+    "ios": {"bundleIdentifier": "com.onesmarter.localmind.study", "supportsTablet": true},
+    "plugins": ["expo-sqlite", ["expo-build-properties", {"ios": {"deploymentTarget": "15.1"}}], ["llama.rn", {"enableEntitlements": false, "enableOpenCL": false}]]
+  }
+}

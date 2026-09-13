@@ -86,8 +86,9 @@ class ParserAndOutlineTests(TestCase):
         sections = extract_sections_from_markdown(SAMPLE_MD)
         outline = source_hierarchy_outline("book.pdf", sections)
         self.assertEqual([c["title"] for c in outline["chapters"]], ["Operating Systems", "Networks"])
-        self.assertEqual([m["title"] for m in outline["chapters"][0]["modules"]], ["Process Management", "Memory Management"])
-        self.assertEqual(outline["chapters"][0]["modules"][0]["source_heading_index"], 1)
+        self.assertEqual([m["title"] for m in outline["chapters"][0]["modules"]], ["Operating Systems: Overview", "Process Management", "Memory Management"])
+        self.assertEqual(outline["chapters"][0]["modules"][1]["source_heading_index"], 1)
+        self.assertIn("Intro paragraph", outline["chapters"][0]["modules"][0]["source_text"])
 
     def _doc(self):
         subject = make_subject()
@@ -133,14 +134,11 @@ class ParserAndOutlineTests(TestCase):
             {"title": "C", "source_heading_index": 0,
              "modules": [{"title": "Real", "source_heading_index": 1}, {"title": "Ghost", "source_heading_index": None}]},
             {"title": "Empty chapter", "modules": [{"title": "Also ghost", "source_heading_index": None, "source_text": "   "}]}]}
-        report = persist_outline(doc, outline, parsed["sections"], user_edited=True)
-        self.assertFalse(Module.objects.filter(title__in=["Ghost", "Also ghost"]).exists())
-        self.assertTrue(Module.objects.filter(title="Real", source_missing=False).exists())
-        self.assertFalse(Chapter.objects.filter(document=doc, title="Empty chapter").exists())
-        self.assertEqual({m["title"] for m in report["removed_empty_modules"]}, {"Ghost", "Also ghost"})
-        self.assertEqual([c["title"] for c in report["removed_empty_chapters"]], ["Empty chapter"])
-        # Orders stay contiguous after the drop.
-        self.assertEqual(list(Chapter.objects.filter(document=doc).values_list("order", flat=True)), [1])
+        with self.assertRaises(ValidationFailed) as ctx:
+            persist_outline(doc, outline, parsed["sections"], user_edited=True)
+        self.assertEqual(ctx.exception.code, "EMPTY_SOURCE_TEXT")
+        self.assertFalse(Module.objects.filter(chapter__document=doc).exists())
+        self.assertFalse(Chapter.objects.filter(document=doc).exists())
 
     def test_an_outline_with_no_text_anywhere_is_refused(self):
         doc = self._doc()
@@ -148,7 +146,7 @@ class ParserAndOutlineTests(TestCase):
         outline = {"document_title": "T", "chapters": [{"title": "C", "modules": [{"title": "Ghost", "source_heading_index": None}]}]}
         with self.assertRaises(ValidationFailed) as ctx:
             persist_outline(doc, outline, parsed["sections"], user_edited=True)
-        self.assertEqual(ctx.exception.code, "NO_SOURCE_TEXT")
+        self.assertEqual(ctx.exception.code, "EMPTY_SOURCE_TEXT")
         self.assertFalse(Module.objects.filter(chapter__document=doc).exists())
 
     def test_persist_outline_reconciles_existing_ids(self):
@@ -502,9 +500,14 @@ class StudentAccessTests(TestCase):
         self.fc.post(f"/api/faculty/documents/{self.doc.id}/publish/")
         self.fc.post(f"/api/faculty/modules/{self.module.id}/availability/", {"availability": "locked"}, format="json")
         sc = client_for(self.student)
-        listing = sc.get(f"/api/student/documents/{self.doc.id}/").data
-        self.assertEqual(listing["chapters"][0]["modules"][0]["availability"], "locked")
-        self.assertNotIn("source_text", listing["chapters"][0]["modules"][0])
+        listed = sc.get(f"/api/student/documents/{self.doc.id}/")
+        self.assertEqual(listed.status_code, 200, listed.content)
+        modules = {str(m["id"]): m for c in listed.data["chapters"] for m in c["modules"]}
+        # A preserved chapter introduction can now precede this module.
+        self.assertIn(str(self.module.id), modules)
+        locked = modules[str(self.module.id)]
+        self.assertEqual(locked["availability"], "locked")
+        self.assertNotIn("source_text", locked)
         res = sc.get(f"/api/student/modules/{self.module.id}/")
         self.assertEqual(res.status_code, 403)
         self.assertEqual(res.data["error"]["code"], "MODULE_LOCKED")
@@ -778,7 +781,9 @@ class PdfParsingTests(TestCase):
             self.assertEqual(len(built), 2)
             ocr_opts = built[1][InputFormat.PDF].pipeline_options
             self.assertTrue(ocr_opts.do_ocr)
-            self.assertFalse(ocr_opts.do_table_structure)
+            # Table extraction is enabled for both PDF passes.
+            self.assertTrue(ocr_opts.do_table_structure)
+            self.assertTrue(built[0][InputFormat.PDF].pipeline_options.do_table_structure)
             self.assertEqual(ocr_opts.ocr_options.mode, "full_page")
             parser.release_document_models()
             d = parser._get_converter(use_ocr=False)

@@ -2,10 +2,9 @@
 
 Questions are written by the tutor model from the modules a quiz is built on,
 and only from those modules. Nothing here ever produces placeholder
-questions: when the model cannot write enough, the quiz gets the questions
-that did pass every check and the caller is told how many are missing, and
-when it writes none the caller gets an error instead of a draft full of
-"edit before publishing" options.
+questions: when the model cannot write the requested complete set, the
+caller gets an actionable error and nothing is saved. Manual question
+creation remains available; incomplete model output is not a valid quiz.
 
 How a request becomes questions
 -------------------------------
@@ -13,7 +12,7 @@ How a request becomes questions
    proportion to how much text each has, and no module is asked for more
    questions than its text can carry (a 300-character "Questions" box
    supports one, not five). If the modules together cannot carry the
-   request, fewer are generated and the reason is reported.
+   request, the final count check rejects it with a clear reason.
 2. Batches. Each module's questions are asked for a few at a time, each
    batch reading its own slice of that module's text. A small model writing
    ten questions in one reply runs out of output room and the whole reply is
@@ -37,6 +36,7 @@ import re
 from ai.config import task_config
 from ai.gateway import gateway
 from core.exceptions import APIError, ValidationFailed
+from .answer_keys import comparable, normalize_correct_answer, require_question_counts
 
 logger = logging.getLogger("localmind.assessments")
 
@@ -92,9 +92,14 @@ def subjective_schema(n):
 
 def normalize_questions(raw_questions):
     """Validate and canonicalise a question list (manual or AI). Raises on problems."""
+    if not isinstance(raw_questions, list):
+        raise ValidationFailed("Questions must be a list.", code="INVALID_QUESTIONS")
     out, errors = [], []
     for idx, q in enumerate(raw_questions or [], start=1):
-        qtype = (q.get("type") or "mcq").lower()
+        if not isinstance(q, dict):
+            errors.append(f"q{idx}: question must be an object")
+            continue
+        qtype = str(q.get("type") or "mcq").lower()
         text = str(q.get("question") or "").strip()
         if not text:
             errors.append(f"q{idx}: question text is required")
@@ -105,7 +110,7 @@ def normalize_questions(raw_questions):
             item["source_module_id"] = str(q["source_module_id"])
         if qtype == "mcq":
             options = q.get("options") or []
-            if len(options) != 4:
+            if not isinstance(options, list) or len(options) != 4 or any(not isinstance(o, dict) for o in options):
                 errors.append(f"q{idx}: mcq needs exactly 4 options")
                 continue
             keys = []
@@ -117,12 +122,13 @@ def normalize_questions(raw_questions):
             if sorted(keys) != MCQ_KEYS or any(not o["text"] for o in norm):
                 errors.append(f"q{idx}: options must be A-D with text")
                 continue
-            if len({o["text"].casefold() for o in norm}) != 4:
+            if len({comparable(o["text"]) for o in norm}) != 4:
                 errors.append(f"q{idx}: options must be distinct")
                 continue
-            correct = str(q.get("correct_answer") or "").strip().upper()
-            if correct not in MCQ_KEYS:
-                errors.append(f"q{idx}: correct_answer must be one of A-D")
+            try:
+                correct = normalize_correct_answer(q.get("correct_answer"), norm)
+            except ValueError as exc:
+                errors.append(f"q{idx}: {exc}")
                 continue
             item.update({"options": norm, "correct_answer": correct, "explanation": str(q.get("explanation") or "")})
         elif qtype == "subjective":
@@ -192,6 +198,15 @@ def _mcq_from_model(raw: dict, module_id, seed: str):
     if not question:
         return None, "unclear wording"
     raw_options = raw.get("options") or []
+    if not isinstance(raw_options, list):
+        return None, "options were not a list"
+    if any(isinstance(o, dict) for o in raw_options):
+        if not all(isinstance(o, dict) for o in raw_options):
+            return None, "mixed option formats"
+        keys = [str(o.get("key") or "").upper() for o in raw_options]
+        if sorted(keys) != MCQ_KEYS:
+            return None, "invalid option labels"
+        raw_options = [o for _, o in sorted(zip(keys, raw_options), key=lambda pair: pair[0])]
     texts = [o.get("text") if isinstance(o, dict) else o for o in raw_options]
     if len(texts) != 4:
         return None, "did not have four options"
@@ -200,9 +215,11 @@ def _mcq_from_model(raw: dict, module_id, seed: str):
         return None, "had a blank or filler option"
     if len({c.casefold() for c in cleaned}) != 4 or any(c.casefold() == question.casefold() for c in cleaned):
         return None, "had repeated options"
-    letter = str(raw.get("answer") or raw.get("correct_answer") or "").strip().upper()[:1]
-    if letter not in MCQ_KEYS:
-        return None, "had no valid answer"
+    try:
+        letter = normalize_correct_answer(raw.get("answer") or raw.get("correct_answer"),
+                                           [{"key": key, "text": text} for key, text in zip(MCQ_KEYS, cleaned)])
+    except ValueError:
+        return None, "had no unambiguous answer"
     original = dict(zip(MCQ_KEYS, cleaned))
     correct_text = original[letter]
     order = list(cleaned)
@@ -401,8 +418,8 @@ def generate_questions(modules, num_mcqs=6, num_subjective=0, previous_questions
 
     `previous_questions` are full question dicts from recent quizzes on the
     same material; repeats of them are dropped. Raises QuizGenerationFailed
-    when not a single question could be written. `note` says, in words
-    faculty can act on, anything that fell short of the request.
+    unless every requested question was written and validated. `note` may
+    describe rejected attempts, but a saved quiz always has the full count.
     """
     modules = [m for m in modules if (m.source_text or "").strip()]
     if not modules:
@@ -455,6 +472,14 @@ def generate_questions(modules, num_mcqs=6, num_subjective=0, previous_questions
     order = {str(m.pk): i for i, m in enumerate(modules)}
     mcqs.sort(key=lambda q: order.get(q.get("source_module_id"), 0))
     subjective.sort(key=lambda q: order.get(q.get("source_module_id"), 0))
+    try:
+        require_question_counts(mcqs + subjective, num_mcqs, num_subjective)
+    except ValueError as exc:
+        raise QuizGenerationFailed(str(exc), details={
+            "requested_mcqs": num_mcqs, "requested_subjective": num_subjective,
+            "written_mcqs": len(mcqs), "written_subjective": len(subjective),
+            "reasons": sorted(set(collector.errors)) or ["incomplete_question_set"],
+        }) from exc
     questions = normalize_questions(mcqs + subjective)
 
     notes = []

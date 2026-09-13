@@ -16,3 +16,7 @@ python-docx>=1.1,<2
 gunicorn>=23,<24
 # Cross-platform production server for the standalone launcher (gunicorn is Linux-only).
 waitress>=3.0,<4
+
+# Publisher signature and safe raster-figure normalization.
+cryptography>=44,<47
+Pillow>=11,<13

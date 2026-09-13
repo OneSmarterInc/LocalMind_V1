@@ -1,3 +1,5 @@
+import { confirmLeave } from "@/hooks/unsavedGuard";
+import { carryEditableFields } from "@/hooks/draftPersistence";
 import { useRouter } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
@@ -239,8 +241,10 @@ export function QuizDetailPage({ id, initialTab, note }: { id: string; initialTa
       // A new version was created. Anything typed while the save ran belongs on that new version, so it is
       // carried across instead of being left on the retired one.
       const newer = draftRef.current;
+      if (newer && JSON.stringify(newer) !== JSON.stringify(sent)) {
+        carryOver.set(res.id, carryEditableFields(res, sent, newer, ["title", "instructions", "questions", "pass_percentage", "max_attempts", "time_limit_minutes", "due_at", "available_from", "results_release", "results_release_at"]));
+      }
       router.replace(`/manage/quiz/${res.id}`);
-      if (newer && JSON.stringify(newer) !== JSON.stringify(sent)) carryOver.set(res.id, { ...newer, id: res.id });
     } else if (sent.id === id) await q.reload();
     return true;
   });
@@ -540,7 +544,7 @@ function AttemptsTab({ quiz, pending, onRelease, releasing }: { quiz: Quiz; pend
     { key: "r", label: "Results", flex: 0.7, render: (a) => <Badge value={held(a) ? "Held" : "Released"} tone={held(a) ? "amber" : "green"} /> },
     { key: "x", label: "", flex: 1.5, render: (a) => (
       <View style={{ flexDirection: "row", gap: 6 }}>
-        <Button title="Review attempt" small variant="secondary" onPress={() => router.push({ pathname: "/manage/attempt/[id]", params: { id: a.id, quiz: quiz.id } })} />
+        <Button title="Review attempt" small variant="secondary" onPress={() => { void confirmLeave().then(ok => { if (ok) router.push({ pathname: "/manage/attempt/[id]", params: { id: a.id, quiz: quiz.id } }); }); }} />
         {held(a) && a.status === "evaluated" ? <Button title="Release" small variant="secondary" onPress={() => onRelease(a.id)} /> : null}
       </View>
     ) },

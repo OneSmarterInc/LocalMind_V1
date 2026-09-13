@@ -114,6 +114,9 @@ def main():
             print(f"AI not ready: {exc}\nStarting anyway; quizzes, assignments and the tutor will use their deterministic fallbacks "
                   "until the model is available (python manage.py fetch_model).")
 
+    from jobs.services import start_local_worker
+    start_local_worker()
+
     from waitress import serve
 
     from config.wsgi import application

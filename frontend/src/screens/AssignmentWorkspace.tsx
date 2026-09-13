@@ -303,7 +303,7 @@ function SubmissionsTab({ assignment, onChanged }: { assignment: Assignment; onC
     { key: "e", label: "Evaluation", flex: 1, render: (s) => <Badge value={s.status === "evaluated" ? "Evaluated" : "Pending evaluation"} tone={s.status === "evaluated" ? "green" : "amber"} /> },
     { key: "p", label: "Score", flex: 0.6, render: (s) => (s.score != null ? `${s.score} / ${assignment.max_score}` : "—") },
     { key: "r", label: "Results", flex: 0.8, render: (s) => <Badge value={releasedFor(assignment, s) ? "Released" : "Not released"} tone={releasedFor(assignment, s) ? "green" : "amber"} /> },
-    { key: "x", label: "", flex: 1, render: (s) => <Button title={s.status === "evaluated" ? "View submission" : "Evaluate"} small icon={s.status === "evaluated" ? undefined : "create-outline"} variant={s.status === "evaluated" ? "secondary" : "primary"} onPress={() => router.push({ pathname: "/manage/submission/[id]", params: { id: s.id, assignment: assignment.id } })} /> },
+    { key: "x", label: "", flex: 1, render: (s) => <Button title={s.status === "evaluated" ? "View submission" : "Evaluate"} small icon={s.status === "evaluated" ? undefined : "create-outline"} variant={s.status === "evaluated" ? "secondary" : "primary"} onPress={() => { void confirmLeave().then(ok => { if (ok) router.push({ pathname: "/manage/submission/[id]", params: { id: s.id, assignment: assignment.id } }); }); }} /> },
   ];
   return (
     <>
@@ -333,6 +333,7 @@ export function SubmissionReviewPage({ submissionId, assignmentId }: { submissio
   const [feedback, setFeedback] = useState("");
   const [showError, setShowError] = useState(false);
   // Fill the form once per submission; a background reload must not overwrite marks being typed.
+  const evaluationSaving = useRef(false);
   const filledFor = useRef<string | null>(null);
   useEffect(() => {
     if (!s || filledFor.current === s.id) return;
@@ -363,9 +364,13 @@ export function SubmissionReviewPage({ submissionId, assignmentId }: { submissio
     : null;
   const valid = !scoreError;
   const save = useAction(async () => {
+    if (evaluationSaving.current) return false;
     if (scoreError) { setShowError(true); throw new Error(scoreError); }
-    await manage.evaluate(submissionId, { score: Number(score), feedback: feedback.trim() });
-    await subs.reload(); filledFor.current = null; leave(); return true;
+    evaluationSaving.current = true;
+    try {
+      await manage.evaluate(submissionId, { score: Number(score), feedback: feedback.trim() });
+      await subs.reload(); filledFor.current = null; leave(); return true;
+    } finally { evaluationSaving.current = false; }
   });
   saveRef.current = async () => { try { return (await save.run()) === true; } catch { return false; } };
   const name = s?.student_name?.trim().split(/\s+/)[0] || s?.student_email?.split("@")[0] || "student";
@@ -393,8 +398,8 @@ export function SubmissionReviewPage({ submissionId, assignmentId }: { submissio
           side={
             <Card>
               <CardHead title="Your evaluation" />
-              <Input label="Score" required value={score} onChangeText={(v) => { setShowError(false); setScore(v); }} keyboardType="decimal-pad" hint={`Maximum ${z.max_score} points.`} error={(score || showError) && scoreError ? scoreError : null} />
-              <Input label="Feedback" required multiline value={feedback} onChangeText={setFeedback} style={{ minHeight: 120 }} />
+              <Input label="Score" required value={score} editable={!save.busy} onChangeText={(v) => { if (!evaluationSaving.current) { setShowError(false); setScore(v); } }} keyboardType="decimal-pad" hint={`Maximum ${z.max_score} points.`} error={(score || showError) && scoreError ? scoreError : null} />
+              <Input label="Feedback" required multiline value={feedback} editable={!save.busy} onChangeText={v => { if (!evaluationSaving.current) setFeedback(v); }} style={{ minHeight: 120 }} />
               {held ? <Notice title="Results are currently held." message="Saving this evaluation does not release the result to the student." /> : null}
               <FormFooter>
                 <Button title="Cancel" variant="secondary" onPress={back} />

@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { student } from "@/api/endpoints";
 import type { DetailedResult } from "@/api/types";
@@ -16,6 +16,7 @@ export default function StudentAttempt() {
   const [rem, setRem] = useState<Remediation | null>(null);
   const remediate = useAction(async () => { setRem(await student.remediation(id)); });
   const a = q.data;
+  useEffect(() => { if (a?.status !== "submitted" && a?.status !== "pending_evaluation") return; const t=setInterval(q.reload,5000); return()=>clearInterval(t); },[a?.status,q.reload]);
   const quiz = a ? quizzes.data?.find((x) => x.id === a.assessment_id) : undefined;
   const held = !!a && (a as unknown as { results_released?: boolean }).results_released === false;
   const left = quiz?.max_attempts ? quiz.max_attempts - (quiz.attempts_used ?? 0) : null;
@@ -28,6 +29,10 @@ export default function StudentAttempt() {
 
   if (q.loading && !a) return <Screen><Loading /></Screen>;
   if (!a) return <Screen><ErrorBanner message={q.error} onRetry={q.reload} /></Screen>;
+
+  if (a.status === "submitted") {
+    return <Screen><PageHeading title="Your answers are saved" subtitle={title}/><Notice title="Evaluation is pending" message="Your response is safely stored. The local evaluation worker will process it, and faculty release rules still apply. No zero or pass has been assigned. If this remains pending, ask faculty to check the saved job."/><Button title="Check evaluation status" onPress={q.reload}/><Button title="Back to quizzes" variant="secondary" onPress={()=>router.push("/student/quizzes")}/></Screen>;
+  }
 
   if (held) {
     return (

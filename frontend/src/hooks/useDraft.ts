@@ -103,7 +103,7 @@ export function useDraft<T extends { id: string }>(source: T | null | undefined,
       label: optsRef.current.label(draft),
       save: async () => { dirtyAfterSave.current = false; return optsRef.current.save(); },
       // Text typed while that save was running is still unsaved, so leaving now would lose it.
-      isDirty: () => dirtyAfterSave.current,
+      isDirty: () => dirtyRef.current,
       discard,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps

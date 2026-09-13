@@ -140,9 +140,9 @@ class OnlyTheChosenModulesTests(Base):
         Module.objects.filter(pk=self.photo.pk).update(source_text="Chlorophyll absorbs sunlight in green leaves of plants. " * 5)
         fake = FakeModel()
         res = self.generate(fake, module_id=str(self.photo.id), num_mcqs=10)
-        self.assertEqual(res.status_code, 201, res.content)
-        self.assertEqual(len(res.data["questions"]), 1)
-        self.assertIn("not have enough text", res.data["generation_warning"])
+        self.assertEqual(res.status_code, 503, res.content)
+        self.assertEqual(res.data["error"]["code"], "QUIZ_GENERATION_FAILED")
+        self.assertFalse(Assessment.objects.exists(), "An incomplete paper is not saved")
 
 
 class NoPlaceholdersTests(Base):

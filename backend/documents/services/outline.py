@@ -9,7 +9,6 @@ reference a real index is discarded and the source hierarchy is used instead.
 import html
 import logging
 import re
-from pathlib import Path
 
 from django.db import transaction
 from django.db.models import Q
@@ -17,6 +16,7 @@ from django.db.models import Q
 from ai.gateway import gateway
 from core.exceptions import Conflict, ValidationFailed
 from learning.models import Chapter, Module
+from .outline_policy import clean_title, section_lookup, source_hierarchy_outline, _heading_spans, _ai_plan_covers_source
 
 logger = logging.getLogger("localmind.outline")
 
@@ -50,60 +50,6 @@ OUTLINE_SCHEMA = {
     },
     "required": ["document_title", "chapters"],
 }
-
-
-def _has_meaningful_text(text):
-    return sum(c.isalnum() for c in str(text or "")) >= 200
-
-
-def clean_title(value):
-    return " ".join(html.unescape(str(value or "")).split()).strip()
-
-
-def section_lookup(sections):
-    return {int(s["index"]): s for s in sections}
-
-
-def source_hierarchy_outline(original_name, sections):
-    """Shallowest heading level → chapters; next level inside each → modules."""
-    if not sections:
-        raise ValidationFailed("No source sections are available to build an outline.", code="NO_SECTIONS")
-    levels = [s["level"] for s in sections if s.get("level")]
-    chapter_level = min(levels)
-    chapter_sections = [s for s in sections if s["level"] == chapter_level] or [sections[0]]
-    # Headings that come before the first chapter-level heading (a preface or
-    # introduction written as H2 ahead of the first H1) would otherwise be
-    # dropped, and their text with them. Promote them to chapters of their own.
-    first_chapter_index = chapter_sections[0]["index"]
-    leading = [s for s in sections if s["index"] < first_chapter_index and s.get("source_text", "").strip()]
-    if leading:
-        leading_level = min(s["level"] for s in leading)
-        chapter_sections = [s for s in leading if s["level"] == leading_level] + chapter_sections
-
-    chapters = []
-    for pos, ch in enumerate(chapter_sections):
-        next_index = chapter_sections[pos + 1]["index"] if pos + 1 < len(chapter_sections) else float("inf")
-        nested = [s for s in sections if ch["index"] < s["index"] < next_index and s["level"] > ch["level"]]
-        modules = []
-        if nested:
-            module_level = min(s["level"] for s in nested)
-            modules = [{"title": clean_title(s["title"]), "source_heading_index": s["index"]}
-                       for s in nested if s["level"] == module_level]
-        if modules and _has_meaningful_text(ch.get("own_text", "")):
-            # The chapter's own introduction, written before its first
-            # sub-heading, would otherwise be invisible to students (they read
-            # modules, not chapters). Keep it as the chapter's first module.
-            modules.insert(0, {"title": f"{clean_title(ch['title'])}: Overview", "source_text": ch["own_text"],
-                               "start_page": ch.get("start_page"), "end_page": ch.get("end_page")})
-        if not modules:
-            # A chapter with no sub-headings (a flat document, or a short
-            # chapter written as one block) still needs something a student can
-            # open, and a book with no modules at all cannot be published. The
-            # chapter's own text becomes its single module.
-            modules = [{"title": clean_title(ch["title"]), "source_heading_index": ch["index"]}]
-        chapters.append({"title": clean_title(ch["title"]), "source_heading_index": ch["index"], "modules": modules})
-    title = chapters[0]["title"] if len(chapters) == 1 else Path(original_name).stem
-    return {"document_title": title, "chapters": chapters}
 
 
 def ai_outline(document, headings):
@@ -163,16 +109,6 @@ Rules:
                 logger.warning("AI outline module %s contains other outline headings; discarding AI outline", start)
                 return None
     return {"document_title": clean_title(result.data.get("document_title")) or document.title, "chapters": chapters}
-
-
-def _heading_spans(headings):
-    """index -> (index, first index after its section) in document order."""
-    rows = sorted(headings, key=lambda h: h["index"])
-    spans = {}
-    for pos, h in enumerate(rows):
-        end = next((r["index"] for r in rows[pos + 1:] if r["level"] <= h["level"]), float("inf"))
-        spans[h["index"]] = (h["index"], end)
-    return spans
 
 
 # ------------------------------------------------------ tidying a new outline --
@@ -577,24 +513,31 @@ def tidy_existing_document(document, *, dry_run=False, actor=None, titles=True):
 
 
 def build_proposed_outline(document, sections, headings):
-    """The outline processing proposes: the AI's plan when usable, the book's
-    own heading levels otherwise, then tidied (see ``tidy_outline``). The
-    tidying report rides along under ``_tidy_report``; persist_outline ignores
-    unknown keys."""
+    """Keep authored structure by default; AI regrouping is an explicit opt-in.
+
+    Invalid, incomplete or overlapping AI plans fall back to the whole source
+    hierarchy. No automatic title/fragment tidy is applied to authored mode.
+    """
+    if getattr(document, "outline_strategy", "source") != "ai":
+        return source_hierarchy_outline(document.original_name, sections), "source_hierarchy"
     outline = ai_outline(document, headings)
-    source = "ai"
+    if outline and not _ai_plan_covers_source(outline, sections):
+        logger.warning("AI outline did not cover every source section; using source hierarchy")
+        outline = None
     if not outline:
-        outline, source = source_hierarchy_outline(document.original_name, sections), "source_hierarchy"
+        return source_hierarchy_outline(document.original_name, sections), "source_hierarchy"
     outline, report = tidy_outline(outline, sections)
     outline["_tidy_report"] = report
-    return outline, source
+    return outline, "ai"
 
 
 def _fill_from_section(target, data, lookup):
     idx = data.get("source_heading_index")
     section = lookup.get(int(idx)) if idx is not None and str(idx).lstrip("-").isdigit() else None
     if section:
-        target.source_heading_index = section["index"]
+        # -1 is a parser-only anchor for newly preserved preamble text.
+        # Existing heading indices remain 0..N; database fields are unsigned.
+        target.source_heading_index = section["index"] if section["index"] >= 0 else None
         target.source_text = section.get("source_text", "")
         target.start_page = section.get("start_page")
         target.end_page = section.get("end_page")
@@ -651,6 +594,22 @@ def persist_outline(document, outline, sections, user_edited=False):
     existing_chapters = {str(c.id): c for c in document.chapters.all()}
     existing_modules = {str(m.id): m for m in Module.objects.filter(chapter__document=document)}
     report = {"removed_empty_modules": [], "hidden_empty_modules": [], "removed_empty_chapters": []}
+
+    if user_edited:
+        empty = []
+        for cdata in chapters_data:
+            for mdata in cdata.get("modules") or []:
+                existing = existing_modules.get(str(mdata.get("id") or ""))
+                if not _resolved_text(existing, mdata, lookup).strip():
+                    unchanged_hidden = (existing is not None and existing.source_missing
+                                        and "source_text" not in mdata
+                                        and mdata.get("source_heading_index") is None)
+                    if not unchanged_hidden:
+                        empty.append(clean_title(mdata.get("title")) or "Untitled module")
+        if empty:
+            raise ValidationFailed(
+                "Add source text or explicitly remove these modules before saving: " + ", ".join(empty[:10]),
+                code="EMPTY_SOURCE_TEXT", details={"modules": empty})
 
     # Decide what survives before writing anything, so chapter and module
     # orders stay contiguous and an outline with no text at all is refused
@@ -748,6 +707,8 @@ def _module_is_referenced(module):
     chosen modules), or a tutor conversation a student had about it."""
     if not module.pk:
         return False
+    if hasattr(module, "study_blocks") and module.study_blocks.exists():
+        return True
     if module.progress.exists():
         return True
     from assessments.models import Assessment

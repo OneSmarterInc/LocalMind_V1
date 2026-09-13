@@ -72,10 +72,12 @@ def file_digest(uploaded_file) -> str:
 
 
 @transaction.atomic
-def upload_document(actor, subject, uploaded_file, title="", request=None):
+def upload_document(actor, subject, uploaded_file, title="", request=None, *, outline_strategy="source"):
     _require_manage(actor, subject)
     if subject.status != SubjectStatus.ACTIVE:
         raise Conflict("Books can only be uploaded to active subjects.", code="SUBJECT_INACTIVE")
+    if outline_strategy not in ("source", "ai"):
+        raise ValidationFailed("Choose source headings or AI suggestions.", code="INVALID_OUTLINE_STRATEGY")
     ext = validate_upload(uploaded_file)
     digest = file_digest(uploaded_file)
     # The same book must not sit on a subject twice: it would be parsed twice,
@@ -97,7 +99,7 @@ def upload_document(actor, subject, uploaded_file, title="", request=None):
     document = Document(
         subject=subject, uploaded_by=actor,
         original_name=Path(uploaded_file.name).name[:300],
-        title=(title or Path(uploaded_file.name).stem)[:300],
+        title=(title or Path(uploaded_file.name).stem)[:300], outline_strategy=outline_strategy,
         file_type=ext.lstrip("."), file_size=uploaded_file.size, content_hash=digest,
     )
     document.file = uploaded_file  # upload_to uses document.id, which exists already
@@ -125,6 +127,11 @@ def claim_for_processing(document):
     changed and step aside. ``select_for_update`` alone was not enough, because SQLite ignores it and both
     transactions could read the same "not processing yet" row.
     """
+    from jobs.services import enabled
+    if enabled():
+        from jobs.models import Job
+        if Job.objects.filter(kind="document_parse", target=str(document.pk), status__in=("pending", "running", "retry")).exists():
+            return False
     with transaction.atomic():
         locked = Document.objects.select_for_update().get(pk=document.pk)
         now = timezone.now()
@@ -176,7 +183,7 @@ def clear_progress(document_id):
     )
 
 
-def run_processing(document_id):
+def run_processing(document_id, *, guard=None, run_id=None, raise_errors=False):
     """The unit of work a background worker executes. Safe to call from a
     thread, a process, or (later) a Celery task.
 
@@ -185,6 +192,8 @@ def run_processing(document_id):
     itself is shared per process and is never unloaded here.
     """
     document = Document.objects.get(pk=document_id)
+    if run_id:
+        document._processing_artifact_id = run_id
     try:
         set_progress(document_id, 1, "queued", "Waiting for the parser to be free")
         with _processing_lock:
@@ -200,6 +209,11 @@ def run_processing(document_id):
         set_progress(document_id, 4, "structure",
                      f"Creating {module_count} module{'' if module_count == 1 else 's'} across {len(chapters)} chapter{'' if len(chapters) == 1 else 's'}")
         with transaction.atomic():
+            if guard: guard()
+            locked = Document.objects.select_for_update().get(pk=document_id)
+            if locked.processing_started_at != document.processing_started_at:
+                from jobs.services import LeaseLost
+                raise LeaseLost("A newer processing run owns this document")
             report = outline_service.persist_outline(document, outline, parsed["sections"], user_edited=False)
             document.processed_markdown_path = parsed["markdown_path"]
             document.extracted_headings = parsed["headings"]
@@ -225,22 +239,31 @@ def run_processing(document_id):
         lessons.on_content_changed(processed, reason="document.processed")
         # And a quiz for every module, generated after its lesson.
         auto_quiz.on_content_changed(processed, reason="document.processed")
+        return True
     except NoExtractableContent as exc:
         # Expected outcome for blank or unreadable files: a clear message, no traceback.
         logger.warning("Processing of document %s produced no content: %s", document_id, exc)
-        Document.objects.filter(pk=document_id).update(
+        if guard:
+            with transaction.atomic(): guard()
+        Document.objects.filter(pk=document_id, processing_started_at=document.processing_started_at).update(
             status=DocumentStatus.ERROR, error_message=str(exc)[:2000], updated_at=timezone.now(),
         )
         clear_progress(document_id)
         audit.record(None, "document.processing_failed", document, {"error": str(exc)[:300], "code": exc.code})
+        if raise_errors: raise
+        return False
     except Exception as exc:
         logger.exception("Processing failed for document %s", document_id)
-        Document.objects.filter(pk=document_id).update(
+        if guard:
+            with transaction.atomic(): guard()
+        Document.objects.filter(pk=document_id, processing_started_at=document.processing_started_at).update(
             status=DocumentStatus.ERROR, error_message=(str(exc) or "Document processing failed.")[:2000],
             updated_at=timezone.now(),
         )
         clear_progress(document_id)
         audit.record(None, "document.processing_failed", document, {"error": str(exc)[:300]})
+        if raise_errors: raise
+        return False
 
 
 def _launch(document_id):
@@ -255,13 +278,19 @@ def _launch(document_id):
 
 def start_processing(actor, document, request=None):
     _require_manage(actor, document.subject)
-    if not claim_for_processing(document):
-        raise Conflict("This document is already being processed.", code="ALREADY_PROCESSING")
-    audit.record(actor, "document.processing_started", document, {}, request)
-    if settings.TESTING or getattr(settings, "PROCESS_DOCUMENTS_INLINE", False):
-        run_processing(document.id)
-    else:
-        _launch(document.id)
+    from jobs.services import enabled, enqueue
+    with transaction.atomic():
+        if not claim_for_processing(document):
+            raise Conflict("This document already has queued or running processing work.", code="ALREADY_PROCESSING")
+        audit.record(actor, "document.processing_started", document, {}, request)
+        if enabled() and not getattr(settings, "PROCESS_DOCUMENTS_INLINE", False):
+            enqueue("document_parse", str(document.id), {"document_id": str(document.id), "actor_id": str(actor.id)},
+                    unique=f"document:{document.id}:{document.processing_started_at.isoformat()}")
+    if not enabled() or getattr(settings, "PROCESS_DOCUMENTS_INLINE", False):
+        if settings.TESTING or getattr(settings, "PROCESS_DOCUMENTS_INLINE", False):
+            run_processing(document.id)
+        else:
+            _launch(document.id)
     document.refresh_from_db()
     return document
 
@@ -471,6 +500,10 @@ def delete_document(actor, document, request=None):
     from assignments.models import Assignment, AssignmentSubmission
 
     _require_manage(actor, document.subject)
+    from study.models import ContentBlock, StudyAsset, StudyPackage, StudyQuestion
+    if (ContentBlock.objects.filter(module__chapter__document=document).exists() or StudyAsset.objects.filter(document=document).exists()
+            or StudyPackage.objects.filter(document=document).exists() or StudyQuestion.objects.filter(document=document).exists()):
+        raise Conflict("This book has versioned study material. Archive it instead of deleting its source history.", code="STUDY_HISTORY_IN_USE")
     if document.status == DocumentStatus.PROCESSING:
         raise Conflict("Wait for processing to finish before deleting this book.", code="INVALID_STATE")
 

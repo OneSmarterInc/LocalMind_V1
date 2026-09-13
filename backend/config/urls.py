@@ -4,7 +4,11 @@ from django.contrib import admin
 from django.urls import include, path, re_path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
+from jobs.views import JobView
+
 urlpatterns = [
+    path("api/study/", include("study.urls")),
+    path("api/jobs/<uuid:job_id>/", JobView.as_view()),
     path("api/health/", include("core.urls")),
     path("api/meta/", include("core.urls_meta")),
     path("api/auth/", include("accounts.urls_auth")),

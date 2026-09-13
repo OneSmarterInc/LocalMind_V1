@@ -16,3 +16,17 @@ db.sqlite3-wal
 db.sqlite3-shm
 db-backup/
 *.exe
+
+# Never publish runtime data, private signing keys, installed models or generated assets.
+*.pem
+*.key
+*.gguf
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+.localmind-keys/
+**/node_modules/
+**/.expo/
+**/.venv/
+**/media/

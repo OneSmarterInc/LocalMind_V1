@@ -13,6 +13,7 @@ export default function UploadBook() {
   const subjects = useAsync(() => manage.subjects(), []);
   const [subjectId, setSubjectId] = useState(params.subject ?? "");
   const [title, setTitle] = useState("");
+  const [outlineStrategy, setOutlineStrategy] = useState("source");
   const [file, setFile] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
   const [duplicate, setDuplicate] = useState<string | null>(null);
   const active = (subjects.data ?? []).filter((s) => s.status === "active");
@@ -27,6 +28,7 @@ export default function UploadBook() {
     if (!file) return;
     const form = new FormData();
     form.append("subject_id", subjectId); form.append("title", title.trim());
+    form.append("outline_strategy", outlineStrategy);
     if (Platform.OS === "web" && file.file) form.append("file", file.file, file.name);
     else form.append("file", { uri: file.uri, name: file.name, type: file.mimeType ?? "application/octet-stream" } as unknown as Blob);
     let doc;
@@ -50,6 +52,12 @@ export default function UploadBook() {
             <CardHead title="Book details" />
             {subjects.data && active.length === 0 ? <Notice tone="warning" message="You have no active subject. Ask your administrator to assign one." /> : null}
             <Dropdown label="Subject *" value={subjectId} onChange={setSubjectId} placeholder="Choose a subject" width="100%" options={active.map((s) => ({ value: s.id, label: `${s.code} · ${s.name}` }))} />
+            <Dropdown label="Chapter and module structure" value={outlineStrategy} onChange={setOutlineStrategy}
+              width="100%" options={[{ value: "source", label: "Keep the document’s headings (recommended)" },
+                { value: "ai", label: "Suggest a structure with AI" }]} />
+            <Notice message={outlineStrategy === "source"
+              ? "Your headings, order, and section names will be kept. You can review and edit them before publishing."
+              : "AI may regroup or tidy headings. An incomplete suggestion falls back to the document’s own structure."} />
             <Input label="Book title" required value={title} onChangeText={setTitle} placeholder="As students should see it" hint="A clear title helps students find the right book." />
             <View style={{ borderWidth: 1.5, borderStyle: "dashed", borderColor: "#B8CBBB", borderRadius: 12, backgroundColor: "#F9FCF6", alignItems: "center", paddingVertical: 30, paddingHorizontal: 20, gap: 8 }}>
               <TileIcon icon="cloud-upload-outline" size={48} />

@@ -1,3 +1,14 @@
+# LocalMind V1
+
+This repository contains the existing classroom platform plus an **experimental, separate
+private offline-study runtime**. Start with [Offline study setup](docs/OFFLINE_STUDY.md)
+and [implementation status](docs/IMPLEMENTATION_STATUS.md). The native study app is in
+`student-runtime/`; the classroom app remains in `frontend/` and `backend/`.
+
+No real-device or model-quality acceptance is implied by the source or the unit tests.
+
+---
+
 # LocalMind Backend
 
 A role-based academic learning platform (backend plus an Expo client for iOS, Android and web): administrators manage people and subjects, faculty publish source material and author assessments, students learn from published modules with a source-grounded local AI tutor. Django 5.2, Django REST Framework, JWT authentication, PostgreSQL in production (SQLite for development), an embedded llama.cpp model (Qwen3 1.7B GGUF) for AI with graceful fallback when it is unavailable, and Ollama as an optional alternative provider.

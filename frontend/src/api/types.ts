@@ -38,6 +38,8 @@ export interface ModuleFull extends ModuleBrief {
 export interface Chapter { id: string; title: string; order: number; modules: ModuleBrief[]; status?: string }
 export type DocumentStatus = "uploaded" | "processing" | "under_review" | "ready" | "published" | "unpublished" | "archived" | "error";
 export interface Document {
+  background_job?: { id: string; status: string; attempts: number; error: string } | null;
+  outline_strategy?: "source" | "ai";
   id: string; title: string; original_name: string; subject_id: string; subject_code?: string; status: DocumentStatus;
   file_type: string; file_size?: number; error_message?: string; content_version: number;
   chapter_count?: number; module_count?: number; outline_source?: string;
