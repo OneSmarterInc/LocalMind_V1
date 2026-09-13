@@ -123,7 +123,7 @@ test('normal course doubts use the same device model offline and reject a known 
  try{
   await expect(page.getByText('Ask about this module. If the server disconnects, the installed local model can answer from your downloaded source.',{exact:true})).toBeVisible({timeout:35000});
   await page.getByLabel('Your question',{exact:true}).fill('Explain the leaf again.');await page.getByRole('button',{name:'Ask',exact:true}).click();
-  await expect(page.getByText(/not open|locked|denied/i).last()).toBeVisible();
+  await expect(page.getByText('This module has not been opened by faculty.',{exact:true})).toBeVisible();
   await context.setOffline(true);
   await page.getByLabel('Your question',{exact:true}).fill('Where does photosynthesis happen now?');await page.getByRole('button',{name:'Ask',exact:true}).click();
   await expect(page.getByText('This module was denied by the institution. Reconnect and restore authorized access before asking locally.',{exact:true})).toBeVisible();
