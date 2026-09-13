@@ -62,6 +62,16 @@ jobs:
                   if p.is_absolute() or '..' in p.parts or not name.startswith(allowed) or not isinstance(text,str): raise SystemExit('Invalid source path.')
               for name,text in files.items():
                   p=Path(name);p.parent.mkdir(parents=True,exist_ok=True);p.write_text(text,encoding='utf-8')
+              # The newer foundation already has stronger async discard handling.
+              # Preserve it rather than replacing it with the earlier single-guard variant.
+              guard=Path('frontend/src/hooks/unsavedGuard.ts').read_text()
+              if 'discard: () => void | Promise<void>;' in guard:
+                  if 'for (const g of all) await g.discard();' not in guard: raise SystemExit('Unrecognized draft guard; review required.')
+                  updater=Path('scripts/apply_private_integration.py')
+                  text=updater.read_text()
+                  target=" edit('frontend/src/hooks/unsavedGuard.ts',guard)"
+                  if text.count(target)!=1: raise SystemExit('Unexpected updater.')
+                  updater.write_text(text.replace(target,' # Existing multi-guard async discard implementation is preserved.'))
               subprocess.run(['python','scripts/apply_private_integration.py','.'],check=True)
               marker.write_text(expected+'\n')
               for i in (1,2,3): Path(f'.changes/private-library-{i:02}.b64').unlink()
