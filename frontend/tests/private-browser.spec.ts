@@ -12,8 +12,7 @@ export async function signIn(page:Page,role='student',path='/student/private-lib
    sessionStorage.setItem('browser-test-session','set');
   }
  },tokens);
- await page.goto(path);
- return tokens;
+ await page.goto(path);return tokens;
 }
 async function pick(page:Page,button:string,file:{name:string;mimeType:string;buffer:Buffer}){
  const chooser=page.waitForEvent('filechooser');await page.getByRole('button',{name:button,exact:true}).click();await(await chooser).setFiles(file);
@@ -22,6 +21,10 @@ export async function model(page:Page){
  await page.goto('/student/offline-ai');await expect(page.getByText('Model on this device',{exact:true})).toBeVisible();
  await pick(page,'Import a .gguf file',{name:'browser-fixture.gguf',mimeType:'application/octet-stream',buffer:Buffer.from('GGUFunit-test-model-not-real-inference')});
  await expect(page.getByText('Downloaded',{exact:true})).toBeVisible();
+ // A model file alone is not the offline application. Complete the same setup
+ // the user is prompted to complete before disconnecting.
+ await page.getByRole('button',{name:'Check and save offline app files',exact:true}).click();
+ await expect(page.getByText(/Application files saved/)).toBeVisible();
 }
 async function importBook(page:Page,name='Personal biology'){
  await page.goto('/student/private-library');
@@ -46,10 +49,7 @@ test('admin shares a plain book; legacy publishing route no longer shows the blo
 });
 
 test('private lesson regeneration, quiz checking and new doubts survive a completely offline restart',async({page,context})=>{
- await signIn(page);await model(page);
- await page.getByRole('button',{name:'Check and save offline app files',exact:true}).click();
- await expect(page.getByText(/Application files saved/)).toBeVisible();
- const url=await importBook(page);
+ await signIn(page);await model(page);const url=await importBook(page);
  const uploads:string[]=[];page.on('request',r=>{if(r.method()==='POST'&&r.url().includes('/api/'))uploads.push(r.url());});
  await page.getByRole('button',{name:'Generate a lesson',exact:true}).click();
  await expect(page.getByText('A local lesson about photosynthesis.',{exact:true})).toBeVisible();
@@ -63,18 +63,17 @@ test('private lesson regeneration, quiz checking and new doubts survive a comple
  await page.getByRole('button',{name:'Generate quiz',exact:true}).click();
  await expect(page.getByRole('radio',{name:'A. Chloroplasts',exact:true})).toBeVisible();
  await page.getByRole('radio',{name:'A. Chloroplasts',exact:true}).click();
+ await expect(page.getByRole('radio',{name:'A. Chloroplasts',exact:true})).toHaveAttribute('aria-checked','true');
  await expect(page.getByText('Answers saved on this device',{exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Check my answers',exact:true}).click();
  await expect(page.getByText('1 of 1 correct',{exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Generate another quiz',exact:true}).click();
  await expect(page.getByRole('button',{name:'Saved quiz'})).toContainText('Version 2');
- // Leave an answered, unsubmitted draft; restarting may not lose it.
  await page.getByRole('radio',{name:'A. Chloroplasts',exact:true}).click();
  await expect(page.getByText('Answers saved on this device',{exact:true})).toBeVisible();
  expect(uploads,'Private model tasks must not post books, questions or answers to Django.').toEqual([]);
  await context.setOffline(true);await page.reload();
- await expect(page).toHaveURL(url);
- await expect(page.getByText('All modules open',{exact:true})).toBeVisible();
+ await expect(page).toHaveURL(url);await expect(page.getByText('All modules open',{exact:true})).toBeVisible();
  await page.getByRole('tab',{name:'Practice quiz',exact:true}).click();
  await expect(page.getByRole('radio',{name:'A. Chloroplasts',exact:true})).toHaveAttribute('aria-checked','true');
  await page.getByRole('button',{name:'Check my answers',exact:true}).click();await expect(page.getByText('1 of 1 correct',{exact:true})).toBeVisible();
@@ -122,12 +121,11 @@ test('normal course doubts use the same device model offline and reject a known 
  const endpoint=`/api/faculty/modules/${id}/availability/`;const headers={Authorization:`Bearer ${admin.access}`};
  const lock=await page.request.post(endpoint,{headers,data:{availability:'locked'}});expect(lock.ok()).toBeTruthy();
  try{
-  // A fresh health response restores network state without refreshing cached source.
   await expect(page.getByText('Ask about this module. If the server disconnects, the installed local model can answer from your downloaded source.',{exact:true})).toBeVisible({timeout:35000});
   await page.getByLabel('Your question',{exact:true}).fill('Explain the leaf again.');await page.getByRole('button',{name:'Ask',exact:true}).click();
   await expect(page.getByText(/not open|locked|denied/i).last()).toBeVisible();
   await context.setOffline(true);
-  await page.getByLabel('Your question',{exact:true}).fill('Try this while offline.');await page.getByRole('button',{name:'Ask',exact:true}).click();
-  await expect(page.getByText(/denied by the institution/)).toBeVisible();
+  await page.getByLabel('Your question',{exact:true}).fill('Where does photosynthesis happen now?');await page.getByRole('button',{name:'Ask',exact:true}).click();
+  await expect(page.getByText('This module was denied by the institution. Reconnect and restore authorized access before asking locally.',{exact:true})).toBeVisible();
  }finally{await context.setOffline(false);await page.request.post(endpoint,{headers,data:{availability:'open'}});}
 });
