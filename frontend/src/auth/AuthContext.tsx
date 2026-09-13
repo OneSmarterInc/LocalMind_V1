@@ -54,7 +54,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // No server: carry on with the saved profile so a student can keep
           // studying what was downloaded. Only a real rejection signs out.
           const saved = e instanceof ApiError && e.code === "NETWORK" ? await readEntry<User>(META.me) : undefined;
-          if (saved) { setOfflineScope(saved.id); setUser(saved); setMustChange(false); setSessionId(t.session_id ?? null); if (saved.role === "student") void startOfflineSync(); }
+          if (saved) { setOfflineScope(saved.id); setUser(saved); setMustChange(saved.must_change_password); setSessionId(t.session_id ?? null); if (saved.role === "student") void startOfflineSync(); }
           else await clear();
         }
       }

@@ -1,0 +1,20 @@
+import {test,expect} from '@playwright/test';
+import fs from 'node:fs';
+test('real browser GGUF download and new local inference after disconnect',async({page,context})=>{
+ test.setTimeout(900000);
+ const f=JSON.parse(fs.readFileSync('test-results/fixture.json','utf8'));
+ const login=await page.request.post('/api/auth/login/student/',{data:{email:'browser-student@example.edu',password:f.password}});expect(login.ok()).toBeTruthy();const t=await login.json();
+ await page.addInitScript(v=>{if(!localStorage.getItem('localmind.access')){localStorage.setItem('localmind.access',v.access);localStorage.setItem('localmind.refresh',v.refresh);}},t);
+ await page.goto('/student/offline-ai');
+ await page.getByRole('button',{name:/^Download model/}).click();await page.getByRole('button',{name:'Download',exact:true}).click();
+ await expect(page.getByText('Downloaded',{exact:true})).toBeVisible({timeout:600000});
+ await page.getByRole('button',{name:'Check and save offline app files',exact:true}).click();await expect(page.getByText(/Application files saved/)).toBeVisible();
+ await page.goto('/student/private-library');const chooser=page.waitForEvent('filechooser');await page.getByRole('button',{name:'Upload my book',exact:true}).click();
+ await(await chooser).setFiles({name:'Real model biology.txt',mimeType:'text/plain',buffer:Buffer.from('Photosynthesis happens in the chloroplasts of green leaves. Chlorophyll absorbs sunlight. Plants use light energy to convert carbon dioxide and water into glucose and oxygen.')});
+ await page.getByText('Real model biology',{exact:true}).click();await expect(page.getByText('All modules open',{exact:true})).toBeVisible();
+ await context.setOffline(true);await page.reload();
+ await page.getByRole('tab',{name:'Ask a doubt',exact:true}).click();await page.getByLabel('Your question',{exact:true}).fill('Where does photosynthesis happen?');
+ await page.getByRole('button',{name:'Ask local AI',exact:true}).click();
+ await expect(page.getByText(/From the book:/)).toBeVisible({timeout:240000});
+ await page.screenshot({path:'test-results/real-browser-offline-model.png',fullPage:true});
+});

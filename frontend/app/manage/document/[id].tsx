@@ -195,7 +195,7 @@ export default function DocumentScreen() {
     return (
       <Screen refreshing={doc.loading} onRefresh={doc.reload}>
         <PageHeading eyebrow="BOOKS & MODULES" title={`${d!.title} is published.`} subtitle={subtitle} right={statusBadge} />
-      <Button title="Private study publishing" variant="secondary" onPress={() => { void confirmLeave().then(ok => { if (ok) router.push(`/manage/study/${id}`); }); }} />
+      <Button title="Books for private study" variant="secondary" onPress={() => { void confirmLeave().then(ok => { if (ok) router.push(`/manage/study/${id}`); }); }} />
         <ErrorBanner message={doc.error ?? act.error ?? remove.error} onRetry={doc.error ? doc.reload : undefined} />
         <Notice tone="success" title="Students can now find this book." message="Enrolled students see its open modules, ready lessons and published quizzes." />
         <Grid min={320} gap={20}>
@@ -230,7 +230,7 @@ export default function DocumentScreen() {
     <Screen>
       {jobNotice}<ErrorBanner message={retryJob.error}/>
       <PageHeading eyebrow="BOOKS & MODULES" title={d!.title} subtitle={subtitle} right={statusBadge} />
-      <Button title="Private study publishing" variant="secondary" onPress={() => { void confirmLeave().then(ok => { if (ok) router.push(`/manage/study/${id}`); }); }} />
+      <Button title="Books for private study" variant="secondary" onPress={() => { void confirmLeave().then(ok => { if (ok) router.push(`/manage/study/${id}`); }); }} />
       {!live ? stepper(tab === "publish" ? 2 : 1) : null}
       <ErrorBanner message={tabError ?? doc.error ?? act.error ?? remove.error} onRetry={doc.error ? doc.reload : undefined} />
       <PageTabs<DocTab> value={tab} onChange={setTab} tabs={[

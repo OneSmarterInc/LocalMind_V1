@@ -7,6 +7,8 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from jobs.views import JobView
 
 urlpatterns = [
+    path("api/faculty/", include("private_library.urls_staff")),
+    path("api/student/", include("private_library.urls_student")),
     path("api/study/", include("study.urls")),
     path("api/jobs/<uuid:job_id>/", JobView.as_view()),
     path("api/health/", include("core.urls")),

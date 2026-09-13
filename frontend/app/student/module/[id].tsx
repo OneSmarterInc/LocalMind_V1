@@ -1,14 +1,12 @@
+import CourseAsk from "@/private/CourseAsk";
 import { SourceContent } from "@/ui/SourceContent";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
-import { AppState, ScrollView, Text, TextInput, View } from "react-native";
-import { ApiError } from "@/api/client";
+import { AppState, Text, View } from "react-native";
 import { student } from "@/api/endpoints";
-import type { Message, ModuleFull, Quiz } from "@/api/types";
-import { useAuth } from "@/auth/AuthContext";
-import { useAction, useAsync } from "@/hooks/useAsync";
-import { useOnline } from "@/offline/connectivity";
-import { Avatar, Badge, Button, Card, CardHead, Chip, DetailList, Empty, ErrorBanner, Eyebrow, FormFooter, Loading, Notice, PageHeading, PageTabs, Screen, Spinner, Split, StepList, TextLink, TileIcon, colors, pct } from "@/ui";
+import type { ModuleFull, Quiz } from "@/api/types";
+import { useAsync } from "@/hooks/useAsync";
+import { Badge, Button, Card, CardHead, DetailList, Empty, ErrorBanner, Eyebrow, FormFooter, Loading, Notice, PageHeading, PageTabs, Screen, Split, StepList, TextLink, colors, pct } from "@/ui";
 import { LessonView } from "@/ui/LessonView";
 
 type Tab = "read" | "lesson" | "ask";
@@ -111,7 +109,7 @@ export default function StudentModule() {
               } />
             } />
           ) : null}
-          {tab === "ask" ? <Split main={<AskTab moduleId={id} />} side={<AskTips />} /> : null}
+          {tab === "ask" ? <Split main={<CourseAsk key={id} moduleId={id} />} side={<AskTips />} /> : null}
         </>
       ) : null}
     </Screen>
@@ -181,7 +179,7 @@ function ModuleSide({ module, quizzes, onQuiz, onOffline }: { module: ModuleFull
         ) : null}
       </Card>
       <Card>
-        <CardHead title="Keep learning offline" subtitle="Saved reading and ready lessons remain available when the server is unreachable. New questions and quiz submissions need a connection." />
+        <CardHead title="Keep learning offline" subtitle="Saved reading and ready lessons remain available offline. Download a local model in Offline AI to ask new doubts on this device. Official quiz submissions still need the institution server." />
         <TextLink title="Offline availability" icon="download-outline" onPress={onOffline} />
       </Card>
     </>
@@ -189,96 +187,6 @@ function ModuleSide({ module, quizzes, onQuiz, onOffline }: { module: ModuleFull
 }
 
 const LESSON_POLL_MS = 8000;
-
-function AskTab({ moduleId }: { moduleId: string }) {
-  const online = useOnline();
-  const userName = useAuth().user?.full_name ?? "";
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [conversationId, setConversationId] = useState<string | undefined>();
-  const [question, setQuestion] = useState("");
-  const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [restoring, setRestoring] = useState(true);
-  const [failed, setFailed] = useState<string | null>(null);
-  const [slow, setSlow] = useState(false);
-  const scroll = useRef<ScrollView>(null);
-
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const latest = (await student.conversations(moduleId))[0];
-        if (!latest || !alive) return;
-        const full = await student.conversation(latest.id);
-        if (!alive) return;
-        setConversationId(full.id); setMessages(full.messages ?? []);
-      } catch { /* no history is fine */ } finally { if (alive) setRestoring(false); }
-    })();
-    return () => { alive = false; };
-  }, [moduleId]);
-
-  const ask = useAction(async (text: string) => {
-    setFailed(null); setQuestion(""); setSuggestions([]);
-    setMessages((cur) => {
-      const last = cur[cur.length - 1];
-      if (last && last.role === "user" && last.content === text) return cur;
-      return [...cur, { id: `local-${Date.now()}`, role: "user", content: text, grounded: true, source_reference: "", created_at: new Date().toISOString() }];
-    });
-    try {
-      const res = await student.ask(moduleId, text, conversationId);
-      setConversationId(res.conversation_id); setMessages((cur) => [...cur, res.message]); setSuggestions(res.follow_up_suggestions ?? []);
-    } catch (e) {
-      const conv = e instanceof ApiError ? (e.details?.conversation_id as string | undefined) : undefined;
-      if (conv) setConversationId(conv);
-      setFailed(text);
-      throw e;
-    }
-  });
-  useEffect(() => { if (!ask.busy) { setSlow(false); return; } const t = setTimeout(() => setSlow(true), 15000); return () => clearTimeout(t); }, [ask.busy]);
-  useEffect(() => { const t = setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 60); return () => clearTimeout(t); }, [messages.length, ask.busy]);
-  const send = (text: string) => { const v = text.trim(); if (v && online && !ask.busy) void ask.run(v); };
-
-  return (
-    <Card style={{ minHeight: 475 }}>
-      <ScrollView ref={scroll} style={{ maxHeight: 510 }} contentContainerStyle={{ gap: 22, paddingBottom: 12 }} keyboardShouldPersistTaps="handled">
-        {restoring ? <Spinner /> : null}
-        {!online ? <Notice tone="warning" title="You are offline" message="Earlier questions and answers are shown. Asking something new needs a connection to the LocalMind server." icon="cloud-offline-outline" /> : null}
-        {!restoring && messages.length === 0 ? (
-          <View style={{ flexDirection: "row", gap: 10 }}>
-            <TileIcon icon="sparkles-outline" size={32} />
-            <View style={styles.bubble}>
-              <Eyebrow>YOUR LOCALMIND TUTOR</Eyebrow>
-              <Text style={styles.bubbleText}>Ask anything about this module in your own words. My answers stay within the module and point back to the part of the text they use.</Text>
-            </View>
-          </View>
-        ) : null}
-        {messages.map((msg) => {
-          const mine = msg.role === "user";
-          const offTopic = !mine && msg.grounded === false;
-          return (
-            <View key={msg.id} style={{ flexDirection: mine ? "row-reverse" : "row", gap: 10, alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "90%" }}>
-              {mine ? <Avatar name={userName} size={32} /> : <TileIcon icon={offTopic ? "information-circle-outline" : "sparkles-outline"} tone={offTopic ? "amber" : "green"} size={32} />}
-              <View style={[styles.bubble, mine && styles.mine, offTopic && { backgroundColor: "#FFFAEC", borderColor: "#EBDFBD" }]}>
-                {!mine ? <Eyebrow color={offTopic ? colors.warning : undefined}>{offTopic ? "OUTSIDE THIS MODULE" : "YOUR LOCALMIND TUTOR"}</Eyebrow> : null}
-                <Text style={[styles.bubbleText, mine && { color: "#FFFFFF" }]} selectable>{msg.content}</Text>
-                {!mine && msg.source_reference ? <Text style={styles.source}>From the module: {msg.source_reference}</Text> : null}
-              </View>
-            </View>
-          );
-        })}
-        {ask.busy ? <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}><TileIcon icon="sparkles-outline" size={32} /><Text style={{ fontSize: 12, color: colors.muted }}>{slow ? "Still working on it. Answers can take a minute or two on this computer; you can keep reading meanwhile." : "Thinking…"}</Text></View> : null}
-        {ask.error ? <Notice tone="warning" title="The tutor could not answer" message={ask.error} action={failed ? <Button title="Ask again" small variant="secondary" icon="refresh" onPress={() => ask.run(failed)} /> : undefined} /> : null}
-      </ScrollView>
-      {suggestions.length ? <View style={{ flexDirection: "row", gap: 7, flexWrap: "wrap" }}>{suggestions.map((sg) => <Chip key={sg} label={sg} onPress={() => send(sg)} />)}</View> : null}
-      <View style={{ flexDirection: "row", gap: 10, paddingTop: 17, borderTopWidth: 1, borderTopColor: colors.border }}>
-        <TextInput value={question} onChangeText={setQuestion} placeholder={online ? "What would you like to understand?" : "Offline: asking needs a connection"} placeholderTextColor={colors.faint}
-          editable={online && !ask.busy} onSubmitEditing={() => send(question)} blurOnSubmit={false} accessibilityLabel="Your question"
-          style={{ flex: 1, borderWidth: 1, borderColor: "#D8E0D7", borderRadius: 7, paddingHorizontal: 12, minHeight: 41, fontSize: 13, color: colors.ink, backgroundColor: "#FFFFFF" }} />
-        <Button title="Ask" icon="send" onPress={() => send(question)} disabled={!question.trim() || !online} busy={ask.busy} />
-      </View>
-      <Text style={{ fontSize: 11, color: colors.muted }}>Answers stay within this module.</Text>
-    </Card>
-  );
-}
 
 function AskTips() {
   return (
@@ -294,9 +202,3 @@ function AskTips() {
   );
 }
 
-const styles = {
-  bubble: { flexShrink: 1, backgroundColor: "#F3F6F0", borderWidth: 1, borderColor: "#E3EADF", borderTopLeftRadius: 0, borderRadius: 12, paddingHorizontal: 19, paddingVertical: 16, gap: 7 },
-  mine: { backgroundColor: colors.primary, borderColor: colors.primary, borderTopLeftRadius: 12, borderTopRightRadius: 0 },
-  bubbleText: { fontSize: 13, lineHeight: 23, color: colors.text },
-  source: { fontSize: 11, paddingTop: 10, marginTop: 4, borderTopWidth: 1, borderTopColor: colors.border, color: colors.muted },
-} as const;

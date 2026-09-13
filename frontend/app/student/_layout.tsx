@@ -15,6 +15,8 @@ const STUDENT_META: PortalMeta = {
   navLabel: "MY LEARNING",
   profilePath: "/student/profile",
   finder: [
+    { title: "Private library", section: "Your books and local AI", path: "/student/private-library" },
+    { title: "Offline AI", section: "Download or import a local model", path: "/student/offline-ai" },
     { title: "Overview", section: "Your next steps", path: "/student" },
     { title: "My subjects", section: "Books and modules", path: "/student/subjects" },
     { title: "My quizzes", section: "Quizzes and results", path: "/student/quizzes" },
@@ -37,6 +39,9 @@ export default function StudentLayout() {
     <OfflineNoticeContext.Provider value>
       <Tabs screenOptions={shell.screenOptions} tabBar={shell.tabBar}>
         <Tabs.Screen name="index" options={{ title: "Overview", tabBarIcon: icon("home-outline") }} />
+        <Tabs.Screen name="private-library" options={{ title: "Private library", tabBarIcon: icon("book-outline") }} />
+        <Tabs.Screen name="offline-ai" options={{ title: "Offline AI", tabBarIcon: icon("hardware-chip-outline") }} />
+        <Tabs.Screen name="private-book/[id]" options={shellScreen({ href: null, title: "Private book" }, { backTo: "/student/private-library", backLabel: "Private library" })} />
         <Tabs.Screen name="subjects" options={{ title: "My subjects", tabBarIcon: icon("library-outline") }} />
         <Tabs.Screen name="quizzes" options={{ title: "Quizzes", tabBarIcon: icon("help-circle-outline") }} />
         <Tabs.Screen name="assignments" options={{ title: "Assignments", tabBarIcon: icon("create-outline") }} />

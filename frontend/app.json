@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "localmind",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
@@ -36,7 +36,8 @@
         "INTERNET",
         "ACCESS_NETWORK_STATE"
       ],
-      "softwareKeyboardLayoutMode": "resize"
+      "softwareKeyboardLayoutMode": "resize",
+      "allowBackup": false
     },
     "web": {
       "output": "single",
@@ -79,6 +80,6 @@
         "projectId": "<run: eas init>"
       }
     },
-    "backgroundColor": "#080F13"
+    "backgroundColor": "#F5F7F4"
   }
 }

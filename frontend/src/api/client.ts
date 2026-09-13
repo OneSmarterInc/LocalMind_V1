@@ -71,16 +71,24 @@ async function refreshTokens(): Promise<boolean> {
     const started = tokens;
     let promise: Promise<boolean> | null = null;
     promise = (async () => {
+      const renew = new AbortController();
+      const renewTimer = setTimeout(() => renew.abort(), 15000);
       try {
-        const res = await fetch(`${BASE_URL}/api/auth/refresh/`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refresh: started.refresh }) });
+        const res = await fetch(`${BASE_URL}/api/auth/refresh/`, { method: "POST", signal: renew.signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refresh: started.refresh }) });
         // Signed out, or someone else signed in, while this was on its way: drop it.
         if (session !== mine || tokens !== started) return false;
+        if ([502,503,504].includes(res.status)) { reportOffline(); throw new ApiError(0, "NETWORK", "The institution server is temporarily unreachable. Local data is retained."); }
         if (!res.ok) return false;
         const data = await res.json();
         if (session !== mine || tokens !== started) return false;
         await writeTokens({ ...started, access: data.access, refresh: data.refresh ?? started.refresh });
         return true;
-      } catch { return false; } finally { if (refreshing?.promise === promise) refreshing = null; }
+      } catch (e) {
+        if (session !== mine) throw new SessionChangedError();
+        if (e instanceof ApiError) throw e;
+        reportOffline();
+        throw new ApiError(0, "NETWORK", "The server disconnected while renewing the session. Your local study data is retained.");
+      } finally { clearTimeout(renewTimer); if (refreshing?.promise === promise) refreshing = null; }
     })();
     refreshing = { session: mine, promise: promise! };
   }
@@ -95,6 +103,8 @@ interface Options {
   method?: string; body?: unknown; form?: FormData; query?: Record<string, string | number | undefined | null>; auth?: boolean; retry?: boolean;
   /** Store a successful GET and answer it from the device when offline. Defaults to on for student reads. */
   cacheOffline?: boolean;
+  signal?: AbortSignal;
+  timeoutMs?: number;
 }
 
 // Student reads that work offline: answered from the device store when the
@@ -124,19 +134,36 @@ export async function api<T = unknown>(path: string, opts: Options = {}): Promis
   if (!form) headers["Content-Type"] = "application/json";
   if (auth && tokens?.access) headers.Authorization = `Bearer ${tokens.access}`;
   let res: Response;
-  try { res = await fetch(url, { method, headers, body: form ?? (body !== undefined ? JSON.stringify(body) : undefined) }); }
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  opts.signal?.addEventListener("abort", cancel);
+  if (opts.signal?.aborted) cancel();
+  const timeout = setTimeout(cancel, opts.timeoutMs ?? (method === "GET" ? 15000 : 120000));
+  try { res = await fetch(url, { method, headers, signal: controller.signal, body: form ?? (body !== undefined ? JSON.stringify(body) : undefined) }); }
   catch {
+    if (session !== mine || offlineScope() !== owner) throw new SessionChangedError();
+    if (opts.signal?.aborted) throw new ApiError(0, "CANCELLED", "Request cancelled.");
     reportOffline();
     if (cacheable) {
       const saved = await readEntry<T>(offlineKey(path, query));
+      if (session !== mine || offlineScope() !== owner) throw new SessionChangedError();
       if (saved !== undefined) return saved;
     }
     throw new ApiError(0, "NETWORK", method === "GET"
       ? "You are offline and this page has not been saved on this device yet. It will load once the server can be reached."
       : "You are offline. This needs a connection to the LocalMind server; try again when you are back online.");
-  }
+  } finally { clearTimeout(timeout); opts.signal?.removeEventListener("abort", cancel); }
   reportOnline();
   if (session !== mine) throw new SessionChangedError();
+  if ([502,503,504].includes(res.status) && method === "GET") {
+    reportOffline();
+    if (cacheable) {
+      const saved = await readEntry<T>(offlineKey(path, query));
+      if (session !== mine || offlineScope() !== owner) throw new SessionChangedError();
+      if (saved !== undefined) return saved;
+    }
+    throw new ApiError(0, "NETWORK", "The institution server is temporarily unreachable. This page is not saved on this device.");
+  }
   if (res.status === 401 && auth && retry && tokens) {
     if (await refreshTokens()) {
       if (session !== mine) throw new SessionChangedError();

@@ -23,6 +23,7 @@ if TESTING:
     ALLOWED_HOSTS.append("testserver")
 
 INSTALLED_APPS = [
+    "private_library",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",

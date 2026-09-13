@@ -11,6 +11,7 @@ const icon = (name: keyof typeof Ionicons.glyphMap) => {
 };
 
 const finder = [
+  { title: "Books for private study", section: "Upload and share books", path: "/manage/private-library" },
   { title: "Overview", section: "Teaching at a glance", path: "/manage" },
   { title: "Teaching subjects", section: "Subjects, students and modules", path: "/manage/subjects" },
   { title: "Books & modules", section: "Uploads, outlines and publishing", path: "/manage/books" },
@@ -42,6 +43,7 @@ export default function ManageLayout() {
     <Tabs screenOptions={shell.screenOptions} tabBar={shell.tabBar}>
       <Tabs.Screen name="index" options={{ title: "Overview", tabBarIcon: icon("home-outline") }} />
       <Tabs.Screen name="subjects" options={{ title: "Subjects", tabBarIcon: icon("library-outline") }} />
+      <Tabs.Screen name="private-library" options={{ title: "Private study books", tabBarIcon: icon("library-outline") }} />
       <Tabs.Screen name="books" options={{ title: "Books & modules", tabBarIcon: icon("book-outline") }} />
       <Tabs.Screen name="quizzes" options={{ title: "Quizzes", tabBarIcon: icon("help-circle-outline") }} />
       <Tabs.Screen name="assignments" options={{ title: "Assignments", tabBarIcon: icon("create-outline") }} />
@@ -49,7 +51,7 @@ export default function ManageLayout() {
       <Tabs.Screen name="subject/[id]" options={shellScreen({ href: null, title: "Subject" }, { backTo: "/manage/subjects", backLabel: "Subjects" })} />
       <Tabs.Screen name="student/[id]" options={shellScreen({ href: null, title: "Student progress" }, { backTo: "/manage/subjects", backLabel: "Subjects" })} />
       <Tabs.Screen name="document/[id]" options={shellScreen({ href: null, title: "Book" }, { backTo: "/manage/books", backLabel: "Books & modules" })} />
-      <Tabs.Screen name="study/[id]" options={shellScreen({ href: null, title: "Private study publishing" }, { backTo: "/manage/books", backLabel: "Books & modules" })} />
+      <Tabs.Screen name="study/[id]" options={shellScreen({ href: null, title: "Books for private study" }, { backTo: "/manage/books", backLabel: "Books & modules" })} />
       <Tabs.Screen name="document/upload" options={shellScreen({ href: null, title: "Upload a book" }, { backTo: "/manage/books", backLabel: "Books & modules" })} />
       <Tabs.Screen name="quiz/[id]" options={shellScreen({ href: null, title: "Quiz" }, { backTo: "/manage/quizzes", backLabel: "Quizzes" })} />
       <Tabs.Screen name="attempt/[id]" options={shellScreen({ href: null, title: "Attempt" }, { backTo: "/manage/quizzes", backLabel: "Quizzes" })} />

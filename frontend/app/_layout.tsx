@@ -1,3 +1,4 @@
+import ParserHost from "@/private/ParserHost";
 import { Stack, useRouter, useSegments, type ErrorBoundaryProps } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import React, { useEffect } from "react";
@@ -76,6 +77,7 @@ export default function RootLayout() {
           {/* One dialog host for the whole app: every confirmation and warning
               renders here, centred, instead of in a browser popup. */}
           <DialogHost />
+          <ParserHost />
           <NativeDatePickerHost />
         </Gate>
       </AuthProvider>

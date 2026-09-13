@@ -30,3 +30,10 @@ db-backup/
 **/.expo/
 **/.venv/
 **/media/
+
+# Integrated private library
+backend/private-books/
+frontend/public/private-assets/
+frontend/src/private/generated/
+frontend/test-results/
+frontend/playwright-report/
