@@ -1,0 +1,6 @@
+# Test-only dependencies, on top of requirements.txt.
+# CI strips docling (it pulls PyTorch), which also removes pypdfium2, and the
+# PDF parser tests build real PDFs with reportlab and read them with pypdfium2.
+# Without these two the suite errors in five tests.
+reportlab>=4,<6
+pypdfium2>=4.30,<6

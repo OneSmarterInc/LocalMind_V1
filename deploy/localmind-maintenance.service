@@ -1,0 +1,11 @@
+[Unit]
+Description=LocalMind maintenance (requeue stuck documents, flush expired tokens)
+
+[Service]
+Type=oneshot
+User=localmind
+WorkingDirectory=/opt/localmind/app/backend
+EnvironmentFile=/opt/localmind/app/backend/.env
+ExecStart=/opt/localmind/app/backend/.venv/bin/python manage.py requeue_stuck_documents
+ExecStart=/opt/localmind/app/backend/.venv/bin/python manage.py flushexpiredtokens
+ExecStart=/opt/localmind/app/backend/.venv/bin/python manage.py monitor_ai --purge

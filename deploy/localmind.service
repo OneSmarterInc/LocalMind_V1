@@ -1,0 +1,24 @@
+# Bare-metal alternative to docker-compose (see docs/DEPLOYMENT.md).
+[Unit]
+Description=LocalMind API
+After=network.target postgresql.service ollama.service
+Wants=ollama.service
+
+[Service]
+User=localmind
+Group=localmind
+WorkingDirectory=/opt/localmind/app/backend
+# nginx runs in front (deploy/nginx.conf); .env may override this.
+Environment=TRUSTED_PROXY_COUNT=1
+EnvironmentFile=/opt/localmind/app/backend/.env
+ExecStartPre=/opt/localmind/app/backend/.venv/bin/python manage.py migrate --noinput
+ExecStartPre=/opt/localmind/app/backend/.venv/bin/python manage.py check_ai
+ExecStart=/opt/localmind/app/backend/.venv/bin/gunicorn config.wsgi:application \
+    --bind 127.0.0.1:8000 --workers 1 --threads 8 --timeout 300
+# One worker on purpose: every worker loads its own copy of the model. Add
+# workers only with RAM for another copy (about 1.8 GB each at the default context).
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
