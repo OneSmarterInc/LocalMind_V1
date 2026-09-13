@@ -2,26 +2,21 @@ name: Integrated private library
 on:
   push:
     branches: [feature/integrated-private-library]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
-    inputs:
-      real_model:
-        description: Also download the official model and test real browser inference
-        type: boolean
-        default: false
 permissions:
   contents: read
 concurrency:
   group: integrated-private-library-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 defaults:
   run:
     shell: bash
 jobs:
   integration:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
-    permissions:
-      contents: write
+    timeout-minutes: 30
     env:
       AI_ENABLED: 'false'
       AI_MONITOR_MODE: sync
@@ -32,126 +27,93 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: feature/integrated-private-library
-          fetch-depth: 0
+          persist-credentials: false
+      - name: Record the exact source under test
+        run: |
+          mkdir -p verification
+          git rev-parse HEAD | tee verification/tested-commit.txt
+          # Evidence contains only tracked source; no generated DB, model or credentials.
+          git archive --format=tar.gz -o "$RUNNER_TEMP/localmind-tested-source.tar.gz" HEAD
+      - name: Save source provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: private-library-tested-source
+          path: ${{ runner.temp }}/localmind-tested-source.tar.gz
+          retention-days: 7
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Verify transport and materialize ordinary source
-        run: |
-          python - <<'PY'
-          from pathlib import Path, PurePosixPath
-          import base64,hashlib,json,lzma,subprocess
-          expected='5f3728ad381a9d9ddb41ff8743d138d3943690b90ccbb57b5a0081124e430f87'
-          marker=Path('.localmind-integrated-private-library')
-          if marker.exists():
-              if marker.read_text().strip()!=expected: raise SystemExit('Unexpected integration marker; refusing to overwrite.')
-              print('Source already materialized; testing current branch.')
-          else:
-              encoded=''.join(Path(f'.changes/private-library-{i:02}.b64').read_text().strip() for i in (1,2,3))
-              if hashlib.sha256(encoded.encode()).hexdigest()!='4116d71b54440d753eb59077585c71d88bb509f84e7757f0271cf88363d8b24c': raise SystemExit('Transport hash mismatch. Nothing applied.')
-              raw=lzma.decompress(base64.b64decode(encoded,validate=True))
-              if hashlib.sha256(raw).hexdigest()!=expected: raise SystemExit('Source hash mismatch. Nothing applied.')
-              files=json.loads(raw)
-              allowed=('backend/private_library/','frontend/app/','frontend/src/private/','frontend/public/','frontend/scripts/','frontend/tests/','tests/','scripts/apply_private_integration.py')
-              for name,text in files.items():
-                  p=PurePosixPath(name)
-                  if p.is_absolute() or '..' in p.parts or not name.startswith(allowed) or not isinstance(text,str): raise SystemExit('Invalid source path.')
-              for name,text in files.items():
-                  p=Path(name);p.parent.mkdir(parents=True,exist_ok=True);p.write_text(text,encoding='utf-8')
-              # The newer foundation already has stronger async discard handling.
-              # Preserve it rather than replacing it with the earlier single-guard variant.
-              guard=Path('frontend/src/hooks/unsavedGuard.ts').read_text()
-              if 'discard: () => void | Promise<void>;' in guard:
-                  if 'for (const g of all) await g.discard();' not in guard: raise SystemExit('Unrecognized draft guard; review required.')
-                  updater=Path('scripts/apply_private_integration.py')
-                  text=updater.read_text()
-                  target=" edit('frontend/src/hooks/unsavedGuard.ts',guard)"
-                  if text.count(target)!=1: raise SystemExit('Unexpected updater.')
-                  updater.write_text(text.replace(target,' # Existing multi-guard async discard implementation is preserved.'))
-              subprocess.run(['python','scripts/apply_private_integration.py','.'],check=True)
-              marker.write_text(expected+'\n')
-              for i in (1,2,3): Path(f'.changes/private-library-{i:02}.b64').unlink()
-          PY
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
-          if ! git diff --cached --quiet; then
-            git commit -m 'Integrate local private library, simple book sharing, model setup and offline course doubts'
-            git push origin HEAD:feature/integrated-private-library
-          fi
       - name: Install backend test dependencies
         run: |
-          mkdir -p /tmp/private-checks
           python - <<'PY'
           from pathlib import Path
           lines=Path('backend/requirements.txt').read_text().splitlines()
           keep=[s for s in lines if s.strip() and not s.lstrip().startswith('#') and not s.startswith(('docling','llama-cpp-python'))]
           Path('/tmp/private-requirements.txt').write_text('\n'.join(keep)+'\n')
           PY
-          python -m pip install -r /tmp/private-requirements.txt -r backend/requirements-dev.txt
-      - name: Lock integrated frontend dependencies
-        run: |
-          cd frontend
-          npm install --package-lock-only --ignore-scripts
-          cd ..
-          git add frontend/package-lock.json
-          if ! git diff --cached --quiet; then
-            git commit -m 'Lock integrated local model, document parser and browser test dependencies'
-            git push origin HEAD:feature/integrated-private-library
-          fi
+          python -m pip install -q -r /tmp/private-requirements.txt -r backend/requirements-dev.txt >verification/backend-install.log 2>&1 || { tail -60 verification/backend-install.log; exit 1; }
       - name: Check database migrations
         id: migrations
         continue-on-error: true
-        run: cd backend && python manage.py makemigrations --check --dry-run 2>&1 | tee /tmp/private-checks/migrations.log
+        run: cd backend && python manage.py makemigrations --check --dry-run >../verification/migrations.log 2>&1 || { tail -60 ../verification/migrations.log; exit 1; }
       - name: Full Django test suite
         id: django
         continue-on-error: true
-        run: cd backend && python manage.py test --verbosity=2 2>&1 | tee /tmp/private-checks/django.log
-      - name: Install frontend and bundle local runtime resources
+        run: |
+          cd backend
+          python manage.py test --verbosity=2 >../verification/django.log 2>&1 || { tail -100 ../verification/django.log; exit 1; }
+          tail -7 ../verification/django.log
+      - name: Install locked frontend and local runtime resources
         id: install
         continue-on-error: true
-        run: cd frontend && npm ci 2>&1 | tee /tmp/private-checks/frontend-install.log
+        run: cd frontend && npm ci >../verification/frontend-install.log 2>&1 || { tail -60 ../verification/frontend-install.log; exit 1; }
       - name: Full frontend TypeScript check
         id: types
         continue-on-error: true
-        run: cd frontend && npm run typecheck 2>&1 | tee /tmp/private-checks/types.log
+        run: cd frontend && npm run typecheck >../verification/types.log 2>&1 || { cat ../verification/types.log; exit 1; }
       - name: Frontend lint
         id: lint
         continue-on-error: true
-        run: cd frontend && npm run lint 2>&1 | tee /tmp/private-checks/lint.log
+        run: cd frontend && npm run lint >../verification/lint.log 2>&1 || { cat ../verification/lint.log; exit 1; }
       - name: Production web export and offline manifest
         id: export
         continue-on-error: true
-        run: cd frontend && npm run export:web 2>&1 | tee /tmp/private-checks/export.log
-      - name: Private study and prior integrity contract tests
+        run: cd frontend && npm run export:web >../verification/export.log 2>&1 || { tail -80 ../verification/export.log; exit 1; }
+      - name: Private study and prior integrity contracts
         id: contracts
         continue-on-error: true
         run: |
-          node tests/private-contracts.mjs 2>&1 | tee /tmp/private-checks/private-contracts.log
-          python scripts/check_md_alignment.py 2>&1 | tee /tmp/private-checks/md-contracts.log
-          python scripts/check_offline_study.py 2>&1 | tee /tmp/private-checks/foundation-contracts.log
-      - name: Browser integration with a real disposable Django database
+          node tests/private-contracts.mjs >verification/private-contracts.log 2>&1 || { cat verification/private-contracts.log; exit 1; }
+          python scripts/check_md_alignment.py >verification/md-contracts.log 2>&1 || { tail -80 verification/md-contracts.log; exit 1; }
+          python scripts/check_offline_study.py >verification/foundation-contracts.log 2>&1 || { tail -80 verification/foundation-contracts.log; exit 1; }
+      - name: Browser integration with a disposable Django database
         id: browser
         continue-on-error: true
         run: |
           cd frontend
-          npx playwright install --with-deps chromium
-          npm run test:private:web 2>&1 | tee /tmp/private-checks/browser.log
-      - name: Check tracked source stayed unchanged during verification
+          npx playwright install --with-deps chromium >../verification/browser-install.log 2>&1 || { tail -60 ../verification/browser-install.log; exit 1; }
+          npm run test:private:web >../verification/browser.log 2>&1 || { tail -100 ../verification/browser.log; exit 1; }
+          tail -12 ../verification/browser.log
+      - name: Record dependency advisories for review
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          cd frontend
+          npm audit --json >../verification/npm-audit.json || test -s ../verification/npm-audit.json
+      - name: Check tracked source stayed unchanged
         id: clean
+        if: always()
         continue-on-error: true
-        run: git diff --exit-code
+        run: git diff --exit-code && git diff --cached --exit-code
       - name: Save verification evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: integrated-private-library-results
           path: |
-            /tmp/private-checks/*.log
+            verification/
             frontend/test-results/
           retention-days: 7
       - name: Require every integration check
@@ -160,45 +122,6 @@ jobs:
           RESULTS: '${{ steps.migrations.outcome }} ${{ steps.django.outcome }} ${{ steps.install.outcome }} ${{ steps.types.outcome }} ${{ steps.lint.outcome }} ${{ steps.export.outcome }} ${{ steps.contracts.outcome }} ${{ steps.browser.outcome }} ${{ steps.clean.outcome }}'
         run: |
           for result in $RESULTS; do
-            if [ "$result" != success ]; then echo 'A check failed or did not execute; inspect evidence.'; exit 1; fi
+            if [ "$result" != success ]; then echo 'A check failed or did not execute. Inspect the saved evidence.'; exit 1; fi
           done
-          echo 'Integration passed. The standard browser suite substitutes only the inference engine with controlled responses; real-model and physical-device acceptance are separate.'
-  real-browser-model:
-    if: github.event_name == 'workflow_dispatch' && inputs.real_model
-    needs: integration
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
-    env:
-      CI: 'true'
-      LM_E2E_REAL_MODEL: '1'
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: feature/integrated-private-library
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Install test dependencies
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          lines=Path('backend/requirements.txt').read_text().splitlines()
-          Path('/tmp/private-requirements.txt').write_text('\n'.join(s for s in lines if s.strip() and not s.lstrip().startswith('#') and not s.startswith(('docling','llama-cpp-python')))+'\n')
-          PY
-          python -m pip install -r /tmp/private-requirements.txt -r backend/requirements-dev.txt
-          cd frontend
-          npm ci
-          npm run export:web
-          npx playwright install --with-deps chromium
-      - name: Real official model download and offline browser inference
-        run: cd frontend && npm run test:private:web
-      - name: Save real-model evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: private-library-real-model-results
-          path: frontend/test-results/
-          retention-days: 7
+          echo 'Integration passed. Controlled inference is used in this suite; the separate real-AI workflow tests the downloaded model. Native binaries, device performance and dependency security review are separate acceptance gates.'
