@@ -1,0 +1,44 @@
+name: Import pinned source baseline
+on:
+  push:
+    paths: ['.github/workflows/import-source.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  import:
+    if: github.repository == 'OneSmarterInc/LocalMind_V1'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Import once from reviewed upstream commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -f .localmind-upstream-sha; then echo 'Baseline already imported; no changes.'; exit 0; fi
+          upstream=ebf62851db532b5d32546ebbff2f47d2bf85e7c6
+          git clone --no-checkout https://github.com/Anshuman8705/Local_Mind_Integrated.git /tmp/localmind-upstream
+          git -C /tmp/localmind-upstream checkout --detach "$upstream"
+          test "$(git -C /tmp/localmind-upstream rev-parse HEAD)" = "$upstream"
+          python - <<'PY'
+          import pathlib, shutil
+          src = pathlib.Path('/tmp/localmind-upstream')
+          excluded = {'.git', 'node_modules', '.venv', '__pycache__', 'media', 'staticfiles', 'wheelhouse', 'dist', '.expo'}
+          for p in src.rglob('*'):
+              rel = p.relative_to(src)
+              if not p.is_file() or p.is_symlink() or any(s in excluded for s in rel.parts):
+                  continue
+              if p.name == '.env' or p.suffix.lower() in {'.sqlite3', '.db', '.gguf', '.pem', '.key', '.pyc', '.ttf', '.otf'}:
+                  continue
+              dest = pathlib.Path.cwd() / rel
+              dest.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copy2(p, dest)
+          pathlib.Path('.localmind-upstream-sha').write_text('ebf62851db532b5d32546ebbff2f47d2bf85e7c6\n')
+          PY
+          git config user.name 'LocalMind implementation'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .
+          git commit -m 'Import reviewed LocalMind baseline ebf6285 (no private runtime data)'
+          git push origin HEAD:main
