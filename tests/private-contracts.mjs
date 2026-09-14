@@ -89,3 +89,24 @@ test('one failed background job does not block later work',async()=>{
  queue.enqueue(meta(1),async()=>{throw Error('failed generation');});queue.enqueue(meta(2),async()=>{});
  await new Promise(r=>setTimeout(r,0));assert.deepEqual(queue.list('user').map(j=>j.state),['failed','completed']);
 });
+test('split page context includes a tiny tail without borrowing adjacent pages',()=>{
+ const sections=[{id:'a',title:'Page 3 part 1',page:3,source:'Full explanation of conductors and charge.'},{id:'b',title:'Page 3 part 2',page:3,source:'A short heading'},{id:'c',title:'Other',page:4,source:'Unrelated'}];
+ assert.equal(c.pageSource(sections,'b'),'Full explanation of conductors and charge.\n\nA short heading');
+});
+test('balanced page splitting does not orphan a tiny trailing heading',()=>{
+ const input=('An entire sentence about charge. '.repeat(104))+'\n1.3 Conductors';const rows=c.makeSections([{title:'Page',text:input}]);
+ assert.ok(rows.every(s=>s.source.length>500));assert.equal(rows.map(s=>s.source).join('').replace(/\s/g,''),input.replace(/\s/g,''));
+});
+test('doubt lane starts while two long study jobs are active',async()=>{
+ const {JobQueue}=require(path.join(tmp,'jobs.js')),queue=new JobQueue(2,true);const release=[];
+ const run=()=>new Promise(resolve=>release.push(resolve));
+ for(const [i,kind] of ['lesson','quiz','lesson','doubt','doubt'].entries())queue.enqueue({scope:'u',bookId:'b',sectionId:String(i),kind,label:kind},run);
+ assert.deepEqual(queue.list('u').map(j=>j.state),['running','running','queued','running','queued']);
+ queue.cancelOtherScopes('');release.forEach(r=>r());await queue.cancelBook('u','b');
+});
+test('PDF small caps normalize display casing without changing ordinary scientific text',async()=>{
+ const {readablePdfText}=await import('../frontend/scripts/pdf-layout.mjs');
+ const run=(str,x,h,width)=>({str,transform:[h,0,0,h,x,700],height:h,width});
+ assert.equal(readablePdfText([run('C',0,12,8),run('onductors',8,9,55)]),'CONDUCTORS');
+ assert.equal(readablePdfText([run('Charge',0,12,40),run('q',45,9,5)]),'Charge q');
+});

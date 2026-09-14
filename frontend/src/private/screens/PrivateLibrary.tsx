@@ -1,4 +1,3 @@
-import {GenerationJobs} from '../GenerationJobs';
 import React,{useState} from 'react';
 import * as Picker from 'expo-document-picker';
 import {useRouter} from 'expo-router';
@@ -33,7 +32,6 @@ export default function PrivateLibrary(){
  });
  return <Screen refreshing={books.loading} onRefresh={books.reload}>
   <PageHeading title="Private library" subtitle="Your books. Your pace. Lessons, quizzes and doubts stay on this device." right={<Button title="Offline AI" icon="hardware-chip-outline" variant="secondary" onPress={()=>router.push('/student/offline-ai')} disabled={task.busy}/>} />
-  <GenerationJobs/>
   <ErrorBanner message={task.error||books.error} onRetry={books.reload}/>
   {!!task.note&&<Notice message={task.note}/>}
   <Row><Button title="Upload my book" icon="add-outline" onPress={upload} busy={task.busy}/><Badge value={model.data?.installed?'Local model downloaded':'Set up Offline AI'} tone={model.data?.installed?'green':'amber'}/></Row>

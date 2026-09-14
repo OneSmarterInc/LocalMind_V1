@@ -12,6 +12,8 @@ export function readablePdfText(items){
  const textLine=l=>{l.runs.sort((a,b)=>a.x-b.x);let out='',right=0;
   for(const r of l.runs){let value=r.str;const script=r.h<l.h*0.85&&Math.abs(r.y-l.y)>l.h*0.12;
    if(script&&/^[0-9+−-]+$/.test(value))value=value.replace(/[0-9+−-]/g,c=>/\d/.test(c)?(r.y>l.y?supers:subs)[Number(c)]:c==='+'?(r.y>l.y?'⁺':'₊'):(r.y>l.y?'⁻':'₋'));
+   // Small-cap PDF runs encode display size, not mixed-case spelling.
+   if(/^[A-Za-z]+$/.test(value)&&r.h<l.h*0.9&&Math.abs(r.y-l.y)<l.h*0.12&&l.runs.every(x=>/^[A-Za-z\s.0-9]+$/.test(x.str))&&l.runs.filter(x=>x.h>=l.h*0.9).every(x=>x.str===x.str.toUpperCase()))value=value.toUpperCase();
    const gap=r.x-right;out+=(out&&gap>l.h*0.18&&!script?' ':'')+value;right=r.x+(r.width||value.length*r.h*0.5);
   }return out.replace(/[ \t]+/g,' ').trim();};
  let out='';

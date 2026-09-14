@@ -64,12 +64,17 @@ export function makeSections(items: SourceItem[]): Section[] {
     let remaining=source, part=0;
     while(remaining) {
       let end=Math.min(remaining.length,MAX_SECTION_CHARS);
-      if(end<remaining.length) { const boundary=Math.max(remaining.lastIndexOf('\n',end),remaining.lastIndexOf('. ',end)); if(boundary>MAX_SECTION_CHARS/2) end=boundary+1; }
+      if(end<remaining.length) { if(remaining.length-end<500)end=Math.floor(remaining.length/2); const boundary=Math.max(remaining.lastIndexOf('\n',end),remaining.lastIndexOf('. ',end)); if(boundary>end/2) end=boundary+1; }
       const s=remaining.slice(0,end).trim(); remaining=remaining.slice(end).trim(); if(!s) continue;
       result.push({id:`s${result.length+1}`,title:`${item.title.slice(0,260) || 'Reading'}${part || remaining ? ` · Part ${++part}` : ''}`,source:s,...provenance});
     }
   }
   requireThat(result.length>0,'No source content was found in this book.'); return result;
+}
+/** A split PDF page remains one source for learning; never borrow another book's text. */
+export function pageSource(sections: Section[], id: string): string {
+ const selected=sections.find(s=>s.id===id); requireThat(selected,'Choose a module');
+ return (selected.page ? sections.filter(s=>s.page===selected.page) : [selected]).map(s=>s.source).join('\n\n');
 }
 export function retrieve(source: string, question: string, limit=MAX_SECTION_CHARS) {
   if(source.length<=limit) return source;

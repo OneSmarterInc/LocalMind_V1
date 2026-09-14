@@ -36,7 +36,7 @@ async function recognizer(signal){
   await job('initialize',{langs:'eng',oem:1,config:{}});
   return {read:async canvas=>{
    check(signal);
-   return await job('recognize',{image:base64(canvas.toDataURL('image/png').split(',')[1]),options:{preserve_interword_spaces:'1',tessedit_pageseg_mode:'11'},output:{text:true}});
+   return await job('recognize',{image:base64(canvas.toDataURL('image/png').split(',')[1]),options:{preserve_interword_spaces:'1',tessedit_pageseg_mode:'3'},output:{text:true}});
   },close:async()=>close()};
  }catch(e){close();throw e;}
 }

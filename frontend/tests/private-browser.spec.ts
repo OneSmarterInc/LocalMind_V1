@@ -69,7 +69,7 @@ test('private lesson regeneration, quiz checking and new doubts survive a comple
  await page.getByRole('button',{name:'Check my answers',exact:true}).click();
  await expect(page.getByText('1 of 1 correct',{exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Generate another quiz',exact:true}).click();
- await expect(jobPanel(page).getByText('Completed',{exact:true})).toHaveCount(4);
+ await expect(page.getByRole('button',{name:'Generate another quiz',exact:true})).toBeEnabled();
  await expect(page.getByRole('button',{name:'Saved quiz'})).toContainText('Version 1');
  await page.getByRole('button',{name:'Saved quiz'}).click();await page.getByRole('menuitem',{name:/Version 2/}).click();
  await page.getByRole('radio',{name:'A. Chloroplasts',exact:true}).click();
@@ -175,8 +175,10 @@ test('multiple background jobs continue across modules and navigation without a 
  await page.getByRole('button',{name:'Back to library',exact:true}).click();
  await expect(page).toHaveURL(/\/student\/private-library$/);
  await expect(page.getByRole('button',{name:'Save and leave',exact:true})).toHaveCount(0);
- await expect(jobPanel(page).getByText(/^(Running|Queued)$/).first()).toBeVisible();
+ await expect(page.getByRole('heading',{name:'Generation jobs',exact:true})).toHaveCount(0);
+ await page.getByText('Generation jobs',{exact:true}).click();
  await expect(jobPanel(page).getByText('Completed',{exact:true})).toHaveCount(3,{timeout:30000});
+ await page.getByText('Private library',{exact:true}).first().click();
  await page.getByRole('heading',{name:'Saved books',exact:true}).locator('..').locator('..').getByText('Background biology',{exact:true}).click();
  await page.getByRole('button',{name:'Leaf science',exact:true}).click();
  await page.getByRole('tab',{name:'Lesson',exact:true}).click();
@@ -207,6 +209,28 @@ test('cancelling a background lesson does not cancel the queued quiz',async({pag
  await page.getByRole('tab',{name:'Lesson',exact:true}).click();await page.getByRole('button',{name:'Cancel',exact:true}).click();
  await page.getByRole('tab',{name:'Practice quiz',exact:true}).click();
  await expect(page.getByRole('radio')).toHaveCount(4,{timeout:30000});
+ await page.getByText('Generation jobs',{exact:true}).click();
  await expect(jobPanel(page).getByText('Cancelled',{exact:true})).toBeVisible();
  await expect(jobPanel(page).getByText('Completed',{exact:true})).toBeVisible();
+});
+
+test('doubts, drafts and selected module survive reload without embedded jobs',async({page})=>{
+ await signIn(page);await model(page);await importBook(page,'Persistent doubts');
+ await page.getByRole('button',{name:'Open practice',exact:true}).click();
+ await page.getByRole('tab',{name:'Ask a doubt',exact:true}).click();
+ await page.getByLabel('Your question',{exact:true}).fill('Where does photosynthesis occur?');
+ await page.getByRole('button',{name:'Ask local AI',exact:true}).click();
+ await expect(page.getByText('You: Where does photosynthesis occur?',{exact:true})).toBeVisible();
+ await page.getByLabel('Your question',{exact:true}).fill('Explain chlorophyll next');
+ await page.reload();
+ await expect(page.getByText('You: Where does photosynthesis occur?',{exact:true})).toBeVisible();
+ await expect(page.getByLabel('Your question',{exact:true})).toHaveValue('Explain chlorophyll next');
+ await expect(page.getByRole('heading',{name:'Generation jobs',exact:true})).toHaveCount(0);
+ await page.getByRole('tab',{name:'Read',exact:true}).click();
+ await page.getByRole('button',{name:'Correct extracted text',exact:true}).click();
+ await page.getByLabel('Correct extracted source',{exact:true}).fill('Chlorophyll absorbs sunlight in chloroplasts.');
+ await page.getByRole('button',{name:'Save source correction',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Correct extracted text',exact:true})).toBeVisible();
+ await page.reload();
+ await expect(page.getByText('Chlorophyll absorbs sunlight in chloroplasts.',{exact:true})).toBeVisible();
 });

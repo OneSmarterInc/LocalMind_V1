@@ -4,7 +4,7 @@ export type Job={id:number;scope:string;bookId:string;sectionId:string;kind:stri
 type Entry=Job&{controller:AbortController;run?:(signal:AbortSignal,progress:(s:string)=>void)=>Promise<unknown>;settled:Promise<void>;finish:()=>void};
 export class JobQueue{
  private entries:Entry[]=[];private serial=0;private active=0;private snapshotJobs:readonly Job[]=[];private listeners=new Set<()=>void>();
- constructor(private concurrency=2){}
+ constructor(private concurrency=2,private doubtLane=false){}
  subscribe=(fn:()=>void)=>{this.listeners.add(fn);return()=>{this.listeners.delete(fn);};};
  snapshot=()=>this.snapshotJobs;
  private emit(){this.snapshotJobs=this.entries.map(j=>({...j}));for(const fn of this.listeners)fn();}
@@ -20,11 +20,12 @@ export class JobQueue{
  cancelOtherScopes(scope:string){for(const j of this.entries)if(j.scope!==scope)this.cancel(j.id);}
  async cancelBook(scope:string,bookId:string){const jobs=this.entries.filter(j=>j.scope===scope&&j.bookId===bookId);for(const j of jobs)this.cancel(j.id);await Promise.all(jobs.map(j=>j.settled));}
  private pump(){
-  while(this.active<this.concurrency){const j=this.entries.find(j=>j.state==='queued');if(!j)break;this.active++;j.state='running';j.note='Preparing on this device';this.emit();
+  while(true){const running=this.entries.filter(j=>j.state==='running');
+   const j=this.entries.find(j=>j.state==='queued'&&(this.doubtLane?(j.kind==='doubt'?!running.some(r=>r.kind==='doubt'):running.filter(r=>r.kind!=='doubt').length<this.concurrency):this.active<this.concurrency));if(!j)break;this.active++;j.state='running';j.note='Preparing on this device';this.emit();
    void(async()=>{try{await j.run!(j.controller.signal,s=>{if(!j.controller.signal.aborted){j.note=s;this.emit();}});j.state=j.controller.signal.aborted?'cancelled':'completed';j.note=j.state==='completed'?'Saved on this device':'Cancelled';}
     catch(e){j.state=j.controller.signal.aborted?'cancelled':'failed';j.error=j.state==='failed'?(e instanceof Error?e.message:String(e)):'';}
     finally{j.run=undefined;j.finish();this.active--;this.emit();this.pump();}})();
   }
  }
 }
-export const generationJobs=new JobQueue();
+export const generationJobs=new JobQueue(2,true);

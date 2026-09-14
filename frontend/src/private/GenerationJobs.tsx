@@ -11,6 +11,6 @@ export function GenerationHost(){const library=useLibrary(),scope=library?jobSco
 export function GenerationJobs(){const library=useLibrary(),router=useRouter(),jobs=useGenerationJobs(library?.prefix||'');
  if(!jobs.length)return null;
  return <Card><H2>Generation jobs</H2><P muted>You can read, practise and move between pages while these jobs run. The local model handles one response at a time. Keep this app open; refreshing or closing it interrupts unfinished jobs.</P>
- {jobs.slice().reverse().map(j=><Card key={j.id}><Row><P>{j.label}</P><Badge value={j.state}/></Row><P muted>{j.error||j.note}</P><Row><Button title="Open book" small variant="secondary" onPress={()=>router.push(`/student/private-book/${j.bookId}`)}/>{['queued','running'].includes(j.state)?<Button title="Cancel job" small variant="secondary" onPress={()=>generationJobs.cancel(j.id)}/>:null}</Row></Card>)}
+ {jobs.slice().reverse().map(j=><Card key={j.id}><Row><P>{j.label}</P><Badge value={j.state}/></Row><P muted>{j.error||j.note}</P><Row><Button title="Open book" small variant="secondary" onPress={()=>router.push(`/student/private-book/${j.bookId}?section=${encodeURIComponent(j.sectionId)}&tab=${j.kind==='doubt'?'ask':j.kind}`)}/>{['queued','running'].includes(j.state)?<Button title="Cancel job" small variant="secondary" onPress={()=>generationJobs.cancel(j.id)}/>:null}</Row></Card>)}
  </Card>;
 }
