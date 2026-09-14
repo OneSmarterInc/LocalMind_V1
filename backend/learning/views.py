@@ -16,6 +16,7 @@ def _module_payload(module, progress, include_source):
         "availability": module.availability, "start_page": module.start_page, "end_page": module.end_page,
         "progress": {
             "status": progress.status if progress else ProgressStatus.NOT_STARTED,
+            "lesson_viewed_at": progress.lesson_viewed_at if progress else None,
             "started_at": progress.started_at if progress else None,
             "completed_at": progress.completed_at if progress else None,
             "best_quiz_percentage": progress.best_quiz_percentage if progress else None,

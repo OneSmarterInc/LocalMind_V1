@@ -48,8 +48,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const t = await tokenStore.load();
       if (t) {
         try {
-          const me = await authApi.me(); setUser(me); setMustChange(me.must_change_password); setSessionId(t.session_id ?? null);
-          void adopt(me);
+          const me = await authApi.me(); await adopt(me); setUser(me); setMustChange(me.must_change_password); setSessionId(t.session_id ?? null);
+
         } catch (e) {
           // No server: carry on with the saved profile so a student can keep
           // studying what was downloaded. Only a real rejection signs out.
@@ -82,8 +82,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     clearSessionExpired();
     const res = await authApi.login(role, email, password);
     await tokenStore.set({ access: res.access, refresh: res.refresh, session_id: res.session_id });
+    await adopt({ ...res.user, must_change_password: res.must_change_password });
     setUser(res.user); setMustChange(res.must_change_password); setSessionId(res.session_id);
-    void adopt({ ...res.user, must_change_password: res.must_change_password });
     return res;
   }, [adopt]);
 
@@ -91,8 +91,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const res = await authApi.changePassword(current, next);
     const t = tokenStore.get();
     await tokenStore.set({ access: res.access, refresh: res.refresh, session_id: t?.session_id ?? null });
+    await adopt({ ...res.user, must_change_password: false });
     setUser(res.user); setMustChange(false);
-    void adopt({ ...res.user, must_change_password: false });
   }, [adopt]);
 
   const logout = useCallback(async () => {

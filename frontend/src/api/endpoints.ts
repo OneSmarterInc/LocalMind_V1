@@ -1,3 +1,4 @@
+import {courseDocument,courseQuizzes,pendingResults,courseModule,startCourseAttempt,submitCourseAttempt,courseAttempt,recordCourseWork} from '@/offline/coursework';
 import { ApiError, api } from "./client";
 import type * as T from "./types";
 
@@ -51,20 +52,20 @@ export const meta = {
 export const student = {
   subjects: () => api<T.Subject[]>("/student/subjects/").then(list),
   documents: (subjectId: string) => api<(T.Document & { open_module_count: number; completed_modules: number; progress_percent: number })[]>(`/student/subjects/${subjectId}/documents/`),
-  document: (id: string) => api<T.DocumentTree>(`/student/documents/${id}/`),
-  module: (id: string) => api<T.ModuleFull>(`/student/modules/${id}/`),
-  reportTime: (moduleId: string, seconds: number) => api<{ learning_seconds: number }>(`/student/modules/${moduleId}/time/`, { method: "POST", body: { seconds } }),
+  document: (id: string) => courseDocument(id),
+  module: (id: string) => courseModule(id),
+  reportTime: (moduleId: string, seconds: number) => recordCourseWork('time',moduleId,seconds),
   teach: (moduleId: string) => api<T.TeachResponse>(`/student/modules/${moduleId}/teach/`),
   ask: (moduleId: string, question: string, conversation_id?: string) =>
     api<T.AskResponse>(`/student/modules/${moduleId}/ask/`, { method: "POST", body: { question, conversation_id } }),
   conversations: (module?: string) => api<T.Conversation[]>("/student/conversations/", { query: { module } }).then(list),
   conversation: (id: string) => api<T.Conversation>(`/student/conversations/${id}/`),
-  quizzes: (q: Q = {}) => api<T.Quiz[]>("/student/quizzes/", { query: q }),
-  startAttempt: (quizId: string) => api<T.StartAttempt>(`/student/quizzes/${quizId}/attempts/`, { method: "POST" }),
+  quizzes: (q: Q = {}) => courseQuizzes(q),
+  startAttempt: (quizId: string) => startCourseAttempt(quizId),
   submitAttempt: (attemptId: string, submitted_answers: Record<string, string>) =>
-    api<T.Attempt>(`/student/quiz-attempts/${attemptId}/submit/`, { method: "POST", body: { submitted_answers } }),
-  attempt: (id: string) => api<T.Attempt>(`/student/quiz-attempts/${id}/`),
-  scores: (q: Q = {}) => allPages<T.Attempt>("/student/scores/", q),
+    submitCourseAttempt(attemptId,submitted_answers),
+  attempt: (id: string) => courseAttempt(id),
+  scores: (q: Q = {}) => allPages<T.Attempt>("/student/scores/", q).then(async rows=>Object.assign([...await pendingResults(),...rows],{incomplete:rows.incomplete})),
   remediation: (attemptId: string) => api<{ overview: string; items: { question: string; explanation: string; source_reference?: string }[]; generator: string }>(`/student/quiz-attempts/${attemptId}/remediation/`, { method: "POST" }),
   assignments: (q: Q = {}) => api<T.Assignment[]>("/student/assignments/", { query: q }),
   submitAssignment: (id: string, content: string, time_spent_seconds: number) =>

@@ -234,3 +234,37 @@ test('doubts, drafts and selected module survive reload without embedded jobs',a
  await page.reload();
  await expect(page.getByText('Chlorophyll absorbs sunlight in chloroplasts.',{exact:true})).toBeVisible();
 });
+
+for(const release of ['Immediate','Held'])test(`institutional ${release} quiz and progress survive offline restart and synchronize`,async({page,context})=>{
+ const tokens=await signIn(page);await model(page);const data=fixture();
+ await page.goto('/student/offline');await page.getByRole('button',{name:'Refresh course copy',exact:true}).click();
+ await expect(page.getByText('Your course copy is saved.',{exact:true})).toBeVisible();
+ await context.setOffline(true);
+ await page.goto(`/student/module/${data.module}?tab=lesson`);
+ await expect(page.getByText('This lesson was prepared by the institution before download.',{exact:true})).toBeVisible();
+ await page.goto(`/student/quiz/${data['quiz'+release]}`);
+ await page.getByRole('button',{name:'Start quiz',exact:true}).click();
+ await page.getByText('The next process',{exact:true}).click();
+ await page.getByRole('button',{name:'Review & submit',exact:true}).click();
+ await page.getByRole('button',{name:'Submit answers',exact:true}).click();
+ await page.getByRole('button',{name:'Submit answers',exact:true}).last().click();
+ await expect(page).toHaveURL(/student\/attempt\//);
+ const url=page.url();await page.reload();
+ await expect(page.getByText('Saved on this device',{exact:true})).toBeVisible();
+ if(release==='Immediate')await expect(page.getByText('Local result: 100% · Passed',{exact:true})).toBeVisible();
+ else {await expect(page.getByText(/Your faculty has withheld results/)).toBeVisible();await expect(page.getByText(/Local result:/)).toHaveCount(0);}
+ if(release==='Immediate'){
+  await page.goto(`/student/module/${data.module}`);
+  await expect(page.getByText('This progress is saved on your device and awaits institution synchronization.',{exact:true})).toBeVisible();
+  let dropped=false;await page.route('**/api/student/offline/events/',async route=>{const event=route.request().postDataJSON();if(event.kind==='quiz'&&!dropped){dropped=true;await route.fetch();await route.abort();}else await route.continue();});
+ }
+ await context.setOffline(false);await page.goto('/student/offline');
+ await page.getByRole('button',{name:'Refresh course copy',exact:true}).click();
+ await expect(page.getByText(/0 saved events waiting/)).toBeVisible({timeout:45000});
+ const response=await page.request.get('/api/student/scores/',{headers:{Authorization:`Bearer ${tokens.access}`}});expect(response.ok()).toBeTruthy();const scores=await response.json();const rows=Array.isArray(scores)?scores:scores.results;
+ expect(rows.filter((r:any)=>r.assessment_id===data['quiz'+release])).toHaveLength(1);
+ await page.goto(url);
+ await expect(page.getByText('Saved on this device',{exact:true})).toHaveCount(0);
+ if(release==='Held')await expect(page.getByText('Your faculty will release the results.',{exact:true})).toBeVisible();
+ else await expect(page.getByText('Your quiz result',{exact:true})).toBeVisible();
+});

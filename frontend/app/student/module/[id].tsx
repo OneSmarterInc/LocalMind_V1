@@ -1,3 +1,5 @@
+import {useIsFocused} from '@react-navigation/native';
+import {recordCourseWork} from '@/offline/coursework';
 import CourseAsk from "@/private/CourseAsk";
 import { SourceContent } from "@/ui/SourceContent";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
@@ -16,6 +18,7 @@ export default function StudentModule() {
   const { id, tab: tabParam } = useLocalSearchParams<{ id: string; tab?: string }>();
   const router = useRouter();
   const navigation = useNavigation();
+  const focused=useIsFocused();
   const [tab, setTab] = useState<Tab>(tabParam === "lesson" || tabParam === "ask" ? tabParam : "read");
   useEffect(() => { if (tabParam === "lesson" || tabParam === "ask" || tabParam === "read") setTab(tabParam); }, [tabParam, id]);
   const [large, setLarge] = useState(false);
@@ -29,6 +32,8 @@ export default function StudentModule() {
   }, [m?.document_id]);
   const teach = useAsync(() => student.teach(id), [id]);
 
+  useEffect(()=>{if(focused&&tab==='lesson'&&teach.data?.status==='ready')void recordCourseWork('lesson',id).catch(()=>{});},[focused,tab,id,teach.data?.status]);
+
   // The breadcrumb's section link goes back to the book this module belongs to.
   useEffect(() => {
     if (m?.document_id) navigation.setOptions({ backTo: `/student/document/${m.document_id}` });
@@ -36,13 +41,15 @@ export default function StudentModule() {
 
   // Reading time: foreground seconds, sent every minute and when leaving.
   const acc = useRef(0);
+  const moduleLoaded=!!m;
   useEffect(() => {
+    if(!focused||!moduleLoaded)return;
     let last = Date.now(); let active = true;
     const flush = () => { const sec = Math.round(acc.current); if (sec > 0) { acc.current = 0; student.reportTime(id, sec).catch(() => {}); } };
-    const tick = setInterval(() => { if (active) acc.current += (Date.now() - last) / 1000; last = Date.now(); if (acc.current >= 60) flush(); }, 5000);
+    const tick = setInterval(() => { if (active && (typeof document==='undefined'||document.visibilityState==='visible')) acc.current += (Date.now() - last) / 1000; last = Date.now(); if (acc.current >= 60) flush(); }, 5000);
     const sub = AppState.addEventListener("change", (st) => { active = st === "active"; last = Date.now(); if (!active) flush(); });
     return () => { clearInterval(tick); sub.remove(); flush(); };
-  }, [id]);
+  }, [id,focused,moduleLoaded]);
 
   // Lessons are prepared in the background; while one is queued, look again quietly.
   const { setData: setTeach } = teach;
@@ -72,6 +79,7 @@ export default function StudentModule() {
   const lessonState = teach.data?.status;
   return (
     <Screen refreshing={mod.loading} onRefresh={() => { mod.reload(); teach.reload(); }}>
+      {m?.progress?.sync_pending?<Notice message="This progress is saved on your device and awaits institution synchronization."/>:null}
       <ErrorBanner message={mod.error} onRetry={mod.reload} />
       {mod.loading && !m ? <Loading /> : null}
       {m ? (
@@ -179,7 +187,7 @@ function ModuleSide({ module, quizzes, onQuiz, onOffline }: { module: ModuleFull
         ) : null}
       </Card>
       <Card>
-        <CardHead title="Keep learning offline" subtitle="Saved reading and ready lessons remain available offline. Download a local model in Offline AI to ask new doubts on this device. Official quiz submissions still need the institution server." />
+        <CardHead title="Keep learning offline" subtitle="Saved reading and ready lessons remain available offline. Download a local model in Offline AI to ask new doubts on this device. Downloaded MCQ quizzes are saved and marked locally when immediate results are permitted; submissions synchronize after reconnection." />
         <TextLink title="Offline availability" icon="download-outline" onPress={onOffline} />
       </Card>
     </>

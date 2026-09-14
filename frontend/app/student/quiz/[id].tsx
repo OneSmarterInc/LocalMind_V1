@@ -108,10 +108,10 @@ function StudentQuizEditor({ id }: { id: string }) {
                     ]} />
                   </View>
                   <StepList steps={[["Choose one answer for each question.", ""], ["You can move between questions before you submit.", ""], ["Review your answers before the final submission.", ""]]} />
-                  <Notice tone={online ? "info" : "warning"} title={online ? "Stay connected." : "You are offline."} message={online ? "Starting and submitting a quiz need the LocalMind server. Reading offline is supported; offline quiz submission is not." : "Reconnect to start this quiz."} />
+                  <Notice tone={online ? "info" : "warning"} title={online ? "Your work is saved on this device." : "You are offline."} message="Downloaded MCQ quizzes work offline. Immediate results are marked here; answers wait for synchronization and server validation. Held results remain hidden. Changed access, deadlines or attempt limits may require review when reconnecting." />
                   <ErrorBanner message={start.error} />
                   <FormFooter note={q.time_limit_minutes ? `The timer starts with the attempt. When the ${q.time_limit_minutes} minutes run out, your answers are submitted automatically.` : "Nothing is submitted until you confirm."}>
-                    <Button title="Start quiz" icon="arrow-forward" onPress={() => start.run()} busy={start.busy} disabled={!online || left === 0} />
+                    <Button title="Start quiz" icon="arrow-forward" onPress={() => start.run()} busy={start.busy} disabled={left === 0} />
                   </FormFooter>
                 </Card>
               }

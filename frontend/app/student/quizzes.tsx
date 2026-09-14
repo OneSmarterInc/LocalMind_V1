@@ -10,6 +10,7 @@ type RowT = { quiz: Quiz; latest: Attempt | null; code: string; sub: string };
 
 function statusOf(r: RowT): { label: string; tone: Tone; action: string } {
   const q = r.quiz;
+  if(q.offline_pending)return {label:"Saved locally · awaiting sync",tone:"amber" as const,action:"View result"};
   if (!q.attempts_used) return { label: "Not started", tone: "blue", action: "Start quiz" };
   const held = (q.results_pending ?? 0) > 0 || (r.latest as unknown as { results_released?: boolean } | null)?.results_released === false;
   if (held && q.best_percentage == null) return { label: "Results not released", tone: "amber", action: "View submission" };

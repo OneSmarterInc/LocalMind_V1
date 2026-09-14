@@ -49,6 +49,14 @@ with tempfile.TemporaryDirectory(prefix='localmind-browser-') as folder:
     doc.file.save(doc.original_name,ContentFile(raw),save=True)
     from learning.models import Module
     module=Module.objects.filter(chapter__document=doc).order_by('order').first()
+    from assessments.models import Assessment
+    from core.testing import MCQ
+    question={**MCQ,'id':'course-q1'}
+    immediate=Assessment.objects.create(subject=subject,module=module,kind='module',title='Offline immediate quiz',questions=[question],status='published',results_release='immediate')
+    held=Assessment.objects.create(subject=subject,module=module,kind='module',title='Offline held quiz',questions=[question],status='published',results_release='held')
+    from tutor.models import ModuleLesson
+    from tutor.lessons import source_hash
+    ModuleLesson.objects.update_or_create(module=module,defaults={'status':'ready','source_hash':source_hash(module.source_text),'lesson':{'title':'Stored course lesson','learning_objectives':['Understand plants'],'sections':[{'heading':'Photosynthesis','explanation':'This lesson was prepared by the institution before download.','source_reference':'Leaf science'}],'key_terms':[],'summary':'Plants use sunlight.'}})
     results=ROOT/'frontend/test-results';results.mkdir(exist_ok=True)
     pdf=io.BytesIO();canvas=Canvas(pdf);canvas.drawString(40,760,'Photosynthesis happens in the chloroplasts of green leaves.');canvas.save()
     (results/'private-fixture.pdf').write_bytes(pdf.getvalue())
@@ -78,6 +86,6 @@ with tempfile.TemporaryDirectory(prefix='localmind-browser-') as folder:
     for line in range(12):c.drawString(30,750-line*20,'Readable textbook content about sunlight, leaves and photosynthesis.')
     c.save();(results/'illustrated-text.pdf').write_bytes(illustrated.getvalue())
     bitmap.close();page.close();original.close()
-    (results/'fixture.json').write_text(json.dumps({'module':str(module.id),'document':str(doc.id),'subject':str(subject.id),'source':source,'password':password}))
+    (results/'fixture.json').write_text(json.dumps({'quizImmediate':str(immediate.pk),'quizHeld':str(held.pk),'module':str(module.id),'document':str(doc.id),'subject':str(subject.id),'source':source,'password':password}))
     # runserver stays in this process so temporary storage settings are retained.
     call_command('runserver','127.0.0.1:8765',use_reloader=False,verbosity=0)

@@ -23,6 +23,7 @@ export interface Subject {
 export type ModuleAvailability = "locked" | "open";
 export type ProgressStatus = "not_started" | "in_progress" | "completed" | "needs_review";
 export interface Progress {
+  sync_pending?: boolean;
   status: ProgressStatus; best_quiz_percentage: number | null; quiz_attempts: number; learning_seconds: number;
 }
 export interface ModuleBrief {
@@ -96,6 +97,7 @@ export interface Quiz {
   results_release_at?: string | null;
   results_released_at?: string | null;
   pending_release_count?: number;
+  offline_pending?: number;
   attempts_used?: number; results_pending?: number; best_percentage?: number | null; passed?: boolean | null; created_by_name?: string; created_at: string;
 }
 export interface DetailedResult {

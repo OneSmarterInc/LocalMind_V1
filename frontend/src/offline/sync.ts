@@ -1,4 +1,6 @@
-// Download everything a student can study offline, and keep it fresh.
+import {flushCourseWork} from './coursework';
+// Upload durable course events, then download the authorized course copy.
+// Private study data is never included; content replacement cannot erase unsent work.
 //
 // One request to /api/student/offline/ returns the student's own GET
 // responses (subjects, books, every open module with its text, lesson and
@@ -33,6 +35,7 @@ export function syncNow(): Promise<void> {
   promise = (async () => {
     publish({ running: true, error: null });
     try {
+      await flushCourseWork();
       const bundle = await api<Bundle>("/student/offline/", { cacheOffline: false });
       if (offlineScope() !== owner) return; // signed out (or someone else signed in) meanwhile
       const previous = await readEntry<string>(META.version);

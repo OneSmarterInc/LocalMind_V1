@@ -23,6 +23,7 @@ import hashlib
 import json
 from urllib.parse import urlencode
 
+from django.core.serializers.json import DjangoJSONEncoder
 from django.test import RequestFactory
 from django.urls import Resolver404, resolve
 from django.utils import timezone
@@ -77,7 +78,6 @@ class StudentOfflineBundleView(APIView):
         student = request.user
         put("/student/subjects/")
         all_quizzes = put("/student/quizzes/") or []
-        put("/student/scores/")
         put("/student/assignments/")
         put("/student/analytics/overview/")
         subjects = {d.subject_id for d in services.student_documents(student)}
@@ -102,7 +102,16 @@ class StudentOfflineBundleView(APIView):
         for document_id in document_ids:
             put(f"/student/documents/{document_id}/")
 
-        body = json.dumps(entries, sort_keys=True, default=str)
+        from .course_sync import packages, result as attempt_result
+        entries['/student/offline/quizzes/'] = packages(student)
+        from assessments.models import AssessmentAttempt
+        # Download the complete owned history, not only the first paginated scores page.
+        history = AssessmentAttempt.objects.filter(student=student).exclude(status='in_progress').select_related('assessment','student').order_by('-started_at')
+        scores = [attempt_result(attempt) for attempt in history]
+        entries['/student/scores/'] = scores
+        for row in scores:
+            entries[f"/student/quiz-attempts/{row['id']}/"] = row
+        body = json.dumps(entries, sort_keys=True, cls=DjangoJSONEncoder)
         return Response({
             "version": hashlib.sha256(body.encode()).hexdigest()[:32],
             "generated_at": timezone.now(),
