@@ -2,6 +2,7 @@ import React,{useEffect,useRef,useState} from 'react';
 import {Pressable,ScrollView,View} from 'react-native';
 import {useLocalSearchParams,useRouter} from 'expo-router';
 import {Screen,PageHeading,Card,Row,H2,P,Button,Badge,Notice,ErrorBanner,Loading,PageTabs,Input,Split,Dropdown,ProgressBar,confirmAsync,colors} from '@/ui';
+import {SourceVisuals} from '../SourceVisuals';
 import {SourceContent} from '@/ui/SourceContent';
 import {useAsync} from '@/hooks/useAsync';
 import {useLibrary} from '../useLibrary';
@@ -45,12 +46,15 @@ function ModuleLearning({bookId,section,next}:{bookId:string;section:Section;nex
   <PageTabs value={tab} onChange={t=>{if(t!==tab)void confirmLeave().then(ok=>{if(ok)setTab(t);});}} tabs={[{key:'read',label:'Read'},{key:'lesson',label:'Lesson'},{key:'quiz',label:'Practice quiz'},{key:'ask',label:'Ask a doubt'}]}/>
   <ErrorBanner message={task.error||lessons.error||quizzes.error||chats.error}/>
   {task.busy?<Notice title="Working on this device" message={tab==='quiz'?`Preparing question ${Math.min(done+1,Number(count))} of ${count}. Previous quizzes are unchanged until this set is complete.`:'The installed local model is working. No internet is used.'} action={<Button title="Cancel" variant="secondary" onPress={task.cancel}/>}/>:null}
+  {section.ocr?<Notice title="Text recognised on this device" message="Compare OCR text with the original image, especially numbers, formulas and tables."/>:null}
+  {!section.source.trim()?<Notice message="This page is available as an image. No usable text was recognised, so local AI cannot explain it."/>:null}
   {tab==='read'?<><SourceContent text={section.source}/><Row><Button title="Generate a lesson" onPress={()=>{setTab('lesson');generateLesson();}} disabled={task.busy}/><Button title="Next module" variant="secondary" onPress={next} disabled={task.busy}/></Row></>:null}
   {tab==='lesson'?<><Row><Button title={lesson?'Regenerate lesson':'Generate lesson'} icon="sparkles-outline" onPress={generateLesson} disabled={task.busy}/>{lessons.data?.length?<Dropdown label="Saved lesson" value={lesson?.id||''} onChange={setLessonId} options={lessons.data.map((l,i)=>({value:l.id,label:`Version ${lessons.data!.length-i} · ${new Date(l.createdAt).toLocaleString()}`}))}/>:null}</Row>{lesson?<LocalLesson lesson={lesson}/>:<P muted>Generate an explanation from this module with your local AI model.</P>}</>:null}
   {tab==='quiz'?<><Row><Dropdown label="Questions" value={count} onChange={v=>{if(!task.busy)setCount(v);}} options={Array.from({length:10},(_,i)=>({value:String(i+1),label:String(i+1)}))}/><Button title={quiz?'Generate another quiz':'Generate quiz'} icon="sparkles-outline" onPress={()=>{void confirmLeave().then(ok=>{if(ok)generateQuiz();});}} disabled={task.busy}/>{quizzes.data?.length?<Dropdown label="Saved quiz" value={quiz?.id||''} onChange={v=>{void confirmLeave().then(ok=>{if(ok)setQuizId(v);});}} options={quizzes.data.map((q,i)=>({value:q.id,label:`Version ${quizzes.data!.length-i} · ${q.questions.length} questions`}))}/>:null}</Row>
    {task.busy?<ProgressBar value={done/Number(count)*100}/>:null}
    {quiz?<QuizPractice key={quiz.id} quiz={quiz}/>:<P muted>Create a quiz to practise. A failed or incomplete generation never becomes a completed quiz.</P>}</>:null}
   {tab==='ask'?<><P muted>Your private doubts stay on this device.</P>{(chats.data||[]).map(c=><Chat key={c.id} chat={c}/>)}<Input label="Your question" value={question} onChangeText={setQuestion} multiline maxLength={1000} placeholder="What would you like to understand?" editable={!task.busy}/><Button title="Ask local AI" icon="send-outline" onPress={ask} disabled={task.busy||!question.trim()}/></>:null}
+  {(tab==='read'||tab==='lesson')&&<SourceVisuals bookId={bookId} sectionId={section.id}/>}
   <Row><Button title="Offline AI setup" small variant="secondary" onPress={()=>{void confirmLeave().then(ok=>{if(ok)router.push('/student/offline-ai');});}} disabled={task.busy}/></Row>
  </Card>;
 }

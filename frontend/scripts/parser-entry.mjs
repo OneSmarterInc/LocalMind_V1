@@ -1,76 +1,155 @@
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { WorkerMessageHandler } from 'pdfjs-dist/legacy/build/pdf.worker.mjs';
 import { unzipSync } from 'fflate';
-// PDF.js can use its in-process worker: neither browsers nor WebViews need a CDN.
+import { OCR_WORKER } from './generated-ocr.mjs';
 globalThis.pdfjsWorker={WorkerMessageHandler};
-const LIMIT=2_000_000;
+const LIMIT=2_000_000, IMAGE_LIMIT=48*1024*1024;
 const assert=(v,m)=>{if(!v)throw new Error(m);};
 const decode=b=>new TextDecoder('utf-8',{fatal:true}).decode(b).replace(/^\uFEFF/,'');
-async function parse(bytes,name){
- assert(bytes.length>0 && bytes.length<=35*1024*1024,'Choose a book up to 35 MB.');
- const ext=name.split('.').pop().toLowerCase(), warnings=[];let items=[];
+const check=signal=>{if(signal?.aborted)throw Error('Book import cancelled. Nothing was saved.');};
+const base64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+// Worker, WASM and English recognition data are compiled into the installed parser.
+// No language/model CDN is contacted, including from the native WebView.
+async function recognizer(signal){
+ check(signal);
+ const url=URL.createObjectURL(new Blob([OCR_WORKER],{type:'application/javascript'}));
+ // Own the pinned Tesseract worker protocol so cancellation/timeouts cover initialization too.
+ const worker=new Worker(url);let pending,serial=0,closed=false;
+ const close=(error)=>{if(closed)return;closed=true;worker.terminate();URL.revokeObjectURL(url);signal?.removeEventListener('abort',abort);if(pending){clearTimeout(pending.timer);pending.reject(error||Error('OCR closed'));pending=undefined;}};
+ const abort=()=>close(Error('Book import cancelled. Nothing was saved.'));signal?.addEventListener('abort',abort);
+ worker.onerror=()=>close(Error('The bundled OCR engine could not start. Check the offline app installation.'));
+ worker.onmessage=({data})=>{
+  if(!pending||data.jobId!==pending.id||data.status==='progress')return;
+  const p=pending;pending=undefined;clearTimeout(p.timer);
+  data.status==='resolve'?p.resolve(data.data):p.reject(Error('OCR failed: '+String(data.data).slice(0,300)));
+ };
+ const job=(action,payload)=>new Promise((resolve,reject)=>{
+  if(closed||signal?.aborted){reject(Error('Book import cancelled.'));return;}
+  const id=`ocr-${++serial}`;
+  pending={id,resolve,reject,timer:setTimeout(()=>close(Error('OCR timed out. Import a smaller chapter or a clearer scan.')),120000)};
+  worker.postMessage({workerId:'localmind-ocr',jobId:id,action,payload});
+ });
+ try{
+  await job('load',{options:{lstmOnly:true,corePath:'https://localmind.invalid/bundled-ocr',logging:false}});
+  await job('loadLanguage',{langs:'eng',options:{langPath:'https://localmind.invalid/bundled-ocr',gzip:true,cacheMethod:'none',lstmOnly:true}});
+  await job('initialize',{langs:'eng',oem:1,config:{}});
+  return {read:async canvas=>{
+   check(signal);
+   return await job('recognize',{image:base64(canvas.toDataURL('image/png').split(',')[1]),options:{preserve_interword_spaces:'1',tessedit_pageseg_mode:'11'},output:{text:true}});
+  },close:async()=>close()};
+ }catch(e){close();throw e;}
+}
+
+let running=false;
+async function parse(bytes,name,signal,progress=()=>{}){
+ assert(!running,'A book is already being imported. Wait for it to finish.');running=true;
+ let ocr;
+ try {
+ check(signal);assert(bytes.length>0 && bytes.length<=35*1024*1024,'Choose a book up to 35 MB.');
+ const ext=name.split('.').pop().toLowerCase(), warnings=[],visuals=[];let items=[],imageBytes=0;
+ const capture=(canvas,caption,page)=>{
+  const dataUrl=canvas.toDataURL('image/png');imageBytes+=dataUrl.length;
+  assert(imageBytes<=IMAGE_LIMIT,'The preserved page images exceed 48 MB. Import a chapter at a time. Nothing was saved.');
+  const id=`v${visuals.length+1}`;visuals.push({id,dataUrl,width:canvas.width,height:canvas.height,caption,...(page?{page}:{})});return id;
+ };
  if(ext==='pdf') {
   assert(String.fromCharCode(...bytes.slice(0,5))==='%PDF-','This file is not a PDF.');
-  const task=pdfjs.getDocument({data:bytes,isEvalSupported:false,useSystemFonts:true,disableFontFace:true});
+  const task=pdfjs.getDocument({data:bytes,isEvalSupported:false,useSystemFonts:true});
   task.onPassword=()=>task.destroy();
+  const abort=()=>{void task.destroy();};signal?.addEventListener('abort',abort);
   let doc;
   try {
-   doc=await task.promise;assert(doc.numPages<=1500,'Import a chapter at a time (maximum 1,500 PDF pages).');
-   let total=0;
+   doc=await task.promise;assert(doc.numPages<=1500,'Import a chapter at a time (maximum 1,500 PDF pages).');let total=0;
    for(let p=1;p<=doc.numPages;p++){
-    const page=await doc.getPage(p);const c=await page.getTextContent();
+    check(signal);progress(`Preparing page ${p} of ${doc.numPages}`);
+    const page=await doc.getPage(p), c=await page.getTextContent();
     let text='',y=null;
-    for(const i of c.items){if(!('str'in i))continue;const next=i.transform?.[5];if(y!==null && next!==y)text+='\n';text+=i.str+(i.hasEOL?'\n':' ');y=next;}
-    total+=text.length;assert(total<=LIMIT,'Import a chapter at a time; this book has too much text.');
-    if(text.trim())items.push({title:`Page ${p}`,text,page:p});else warnings.push(`Page ${p} has no selectable text. Its image content was not converted.`);
-    page.cleanup();
+    for(const i of c.items){if(!('str'in i))continue;const next=i.transform?.[5];if(y!==null&&next!==y)text+='\n';text+=i.str+(i.hasEOL?'\n':' ');y=next;}
+    const plain=page.getViewport({scale:1});const view=page.getViewport({scale:Math.min(2.5,2400/Math.max(plain.width,plain.height))});
+    const canvas=document.createElement('canvas');canvas.width=Math.ceil(view.width);canvas.height=Math.ceil(view.height);
+    try {
+     await page.render({canvasContext:canvas.getContext('2d'),viewport:view,background:'white'}).promise;
+     const visualIds=[capture(canvas,`Original page ${p} — tables and diagrams`,p)];
+     // Mixed pages (a selectable header above a scanned body) also need OCR.
+     const ops=await page.getOperatorList();const hasImage=ops.fnArray.some(op=>[pdfjs.OPS.paintImageXObject,pdfjs.OPS.paintInlineImageXObject,pdfjs.OPS.paintImageMaskXObject].includes(op));
+     const needsOCR=text.replace(/\s/g,'').length<50||hasImage;
+     if(needsOCR){
+      progress(`Recognising text on page ${p} of ${doc.numPages}`);ocr||=await recognizer(signal);
+      const read=await ocr.read(canvas);
+      // Keep accurate selectable text and append only additional recognised lines.
+      const norm=s=>s.toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');const known=norm(text);
+      const extra=read.text.split('\n').filter(line=>line.trim()&&!known.includes(norm(line))).join('\n');
+      text=text.trim()?(extra?`${text.trim()}\n\n[Additional text recognised from the page image]\n${extra}`:text):read.text;
+      if(read.confidence<65)warnings.push(`Page ${p}: OCR confidence is low. Compare the recognised text with the preserved page before relying on it.`);
+     }
+     total+=text.length;assert(total<=LIMIT,'Import a chapter at a time; this book has too much text.');
+     if(!text.trim())warnings.push(`Page ${p}: no text recognised. The original image is retained; the text tutor cannot explain image-only content.`);
+     items.push({title:`Page ${p}`,text,page:p,visualIds,ocr:needsOCR});
+    }finally{canvas.width=0;canvas.height=0;page.cleanup();}
    }
-  } finally {if(doc)await doc.destroy();else await task.destroy();}
-  warnings.unshift('PDF text is organised by page. Tables and illustrations may need the original book; scanned pages are not recognised.');
+  } finally {signal?.removeEventListener('abort',abort);if(doc)await doc.destroy();else await task.destroy();}
+  warnings.unshift('Original PDF pages are preserved as images. OCR runs locally in English; check numbers, formulas and table reading order against the original. Diagrams are displayed, not interpreted by the text model.');
  } else if(ext==='docx') {
-  // Check directory metadata before inflating to reject zip bombs without large allocations.
   let size=0,count=0;
-  const entries=unzipSync(bytes,{filter:f=>{size+=f.originalSize;count++;assert(size<=100*1024*1024 && count<=3000,'DOCX expanded content is too large.');return /^(word\/(document|styles|numbering)\.xml|\[Content_Types\]\.xml)$/.test(f.name);}});
-  assert(entries['word/document.xml'] && entries['[Content_Types].xml'],'Not a valid DOCX document.');
+  const entries=unzipSync(bytes,{filter:f=>{size+=f.originalSize;count++;assert(size<=100*1024*1024&&count<=3000,'DOCX expanded content is too large.');return /^(word\/(document\.xml|_rels\/document.xml.rels|media\/[^/]+)|\[Content_Types\]\.xml)$/.test(f.name);}});
+  assert(entries['word/document.xml']&&entries['[Content_Types].xml'],'Not a valid DOCX document.');
   const xml=decode(entries['word/document.xml']);assert(!/<!DOCTYPE|<!ENTITY/i.test(xml),'Unsupported XML declarations.');
   const dom=new DOMParser().parseFromString(xml,'application/xml');assert(!dom.querySelector('parsererror'),'The Word document XML is invalid.');
-  const ns='http://schemas.openxmlformats.org/wordprocessingml/2006/main';
-  const children=(node,tag)=>Array.from(node.getElementsByTagNameNS(ns,tag));
-  const val=node=>node?.getAttributeNS(ns,'val')||'';
+  const ns='http://schemas.openxmlformats.org/wordprocessingml/2006/main', relns='http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+  const children=(node,tag)=>Array.from(node.getElementsByTagNameNS(ns,tag));const val=node=>node?.getAttributeNS(ns,'val')||'';
   const content=node=>children(node,'t').map(n=>n.textContent||'').join('');
-  let current={title:'Introduction',text:''};let total=0;
-  const push=()=>{if(current.text.trim())items.push(current);};
+  const rels=new Map();
+  if(entries['word/_rels/document.xml.rels']){
+   const relxml=decode(entries['word/_rels/document.xml.rels']);assert(!/<!DOCTYPE|<!ENTITY/i.test(relxml),'Unsupported relationships XML');
+   const relDom=new DOMParser().parseFromString(relxml,'application/xml');
+   for(const r of relDom.getElementsByTagName('Relationship'))if(r.getAttribute('TargetMode')!=='External')rels.set(r.getAttribute('Id'),r.getAttribute('Target'));
+  }
+  let current={title:'Introduction',text:'',visualIds:[]},total=0;
+  const push=()=>{if(current.text.trim()||current.visualIds.length)items.push(current);};
   const body=children(dom,'body')[0];assert(body,'Missing Word document body.');
   for(const node of body.children){
+   check(signal);
    if(node.localName==='p'){
-    const s=content(node);const style=val(children(node,'pStyle')[0]);
-    const level=val(children(node,'outlineLvl')[0]);
-    const heading=/^(heading|title)[ _-]?\d*/i.test(style)||(level!==''&&Number(level)<9);
-    if(heading && s.trim()){push();current={title:s.slice(0,300),text:''};}
-    else {const list=children(node,'numPr').length;current.text+=(list?'• ':'')+s+'\n\n';}
+    const s=content(node),style=val(children(node,'pStyle')[0]),level=val(children(node,'outlineLvl')[0]);
+    if((/^(heading|title)[ _-]?\d*/i.test(style)||(level!==''&&Number(level)<9))&&s.trim()){push();current={title:s.slice(0,300),text:'',visualIds:[]};}
+    else current.text+=(children(node,'numPr').length?'• ':'')+s+'\n\n';
    }else if(node.localName==='tbl'){
     const rows=children(node,'tr').map(r=>children(r,'tc').map(c=>content(c).replace(/\|/g,'\\|')));
     if(rows.length){const columns=Math.max(...rows.map(r=>r.length));const pad=r=>[...r,...Array(columns-r.length).fill('')];current.text+='\n'+rows.map((r,i)=>`| ${pad(r).join(' | ')} |${i===0?'\n| '+Array(columns).fill('---').join(' | ')+' |':''}`).join('\n')+'\n\n';}
    }
+   // Embedded images stay local. Never follow external relationships or load SVG scripts.
+   for(const blip of node.getElementsByTagNameNS('http://schemas.openxmlformats.org/drawingml/2006/main','blip')){
+    const target=rels.get(blip.getAttributeNS(relns,'embed'));
+    if(!target||!/^media\/[^/]+\.(png|jpe?g|gif|webp)$/i.test(target)||!entries[`word/${target}`]){warnings.push('An unsupported Word drawing could not be rendered. Import a PDF export to retain its exact appearance.');continue;}
+    const url=URL.createObjectURL(new Blob([entries[`word/${target}`]]));const img=new Image();
+    try{
+     await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(Error('An embedded Word image could not be decoded. Export this document as PDF.'));img.src=url;});
+     check(signal);const canvas=document.createElement('canvas'),scale=Math.min(1,2400/Math.max(img.naturalWidth,img.naturalHeight));canvas.width=Math.max(1,Math.round(img.naturalWidth*scale));canvas.height=Math.max(1,Math.round(img.naturalHeight*scale));canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
+     current.visualIds.push(capture(canvas,`Original illustration — ${current.title}`));
+     ocr||=await recognizer(signal);const read=await ocr.read(canvas);if(read.text.trim())current.text+=`\n[Text recognised from illustration]\n${read.text}\n`;canvas.width=0;canvas.height=0;
+    }finally{URL.revokeObjectURL(url);}
+   }
    total+=content(node).length;assert(total<=LIMIT,'Import a chapter at a time; too much extracted text.');
   }
   push();
-  if(children(dom,'drawing').length)warnings.push('This Word file contains illustrations. Text is preserved; illustrations are not interpreted by the local text model.');
-  if(children(dom,'numPr').length)warnings.push('Word list items are preserved as bullets in private import; consult the original for exact numbering.');
+  warnings.push('Word text, tables and embedded raster images are retained. For exact page layout, merged-cell geometry, charts or SmartArt, import a PDF export; the original PDF pages are preserved.');
+  if(children(dom,'numPr').length)warnings.push('Word list items are shown as bullets; use a PDF export to preserve exact numbering.');
  } else {
-  assert(ext==='txt'||ext==='md','Supported files: text-based PDF, DOCX, TXT and Markdown.');
-  const source=decode(bytes);assert(source.length<=LIMIT && !source.includes('\0'),'Unsupported or oversized text.');
-  let current={title:'Introduction',text:''};
-  for(const line of source.split(/\r?\n/)){const h=/^#{1,6}\s+(.+)$/.exec(line);if(h){if(current.text.trim())items.push(current);current={title:h[1],text:''};}else current.text+=line+'\n';}
-  if(current.text.trim())items.push(current);
+  assert(ext==='txt'||ext==='md','Supported files: PDF (including English scans), DOCX, TXT and Markdown.');
+  const source=decode(bytes);assert(source.length<=LIMIT&&!source.includes('\0'),'Unsupported or oversized text.');let current={title:'Introduction',text:''};
+  for(const line of source.split(/\r?\n/)){const h=/^#{1,6}\s+(.+)$/.exec(line);if(h){if(current.text.trim())items.push(current);current={title:h[1],text:''};}else current.text+=line+'\n';}if(current.text.trim())items.push(current);
  }
- assert(items.some(i=>i.text.trim()),'No readable text found. Use a selectable-text book; scanned PDFs need text recognition first.');
- return {items,warnings:[...new Set(warnings)].slice(0,30)};
+ check(signal);assert(items.some(i=>i.text.trim()||i.visualIds?.length),'No readable source content found.');
+ return {items,visuals,warnings:[...new Set(warnings)].slice(0,30)};
+ }finally{try{await ocr?.close();}finally{running=false;}}
 }
 window.__LM_PARSER__={parse};
-// The native host exchanges only local file data with this bundled WebView.
+let nativeAbort;
+window.__LM_CANCEL_PARSE__=()=>nativeAbort?.abort();
 window.__LM_PARSE_BASE64__=async(id,name,data)=>{
- try{const bytes=Uint8Array.from(atob(data),c=>c.charCodeAt(0));const parsed=await parse(bytes,name);window.ReactNativeWebView.postMessage(JSON.stringify({id,parsed}));}
+ nativeAbort=new AbortController();
+ try{const parsed=await parse(base64(data),name,nativeAbort.signal,progress=>window.ReactNativeWebView.postMessage(JSON.stringify({id,progress})));window.ReactNativeWebView.postMessage(JSON.stringify({id,parsed}));}
  catch(e){window.ReactNativeWebView.postMessage(JSON.stringify({id,error:e.message||String(e)}));}
+ finally{nativeAbort=undefined;}
 };
 window.ReactNativeWebView?.postMessage(JSON.stringify({ready:true}));

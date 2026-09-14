@@ -56,14 +56,14 @@ async function complete(req:Completion){return lock.run(async()=>{
   const res=await context.completion({messages,n_predict:req.maxTokens,temperature:req.temperature,enable_thinking:false,
    response_format:{type:'json_object',schema:req.schema},stop:['<|im_end|>','<|eot_id|>','</s>']});
   cancelled(req.signal);requireThat(!expired && !('stopped_limit' in res && res.stopped_limit),'Local AI did not finish. No partial answer was saved.');return JSON.parse(res.text);
- }finally{clearTimeout(timer);req.signal.removeEventListener('abort',cancel);}
+ }catch(e){if(expired&&!req.signal.aborted)throw new Error('Local AI timed out. No partial work was saved. Try a shorter module or a smaller model.');throw e;}finally{clearTimeout(timer);req.signal.removeEventListener('abort',cancel);}
 });}
 const implementation:Device={...store,complete,
- async parse(f){
+ async parse(f, signal){
   const i=await info(f.uri);requireThat(i.size<=MAX_BOOK_BYTES,'Import a book up to 35 MB.');
   const base64=await FS.readAsStringAsync(f.uri,{encoding:FS.EncodingType.Base64});
-  const hash=bytesToHex(sha256(toByteArray(base64)));const parsed=await parseNative(f.name,base64);
-  return {hash,sections:makeSections(parsed.items),warnings:parsed.warnings};
+  const hash=bytesToHex(sha256(toByteArray(base64)));const parsed=await parseNative(f.name,base64,signal);
+  return {hash,sections:makeSections(parsed.items),warnings:parsed.warnings,visuals:parsed.visuals};
  },
  async downloadBook(url,headers,name,signal){
   const uri=`${FS.cacheDirectory}private-book-${randomUUID()}`;

@@ -1,5 +1,9 @@
 # Requirements implementation status
 
+**Current integrated flow:** see [Integrated private study and scanned books](INTEGRATED_PRIVATE_LIBRARY.md).
+The sections below describe the earlier signed-package foundation and its historical checks,
+not the replacement private-library UI or acceptance of the latest OCR changes.
+
 This branch adds source implementations for the private-study authoring/package/runtime
 flow. It is not a production-completion claim. The earlier classroom application remains
 separate, with its authentication and grade records unchanged.

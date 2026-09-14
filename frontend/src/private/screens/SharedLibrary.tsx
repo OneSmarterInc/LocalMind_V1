@@ -46,7 +46,7 @@ export default function SharedLibrary() {
     <PageHeading title="Books for private study" subtitle="Share a book. Students create their own lessons, quizzes and doubt sessions on their devices." />
     <ErrorBanner message={error || q.error || subjects.error} onRetry={q.reload} />
     {!!notice && <Notice tone="success" message={notice} />}
-    <Card><CardHead title="Upload a book" subtitle="PDF with selectable text, DOCX, TXT or Markdown · up to 35 MB" />
+    <Card><CardHead title="Upload a book" subtitle="PDF (including English scans), DOCX, TXT or Markdown · up to 35 MB" />
       <Input label="Book title" value={title} maxLength={300} onChangeText={setTitle} editable={!busy} />
       <Dropdown label="Who can add this book?" value={subject} options={[...(user?.role === 'admin' ? [{ value: '', label: 'All students' }] : [{ value: '', label: 'Choose a subject' }]), ...(subjects.data || []).map(s => ({ value: s.id, label: `${s.code} · ${s.name}` }))]} onChange={v => { if (!busy) setSubject(v); }} />
       <Row><Button title={file ? 'Choose a different file' : 'Choose book file'} variant="secondary" icon="document-attach-outline" onPress={() => { void choose().catch(e => setError(String(e))); }} disabled={busy} />{file && <P>{file.name}</P>}</Row>

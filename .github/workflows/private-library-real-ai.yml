@@ -5,7 +5,9 @@ on:
     paths:
       - '.github/workflows/private-library-real-ai.yml'
       - 'frontend/tests/private-real-model.spec.ts'
-      - 'frontend/src/private/modelSpec.ts'
+      - 'frontend/src/private/**'
+      - 'frontend/scripts/**'
+      - 'frontend/package*.json'
   workflow_dispatch:
 permissions:
   contents: read

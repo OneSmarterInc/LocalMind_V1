@@ -5,7 +5,7 @@ import { BASE_URL, currentSession, SessionChangedError } from '@/api/client';
 import { device } from './device';
 import { cancelled } from './busy';
 import type { LocalFile } from './device.types';
-import { ANSWER_SCHEMA, GROUNDING, LESSON_SCHEMA, MCQ_SCHEMA, markQuiz, requireThat, retrieve, text, validateAnswer, validateBook, validateLesson, validateMCQ, type PrivateBook, type Lesson, type MCQ } from './core';
+import { ANSWER_SCHEMA, groundedSchema, GROUNDING, COMPACT_LESSON_SCHEMA, COMPACT_MCQ_SCHEMA, markQuiz, requireThat, retrieve, text, validateAnswer, validateBook, validateLesson, validateMCQ, type PrivateBook, type Lesson, type MCQ, type SourceVisual } from './core';
 export type QuizVersion = { id: string; bookId: string; sectionId: string; createdAt: string; questions: MCQ[] };
 export type LessonVersion = { id: string; sectionId: string; createdAt: string; lesson: Lesson };
 export type PracticeResult = { id: string; quizId: string; createdAt: string; answers: Record<string, number> } & ReturnType<typeof markQuiz>;
@@ -26,20 +26,36 @@ export class Library {
   async books(): Promise<PrivateBook[]> { this.guard(); const rows = await (await device()).list<PrivateBook>(`${this.prefix}book:`); this.guard(); return rows.map(validateBook).sort((a, b) => b.importedAt.localeCompare(a.importedAt)); }
   async book(id: string) { this.guard(); requireThat(/^[a-f0-9]{64}$/.test(id), 'Invalid private book ID'); const b = await (await device()).get<PrivateBook>(this.key(id)); this.guard(); requireThat(b, 'This book is no longer in your private library'); return validateBook(b); }
   async import(file: LocalFile, shared?: { id: string; title: string; sha256?: string }, signal?: AbortSignal) {
-    cancelled(signal); this.guard(); const d = await device(); const parsed = await d.parse(file); this.guard(); cancelled(signal);
+    cancelled(signal); this.guard(); const d = await device(); const parsed = await d.parse(file, signal); this.guard(); cancelled(signal);
     if (shared?.sha256) requireThat(parsed.hash === shared.sha256, 'Downloaded book checksum mismatch. Nothing was imported.');
-    const id = parsed.hash;
+    const original = await d.get<PrivateBook>(this.key(parsed.hash)); this.guard();
+    // Re-importing pre-OCR content creates a new revision without breaking its saved lessons/attempts.
+    const upgraded = !!original && original.importVersion !== 2;
+    const id = upgraded ? fingerprint(`${parsed.hash}|source-images-v2`) : parsed.hash;
     const existing = await d.get<PrivateBook>(this.key(id)); this.guard(); if (existing) return { book: validateBook(existing), duplicate: true };
-    const book: PrivateBook = { id, title: (shared?.title || file.name.replace(/\.[^.]+$/, '')).slice(0, 300), originalName: file.name, importedAt: new Date().toISOString(), origin: shared ? 'shared' : 'personal', ...(shared ? { sourceId: shared.id } : {}), sections: parsed.sections, warnings: parsed.warnings };
-    this.guard(); cancelled(signal); await d.put(this.key(id), validateBook(book)); this.guard(); return { book, duplicate: false };
+    const book: PrivateBook = { importVersion: 2, assetSet: randomUUID(), id, title: ((shared?.title || file.name.replace(/\.[^.]+$/, '')) + (upgraded ? ' · new extraction' : '')).slice(0, 300), originalName: file.name, importedAt: new Date().toISOString(), origin: shared ? 'shared' : 'personal', ...(shared ? { sourceId: shared.id } : {}), sections: parsed.sections, warnings: [...parsed.warnings, ...(upgraded ? ['The earlier import and its practice history are unchanged. This copy uses the new extraction.'] : [])] };
+    // Store assets separately so listing books does not load every page bitmap.
+    const assetPrefix = `${this.work(id)}visual:${book.assetSet}:`;
+    try {
+      for (const visual of parsed.visuals || []) { this.guard(); cancelled(signal); await d.put(`${assetPrefix}${visual.id}`, visual); }
+      this.guard(); cancelled(signal); await d.put(this.key(id), validateBook(book));
+    } catch (e) { await d.removePrefix(assetPrefix); throw e; }
+    this.guard(); return { book, duplicate: false };
   }
   async remove(id: string) { await this.book(id); this.guard(); const d = await device(); await d.removePrefix(this.key(id)); await d.removePrefix(this.work(id)); this.guard(); }
+  async visuals(bookId: string, sectionId: string): Promise<SourceVisual[]> {
+    const book = await this.book(bookId), section = book.sections.find(s => s.id === sectionId);
+    requireThat(section, 'Choose a module in this book'); const d = await device();
+    const rows = await Promise.all((section.visualIds || []).map(id => d.get<SourceVisual>(`${this.work(bookId)}visual:${book.assetSet}:${id}`)));
+    this.guard(); requireThat(rows.every(Boolean), 'A source image is missing. Import the book again.');
+    return rows as SourceVisual[];
+  }
   async lessons(bookId: string, sectionId: string) { await this.book(bookId); const rows = await (await device()).list<LessonVersion>(`${this.work(bookId)}lesson:${sectionId}:`); this.guard(); return rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt)); }
   async quizzes(bookId: string, sectionId: string) { await this.book(bookId); const rows = await (await device()).list<QuizVersion>(`${this.work(bookId)}quiz:${sectionId}:`); this.guard(); return rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt)); }
   async generateLesson(bookId: string, sectionId: string, signal: AbortSignal) {
     const book = await this.book(bookId); const section = book.sections.find(s => s.id === sectionId); requireThat(section, 'Choose a module in this book');
     const d = await device();
-    const raw = await d.complete({ system: GROUNDING, prompt: `Explain this module for a student. Keep it concise: an introduction, 1–3 explanatory sections with exact supporting quotes, and 1–3 takeaways.\nMODULE: ${section.title}\nSTORED BOOK REFERENCE:\n${section.source}`, schema: LESSON_SCHEMA, maxTokens: 1100, temperature: 0.2, signal });
+    const raw = await d.complete({ system: GROUNDING, prompt: `Explain the key idea in this module. Write one short introductory sentence, exactly ONE explanatory section (at most 60 words) with an exact supporting quote, and ONE short takeaway. Do not repeat the quote in the explanation.\nMODULE: ${section.title}\nSTORED BOOK REFERENCE:\n${section.source}`, schema: groundedSchema(COMPACT_LESSON_SCHEMA, section.source), maxTokens: 520, temperature: 0.2, signal });
     const lesson = validateLesson(raw, section.source); this.guard(); requireThat(!signal.aborted, 'Cancelled'); await this.book(bookId);
     const version: LessonVersion = { id: randomUUID(), sectionId, createdAt: new Date().toISOString(), lesson };
     await d.put(`${this.work(bookId)}lesson:${sectionId}:${version.id}`, version); this.guard(); return version;
@@ -55,7 +71,7 @@ export class Library {
         this.guard(); requireThat(!signal.aborted, 'Cancelled. Your earlier quizzes are unchanged.');
         try {
           const avoid = [...questions.map(q => q.question), ...(previous?.questions.map(q => q.question) || [])].slice(-12).map(q => q.slice(0, 100)).join('\n');
-          const raw = await d.complete({ system: GROUNDING, prompt: `Write ONE useful multiple-choice practice question. Exactly four distinct options; answer is a zero-based index (0–3). Include explanation and an exact source quote. Do not simply test whether a sentence appears in the book. Avoid repeating these earlier questions:\n${avoid}\nSTORED BOOK REFERENCE:\n${section.source}\nQuestion ${n + 1}; attempt ${attempt + 1}.`, schema: MCQ_SCHEMA, maxTokens: 620, temperature: 0.2, signal });
+          const raw = await d.complete({ system: GROUNDING, prompt: `Write ONE useful multiple-choice practice question. Exactly four distinct options; answer is a zero-based index (0–3). Include a short explanation (at most 40 words) and an exact source quote. Keep the question and choices concise. Do not simply test whether a sentence appears in the book. Avoid repeating these earlier questions:\n${avoid}\nSTORED BOOK REFERENCE:\n${section.source}\nQuestion ${n + 1}; attempt ${attempt + 1}.`, schema: groundedSchema(COMPACT_MCQ_SCHEMA, section.source), maxTokens: 520, temperature: 0.2, signal });
           const question = validateMCQ(raw, section.source, sectionId, randomUUID());
           requireThat(![...questions,...(previous?.questions || [])].some(q => q.question.toLowerCase().trim() === question.question.toLowerCase().trim()), 'The AI repeated a question. Try fewer questions or another module.');
           questions.push(question); lastError = undefined; break;
@@ -77,7 +93,7 @@ export class Library {
   }
   async chats(bookId: string, sectionId: string) { await this.book(bookId); const rows = await (await device()).list<PrivateChat>(`${this.work(bookId)}chat:${sectionId}:`); this.guard(); return rows.sort((a, b) => a.createdAt.localeCompare(b.createdAt)); }
   async ask(bookId: string, sectionId: string, question: string, signal: AbortSignal) {
-    const b = await this.book(bookId), s = b.sections.find(x => x.id === sectionId); requireThat(s, 'Choose a module'); text(question, 1000, 'question');
+    const b = await this.book(bookId), s = b.sections.find(x => x.id === sectionId); requireThat(s, 'Choose a module'); requireThat(s.source.trim(), 'This page has no recognised text. View its original image; the text tutor cannot interpret image-only content.'); text(question, 1000, 'question');
     const history = (await this.chats(bookId, sectionId)).slice(-2).map(h => `Earlier question: ${h.question.slice(0, 300)}`).join('\n');
     const d = await device(), reference = retrieve(s.source, question);
     const raw = await d.complete({ system: GROUNDING, prompt: `Answer the student's question only from this reference. If it does not contain the answer, set supported=false.\nSTORED BOOK REFERENCE:\n${reference}\n${history}\nSTUDENT QUESTION:\n${question}`, schema: ANSWER_SCHEMA, maxTokens: 650, temperature: 0.1, signal });

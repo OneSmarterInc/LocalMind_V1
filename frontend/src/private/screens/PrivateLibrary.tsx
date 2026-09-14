@@ -17,7 +17,7 @@ export default function PrivateLibrary(){
  const open=(id:string)=>router.push(`/student/private-book/${id}`);
  const upload=()=>task.run(async signal=>{
   const pick=await Picker.getDocumentAsync({type:'*/*',copyToCacheDirectory:true});if(pick.canceled||!library||signal.aborted)return;
-  const file=pick.assets[0];task.setNote('Preparing your book on this device. Nothing is uploaded.');
+  const file=pick.assets[0];task.setNote('Preparing your book on this device. Scanned pages use local English OCR; large scans can take several minutes. Nothing is uploaded.');
   const saved=await library.import({name:file.name,uri:file.uri,file:file.file,size:file.size},undefined,signal);
   if(signal.aborted)return;task.setNote(saved.duplicate?'This book is already in your library. Your existing work is unchanged.':'Book saved on this device. Open any module to start learning.');await books.reload();setTab('device');
  });
@@ -35,6 +35,7 @@ export default function PrivateLibrary(){
   <ErrorBanner message={task.error||books.error} onRetry={books.reload}/>
   {!!task.note&&<Notice message={task.note}/>}
   <Row><Button title="Upload my book" icon="add-outline" onPress={upload} busy={task.busy}/><Badge value={model.data?.installed?'Local model downloaded':'Set up Offline AI'} tone={model.data?.installed?'green':'amber'}/></Row>
+  {task.busy&&<Button title="Cancel import" variant="secondary" onPress={task.cancel}/>}
   <PageTabs value={tab} onChange={t=>{if(!task.busy)setTab(t);}} tabs={[{key:'device',label:'On this device',count:books.data?.length},{key:'institution',label:'From my institution'}]}/>
   <Input value={search} onChangeText={setSearch} placeholder="Find a book" accessibilityLabel="Find a private book"/>
   {tab==='device'?<Card>

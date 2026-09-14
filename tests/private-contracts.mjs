@@ -32,3 +32,24 @@ test('cancelled operations fail explicitly',()=>{const abort=new AbortController
 test('old publishing bookmark redirects into the integrated flow',()=>{const s=fs.readFileSync(path.join(root,'frontend/app/manage/study/[id].tsx'),'utf8');assert.match(s,/Redirect/);assert.doesNotMatch(s,/AuthoringView|ContentBlock|TeachingAid/);});
 test('private service never posts learner data to an API',()=>{const s=fs.readFileSync(path.join(root,'frontend/src/private/library.ts'),'utf8');assert.doesNotMatch(s,/fetch\(|api\(/);});
 process.on('exit',()=>fs.rmSync(tmp,{recursive:true,force:true}));
+
+test('constrained quotations are exact source passages and do not mutate the shared schema',()=>{
+ const schema=c.groundedSchema(c.LESSON_SCHEMA,source),quotes=schema.properties.sections.items.properties.quote.enum;
+ assert.ok(quotes.length);for(const quote of quotes)assert.equal(c.quoteIn(quote,source),quote);
+ assert.equal(c.LESSON_SCHEMA.properties.sections.items.properties.quote.enum,undefined);
+});
+test('source pages remain attached after module splitting',()=>{
+ const sections=c.makeSections([{title:'Scan',text:source.repeat(60),page:3,visualIds:['v3'],ocr:true}]);
+ assert.ok(sections.length>1);assert.ok(sections.every(s=>s.page===3&&s.visualIds[0]==='v3'&&s.ocr));
+});
+test('an image-only diagram is retained without fake OCR text',()=>{
+ const sections=c.makeSections([{title:'Diagram',text:'',visualIds:['v1']}]);
+ assert.equal(sections[0].source,'');assert.doesNotThrow(()=>c.validateBook({id:'x',title:'Diagram',importedAt:'now',sections,warnings:[]}));
+ assert.throws(()=>c.groundedSchema(c.LESSON_SCHEMA,sections[0].source));
+});
+
+test('a decimal table value remains available in source-constrained quotations',()=>{
+ const source='Plant\n\nHeight in cm\n\nBean\n\n12.5';
+ const quotes=c.groundedSchema(c.MCQ_SCHEMA,source).properties.quote.enum;
+ assert.ok(quotes.some(q=>q.includes('12.5')));for(const q of quotes)c.quoteIn(q,source);
+});

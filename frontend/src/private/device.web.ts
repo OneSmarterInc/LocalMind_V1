@@ -10,7 +10,7 @@ type Engine = {
   createChatCompletion(opts:Record<string,unknown>):Promise<{choices:{finish_reason:string;message:{content:string}}[]}>;
   exit():Promise<void>;
 };
-type Parser = { parse:(bytes:Uint8Array,name:string)=>Promise<{items:{title:string;text:string;page?:number}[];warnings:string[]}> };
+type Parser = { parse:(bytes:Uint8Array,name:string,signal?:AbortSignal)=>Promise<import('./parserBridge').ParsedDocument> };
 declare global { interface Window { __LM_WLLAMA__?:new (paths:Record<string,string>,options?:object)=>Engine; __LM_PARSER__?:Parser; } }
 const MODEL_KEY='@model-v1';
 let dbPromise:Promise<IDBDatabase>|undefined;
@@ -104,15 +104,18 @@ async function complete(req:Completion) {
     cancelled(req.signal); requireThat(!abort.signal.aborted,'Local AI timed out. No partial answer was saved.');
     const choice=result.choices[0];requireThat(choice && choice.finish_reason!=='length','The response was incomplete. Try fewer questions or a shorter module.');
     return JSON.parse(choice.message.content);
+  } catch(e) {
+    if(abort.signal.aborted&&!req.signal.aborted)throw new Error('Local AI timed out. No partial work was saved. Try a shorter module or a smaller model.');
+    throw e;
   } finally {clearTimeout(timer);req.signal.removeEventListener('abort',cancel);}
  });
 }
 const implementation:Device={...store, complete,
- async parse(f) {
+ async parse(f, signal) {
   const file=await fileOf(f); await script('/private-assets/parser.js');requireThat(window.__LM_PARSER__,'Local book parser is missing.');
   const bytes=new Uint8Array(await file.arrayBuffer());const hash=bytesToHex(sha256(bytes));
-  const parsed=await window.__LM_PARSER__.parse(bytes,f.name);
-  return {hash,sections:makeSections(parsed.items),warnings:parsed.warnings};
+  const parsed=await window.__LM_PARSER__.parse(bytes,f.name,signal);
+  return {hash,sections:makeSections(parsed.items),warnings:parsed.warnings,visuals:parsed.visuals};
  },
  async downloadBook(url,headers,name,signal) {
   const r=await fetch(url,{headers,signal,cache:'no-store'});requireThat(r.ok,`Book download failed (${r.status}). Refresh the available books.`);

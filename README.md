@@ -1,11 +1,14 @@
 # LocalMind V1
 
-This repository contains the existing classroom platform plus an **experimental, separate
-private offline-study runtime**. Start with [Offline study setup](docs/OFFLINE_STUDY.md)
-and [implementation status](docs/IMPLEMENTATION_STATUS.md). The native study app is in
-`student-runtime/`; the classroom app remains in `frontend/` and `backend/`.
+This branch integrates **Private library**, simple admin/faculty book sharing and
+**Offline AI** into the existing classroom application. Students can import books,
+recognise scanned English PDFs locally, retain original tables/diagrams as source
+images, and generate private lessons, quizzes and doubts on their device.
 
-No real-device or model-quality acceptance is implied by the source or the unit tests.
+Start with [Integrated private study and scanned books](docs/INTEGRATED_PRIVATE_LIBRARY.md).
+The older `student-runtime/` and signed-package documentation describe the earlier
+architecture; they are not required for this integrated user flow. Native exports
+do not establish real-device installation, performance or model-quality acceptance.
 
 ---
 

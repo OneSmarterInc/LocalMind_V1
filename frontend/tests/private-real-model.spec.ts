@@ -8,7 +8,11 @@ test('real GGUF: offline restart, new doubt, lesson and generated quiz',async({p
  expect(login.ok()).toBeTruthy();const tokens=await login.json();
  await page.addInitScript(v=>{if(!localStorage.getItem('localmind.access')){localStorage.setItem('localmind.access',v.access);localStorage.setItem('localmind.refresh',v.refresh);}},tokens);
  await page.goto('/student/offline-ai');
- await page.getByRole('button',{name:/^Download model/}).click();await page.getByRole('button',{name:'Download',exact:true}).click();
+ if(process.env.LM_E2E_MODEL_FILE){
+  const chooser=page.waitForEvent('filechooser');await page.getByRole('button',{name:'Import a .gguf file',exact:true}).click();await(await chooser).setFiles(process.env.LM_E2E_MODEL_FILE);
+ }else{
+  await page.getByRole('button',{name:/^Download model/}).click();await page.getByRole('button',{name:'Download',exact:true}).click();
+ }
  await expect(page.getByText('Downloaded',{exact:true})).toBeVisible({timeout:600000});
  await page.getByRole('button',{name:'Check and save offline app files',exact:true}).click();
  await expect(page.getByText(/Application files saved/)).toBeVisible();
@@ -23,22 +27,22 @@ test('real GGUF: offline restart, new doubt, lesson and generated quiz',async({p
  await page.getByLabel('Your question',{exact:true}).fill('Where does photosynthesis happen?');
  await page.getByRole('button',{name:'Ask local AI',exact:true}).click();
  await expect(page.getByText(/From the book:/)).toBeVisible({timeout:240000});
- const doubtMs=Date.now()-started;
+ const doubtMs=Date.now()-started;console.log('Offline doubt completed:',doubtMs,'ms');
  await page.screenshot({path:'test-results/real-browser-offline-model.png',fullPage:true});
  await page.getByRole('tab',{name:'Lesson',exact:true}).click();
  const lessonStart=Date.now();await page.getByRole('button',{name:'Generate lesson',exact:true}).click();
  await expect(page.getByRole('button',{name:'Saved lesson',exact:true})).toContainText('Version 1',{timeout:240000});
  await expect(page.getByText('Key takeaways',{exact:true})).toBeVisible();
- const lessonMs=Date.now()-lessonStart;
+ const lessonMs=Date.now()-lessonStart;console.log('Offline lesson completed:',lessonMs,'ms');
  await page.screenshot({path:'test-results/real-browser-offline-lesson.png',fullPage:true});
  await page.getByRole('tab',{name:'Practice quiz',exact:true}).click();
  await page.getByRole('button',{name:'Questions',exact:true}).click();await page.getByRole('menuitem',{name:'1',exact:true}).click();
  const quizStart=Date.now();await page.getByRole('button',{name:'Generate quiz',exact:true}).click();
  await expect(page.getByRole('radio')).toHaveCount(4,{timeout:240000});
- const quizMs=Date.now()-quizStart;
+ const quizMs=Date.now()-quizStart;console.log('Offline quiz completed:',quizMs,'ms');
  await page.getByRole('radio').first().click();await page.getByRole('button',{name:'Check my answers',exact:true}).click();
  await expect(page.getByText(/^[01] of 1 correct$/)).toBeVisible();
  await expect(page.getByText(/From the book:/)).toBeVisible();
  await page.screenshot({path:'test-results/real-browser-offline-quiz.png',fullPage:true});
- fs.writeFileSync('test-results/real-model-timings.json',JSON.stringify({model:'Qwen3-0.6B-Q8_0',runner:'GitHub Ubuntu Chromium; not a target phone',doubtMs,lessonMs,oneQuestionMs:quizMs},null,2));
+ fs.writeFileSync('test-results/real-model-timings.json',JSON.stringify({model:'Qwen3-0.6B-Q8_0',modelSetup:process.env.LM_E2E_MODEL_FILE?'Imported verified local file':'Downloaded in browser',runner:'Linux Chromium; not a target phone',doubtMs,lessonMs,oneQuestionMs:quizMs},null,2));
 });

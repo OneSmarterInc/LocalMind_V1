@@ -129,3 +129,28 @@ test('normal course doubts use the same device model offline and reject a known 
   await expect(page.getByText('This module was denied by the institution. Reconnect and restore authorized access before asking locally.',{exact:true})).toBeVisible();
  }finally{await context.setOffline(false);await page.request.post(endpoint,{headers,data:{availability:'open'}});}
 });
+
+
+test('real English OCR and original table/diagram survive offline import, lesson and restart',async({page,context})=>{
+ test.setTimeout(180000);
+ page.on('pageerror',e=>console.log('OCR page error:',e.message));
+ await signIn(page);await model(page);
+ await page.goto('/student/private-library');await context.setOffline(true);
+ const posts:string[]=[];page.on('request',r=>{if(r.method()==='POST'&&r.url().includes('/api/'))posts.push(r.url());});
+ const chooser=page.waitForEvent('filechooser');await page.getByRole('button',{name:'Upload my book',exact:true}).click();await(await chooser).setFiles('test-results/scanned-biology.pdf');
+ await page.getByText('scanned-biology',{exact:true}).click({timeout:60000});
+ await expect(page.getByText('Text recognised on this device',{exact:true})).toBeVisible();
+ await expect(page.getByText(/12\.5/).first()).toBeVisible();
+ const original=page.getByRole('img',{name:'Original page 1 — tables and diagrams',exact:true});
+ await expect(original).toBeVisible();
+ const imageBefore=await original.getAttribute('src');expect(imageBefore).toMatch(/^data:image\/png;base64,/);
+ await page.screenshot({path:'test-results/scanned-source-with-visuals.png',fullPage:true});
+ await page.getByRole('button',{name:'Generate a lesson',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Saved lesson'})).toContainText('Version 1');
+ await expect(original).toBeVisible();expect(await original.getAttribute('src')).toBe(imageBefore);
+ await page.screenshot({path:'test-results/scanned-lesson-with-visuals.png',fullPage:true});
+ await page.reload();await page.getByRole('tab',{name:'Lesson',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Saved lesson'})).toContainText('Version 1');
+ await expect(original).toBeVisible();expect(await original.getAttribute('src')).toBe(imageBefore);
+ expect(posts).toEqual([]);
+});

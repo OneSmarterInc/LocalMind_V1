@@ -52,6 +52,28 @@ with tempfile.TemporaryDirectory(prefix='localmind-browser-') as folder:
     results=ROOT/'frontend/test-results';results.mkdir(exist_ok=True)
     pdf=io.BytesIO();canvas=Canvas(pdf);canvas.drawString(40,760,'Photosynthesis happens in the chloroplasts of green leaves.');canvas.save()
     (results/'private-fixture.pdf').write_bytes(pdf.getvalue())
+    # Real image-only scan: source text, numeric table and diagram are rasterised first.
+    from reportlab.lib.utils import ImageReader
+    import pypdfium2 as pdfium
+    source_pdf=io.BytesIO();c=Canvas(source_pdf,pagesize=(600,780))
+    c.setFont('Helvetica-Bold',20);c.drawString(40,730,'Plant science')
+    c.setFont('Helvetica',13)
+    c.drawString(40,690,'Photosynthesis happens in the chloroplasts of green leaves.')
+    c.drawString(40,670,'Chlorophyll absorbs sunlight. Roots absorb water from soil.')
+    c.drawString(40,650,'Plants use carbon dioxide and water to produce glucose.')
+    c.drawString(40,630,'Oxygen is released through stomata in the leaves.')
+    c.drawString(40,590,'Measurements from the source table')
+    for y in (560,520,480):c.line(40,y,550,y)
+    for x in (40,300,550):c.line(x,480,x,560)
+    c.drawString(50,535,'Plant');c.drawString(310,535,'Height in cm')
+    c.drawString(50,495,'Bean');c.drawString(310,495,'12.5')
+    c.rect(60,330,140,70);c.rect(350,330,140,70)
+    c.drawString(85,360,'Sunlight');c.drawString(380,360,'Leaf')
+    c.line(200,365,350,365);c.line(350,365,335,375);c.line(350,365,335,355)
+    c.save(); original=pdfium.PdfDocument(source_pdf.getvalue());page=original[0]
+    bitmap=page.render(scale=2);raster=bitmap.to_pil();raster.save(results/'scan-source.png')
+    scan=io.BytesIO();c=Canvas(scan,pagesize=(600,780));c.drawImage(ImageReader(raster),0,0,600,780);c.save()
+    (results/'scanned-biology.pdf').write_bytes(scan.getvalue());bitmap.close();page.close();original.close()
     (results/'fixture.json').write_text(json.dumps({'module':str(module.id),'document':str(doc.id),'subject':str(subject.id),'source':source,'password':password}))
     # runserver stays in this process so temporary storage settings are retained.
     call_command('runserver','127.0.0.1:8765',use_reloader=False,verbosity=0)
