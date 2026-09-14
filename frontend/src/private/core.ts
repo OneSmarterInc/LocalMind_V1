@@ -2,7 +2,7 @@
 export const MAX_BOOK_BYTES = 35 * 1024 * 1024;
 export const MAX_TEXT_CHARS = 2_000_000;
 export const MAX_SECTION_CHARS = 3200;
-export type SourceVisual = { id: string; dataUrl: string; width: number; height: number; caption: string; page?: number };
+export type SourceVisual = { id: string; dataUrl: string; width: number; height: number; caption: string; kind?: 'page'|'figure'; page?: number };
 export type SourceItem = { title: string; text: string; page?: number; visualIds?: string[]; ocr?: boolean };
 export type Section = { id: string; title: string; source: string; page?: number; visualIds?: string[]; ocr?: boolean };
 export type PrivateBook = { importVersion?: number; assetSet?: string; id: string; title: string; originalName: string; importedAt: string; origin: 'personal'|'shared'; sourceId?: string; sections: Section[]; warnings: string[] };
@@ -109,7 +109,29 @@ export function groundedSchema(base: object, source: string): object {
 // Older, longer saved lessons remain valid; these bounds apply only to new generation.
 export const COMPACT_LESSON_SCHEMA=schema({
   introduction:{type:'string',maxLength:160},
-  sections:{type:'array',minItems:1,maxItems:1,items:schema({heading:{type:'string',maxLength:80},content:{type:'string',maxLength:360},quote:str})},
+  sections:{type:'array',minItems:1,maxItems:1,items:schema({heading:{type:'string',maxLength:80},content:{type:'string',maxLength:600},quote:str})},
   takeaways:{type:'array',minItems:1,maxItems:1,items:{type:'string',maxLength:120}},
 });
 export const COMPACT_MCQ_SCHEMA=schema({question:{type:'string',maxLength:240},options:{type:'array',items:{type:'string',maxLength:100},minItems:4,maxItems:4},answer:{type:'integer',minimum:0,maximum:3},explanation:{type:'string',maxLength:300},quote:str});
+
+/** Consecutive source passages: no part is dropped to meet the inference budget. */
+export function lessonPassages(source:string, size=800):string[]{
+ const parts:string[]=[];let rest=source.trim();
+ while(rest){let end=Math.min(rest.length,size);if(end<rest.length){const at=Math.max(rest.lastIndexOf('. ',end),rest.lastIndexOf('\n',end));if(at>size/2)end=at+1;}parts.push(rest.slice(0,end).trim());rest=rest.slice(end).trim();}
+ return parts;
+}
+/** Retrieve bounded passages from this private book, allowing small spelling mistakes. */
+export function bookReference(sections:Section[], selected:string, question:string):string{
+ const stop=new Set(['what','does','this','that','with','from','have','explain','about','which','where','please','could','would']);
+ const words=(s:string)=>s.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu)||[];
+ const terms=[...new Set(words(question).filter(t=>!stop.has(t)))];
+ const distance=(a:string,b:string)=>{let row=Array.from({length:b.length+1},(_,i)=>i);for(let i=0;i<a.length;i++){const next=[i+1];for(let j=0;j<b.length;j++)next.push(Math.min(next[j]+1,row[j+1]+1,row[j]+(a[i]===b[j]?0:1)));row=next;}return row[b.length];};
+ const candidates=sections.flatMap(section=>lessonPassages(section.source,1000).map((source,index)=>{
+  const vocabulary=new Set(words(source));let score=0;
+  for(const term of terms){if(vocabulary.has(term))score+=5;else if(term.length>=5&&[...vocabulary].some(w=>Math.abs(w.length-term.length)<=2&&distance(term,w)<= (term.length>=6?2:1)))score+=2;}
+  return {source,title:section.title,index,score:score+(section.id===selected?0.1:0)};
+ }));
+ candidates.sort((a,b)=>b.score-a.score);let reference='';
+ for(const c of candidates.slice(0,3)){const passage=`[${c.title}]\n${c.source}\n\n`;if(reference.length+passage.length<=MAX_SECTION_CHARS)reference+=passage;}
+ return reference.trim();
+}

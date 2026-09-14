@@ -53,3 +53,19 @@ test('a decimal table value remains available in source-constrained quotations',
  const quotes=c.groundedSchema(c.MCQ_SCHEMA,source).properties.quote.enum;
  assert.ok(quotes.some(q=>q.includes('12.5')));for(const q of quotes)c.quoteIn(q,source);
 });
+
+
+test('lesson passages cover the last sentence as well as the first',()=>{
+ const source=('A source paragraph with several concepts. ').repeat(75)+'FINAL CONCEPT.';
+ const parts=c.lessonPassages(source);assert.ok(parts.length>1);assert.equal(parts.join('').replace(/\s/g,''),source.replace(/\s/g,''));assert.ok(parts.at(-1).includes('FINAL CONCEPT.'));
+});
+test('private doubts find a misspelled term in another module within the prompt limit',()=>{
+ const sections=[{id:'one',title:'Unrelated',source:'Plants grow in sunlight.'},{id:'two',title:'Charge',source:'The coulomb is the SI unit of electric charge.'}];
+ const reference=c.bookReference(sections,'one','what is columb');assert.ok(reference.startsWith('[Charge]'));assert.ok(reference.includes('SI unit'));assert.ok(reference.length<=c.MAX_SECTION_CHARS);
+});
+test('PDF script runs remain attached to their mathematical base',async()=>{
+ const {readablePdfText}=await import('../frontend/scripts/pdf-layout.mjs');
+ const run=(str,x,y,h=12,width=12)=>({str,width,height:h,transform:[h,0,0,h,x,y]});
+ const result=readablePdfText([run('Charge q',20,700,12,50),run('1',70,697,8,5),run(' + q',78,700,12,25),run('2',103,697,8,5),run(' is conserved.',112,700,12,100)]);
+ assert.equal(result,'Charge q₁ + q₂ is conserved.');
+});

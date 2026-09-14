@@ -119,3 +119,14 @@ exercise the model-import path. This does not count as browser-download verifica
 GitHub workflows cover the full Django suite, migration drift, frontend checks,
 web build, contracts, browser flows, actual inference and Android/iOS JavaScript
 exports. Never treat an older green workflow as evidence for newer application code.
+
+
+### September 14: private learning corrections
+
+Save and leave now waits for the running local AI operation and its storage write; failed operations keep the page open with an error. A completed task no longer triggers a second unsaved-work prompt.
+
+New PDF imports group positioned text into lines and retain numeric sub/superscripts where geometry identifies them. Reimport an older book to create a new extraction copy while preserving its existing lessons, quizzes and history. This is not a guarantee of exact mathematical OCR or multi-column reading order.
+
+Lessons process consecutive source passages and save a complete version only when all passages finish. Each call remains bounded for the small local model. This increases total generation time with module length; it prevents the old single-paragraph cap but does not certify educational completeness. Private doubts retrieve bounded passages across the same stored book, tolerate small spelling mistakes, and constrain supporting quotations to those passages.
+
+Embedded PDF raster illustrations are cropped from their original rendered positions with a small margin. Full pages are collapsed behind View original page and remain available for checking formulas, tables and context. Full-page scans and vector drawings are not reliably separable diagrams; use the original page where automatic cropping is unavailable. Crops are original pixels, not AI redrawings.

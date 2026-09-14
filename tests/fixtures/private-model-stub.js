@@ -6,10 +6,11 @@ window.__LM_WLLAMA__=class {
  async exit(){}
  async createChatCompletion(request){
   if(request.abortSignal?.aborted)throw new DOMException('Cancelled','AbortError');
-  await new Promise(r=>setTimeout(r,100));
+  await new Promise(r=>setTimeout(r,window.__LM_TEST_DELAY__||100));
   if(request.abortSignal?.aborted)throw new DOMException('Cancelled','AbortError');
   const properties=request.response_format.json_schema.schema.properties;
-  const quote='Photosynthesis happens in the chloroplasts of green leaves.';
+  const quote=(properties.quote||properties.sections?.items?.properties.quote)?.enum?.[0]||'Photosynthesis happens in the chloroplasts of green leaves.';
+  window.__LM_TEST_CALLS__=(window.__LM_TEST_CALLS__||0)+1;
   let data;
   if(window.__LM_TEST_FAIL_ONCE__){window.__LM_TEST_FAIL_ONCE__=false;data={};}
   else if(properties.introduction)data={introduction:'A local lesson about photosynthesis.',sections:[{heading:'How leaves use light',content:'Leaves use chlorophyll to absorb light.',quote}],takeaways:['Photosynthesis happens in chloroplasts.']};

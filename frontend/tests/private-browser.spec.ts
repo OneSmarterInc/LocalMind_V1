@@ -141,16 +141,43 @@ test('real English OCR and original table/diagram survive offline import, lesson
  await page.getByText('scanned-biology',{exact:true}).click({timeout:60000});
  await expect(page.getByText('Text recognised on this device',{exact:true})).toBeVisible();
  await expect(page.getByText(/12\.5/).first()).toBeVisible();
- const original=page.getByRole('img',{name:'Original page 1 — tables and diagrams',exact:true});
+ const showOriginal=()=>page.getByRole('button',{name:'View original page 1',exact:true}).click();
+ await showOriginal();
+ const original=page.getByRole('img',{name:'Original page 1 — tables and diagrams enlarged',exact:true});
  await expect(original).toBeVisible();
  const imageBefore=await original.getAttribute('src');expect(imageBefore).toMatch(/^data:image\/png;base64,/);
  await page.screenshot({path:'test-results/scanned-source-with-visuals.png',fullPage:true});
+ await page.getByRole('button',{name:'Close image',exact:true}).click();
  await page.getByRole('button',{name:'Generate a lesson',exact:true}).click();
  await expect(page.getByRole('button',{name:'Saved lesson'})).toContainText('Version 1');
- await expect(original).toBeVisible();expect(await original.getAttribute('src')).toBe(imageBefore);
+ await showOriginal();await expect(original).toBeVisible();expect(await original.getAttribute('src')).toBe(imageBefore);
+ await page.getByRole('button',{name:'Close image',exact:true}).click();
  await page.screenshot({path:'test-results/scanned-lesson-with-visuals.png',fullPage:true});
  await page.reload();await page.getByRole('tab',{name:'Lesson',exact:true}).click();
  await expect(page.getByRole('button',{name:'Saved lesson'})).toContainText('Version 1');
- await expect(original).toBeVisible();expect(await original.getAttribute('src')).toBe(imageBefore);
+ await showOriginal();await expect(original).toBeVisible();expect(await original.getAttribute('src')).toBe(imageBefore);
+ await page.getByRole('button',{name:'Close image',exact:true}).click();
  expect(posts).toEqual([]);
+});
+
+
+test('save and leave waits for lesson persistence and navigates without discard',async({page})=>{
+ await signIn(page);await model(page);const url=await importBook(page,'Save and leave biology');
+ await page.evaluate(()=>{(window as any).__LM_TEST_DELAY__=1500;});
+ await page.getByRole('button',{name:'Generate a lesson',exact:true}).click();
+ await page.getByRole('button',{name:'Back to library',exact:true}).click();
+ await page.getByRole('button',{name:'Save and leave',exact:true}).click();
+ await expect(page).toHaveURL(/\/student\/private-library$/);
+ await page.goto(url);await page.getByRole('tab',{name:'Lesson',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Saved lesson'})).toContainText('Version 1');
+});
+
+test('long module lesson processes successive passages before saving',async({page})=>{
+ await signIn(page);await model(page);await page.goto('/student/private-library');
+ await pick(page,'Upload my book',{name:'Full coverage.txt',mimeType:'text/plain',buffer:Buffer.from((fixture().source+' ').repeat(8).slice(0,3000))});
+ await page.getByText('Full coverage',{exact:true}).click();
+ await page.evaluate(()=>{(window as any).__LM_TEST_CALLS__=0;});
+ await page.getByRole('button',{name:'Generate a lesson',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Saved lesson'})).toContainText('Version 1');
+ expect(await page.evaluate(()=>(window as any).__LM_TEST_CALLS__)).toBeGreaterThan(1);
 });

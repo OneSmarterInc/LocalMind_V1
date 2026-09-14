@@ -38,7 +38,8 @@ test('readable illustrated PDF keeps visuals and reports progress without OCR',a
  },fs.readFileSync('test-results/illustrated-text.pdf').toString('base64'));
  expect(result.parsed.items[0].ocr).toBe(false);
  expect(result.parsed.items[0].text).toContain('photosynthesis');
- expect(result.parsed.visuals).toHaveLength(1);
+ expect(result.parsed.visuals.some((v:any)=>v.kind==='figure')).toBe(true);
+ expect(result.parsed.visuals.some((v:any)=>v.kind==='page')).toBe(true);
  expect(result.messages).toContain('Preparing page 1 of 1');
  expect(result.messages.some((s:string)=>s.includes('Recognising'))).toBe(false);
 });

@@ -37,15 +37,15 @@ function ModuleLearning({bookId,section,next}:{bookId:string;section:Section;nex
  const [lessonId,setLessonId]=useState(''),[quizId,setQuizId]=useState(''),[question,setQuestion]=useState('');
  const lesson=lessons.data?.find(l=>l.id===lessonId)||lessons.data?.[0];
  const quiz=quizzes.data?.find(q=>q.id===quizId)||quizzes.data?.[0];
- const generateLesson=()=>task.run(async signal=>{const l=await library.generateLesson(bookId,section.id,signal);if(signal.aborted)return;setLessonId(l.id);await lessons.reload();});
+ const generateLesson=()=>task.run(async signal=>{const l=await library.generateLesson(bookId,section.id,signal,task.setNote);if(signal.aborted)return;setLessonId(l.id);await lessons.reload();});
  const generateQuiz=()=>task.run(async signal=>{setDone(0);const q=await library.generateQuiz(bookId,section.id,Number(count),signal,n=>{if(!signal.aborted)setDone(n);});if(signal.aborted)return;setQuizId(q.id);await quizzes.reload();});
  const ask=()=>task.run(async signal=>{const q=question.trim();await library.ask(bookId,section.id,q,signal);if(signal.aborted)return;setQuestion('');await chats.reload();});
  useUnsavedWarning(task.busy);
- useEffect(()=>{if(!task.busy)return;return registerGuard({label:'the current local AI task (wait for it, or discard to cancel)',save:async()=>false,discard:task.cancel});},[task.busy]);
+ useEffect(()=>{if(!task.busy)return;return registerGuard({label:'the current local AI task (wait for it, or discard to cancel)',save:async()=>{task.setNote('Finishing and saving before leaving…');const saved=await task.wait();if(!saved)throw Error('The AI task did not finish successfully. Retry or cancel it before leaving.');return true;},discard:task.cancel,isDirty:task.isRunning});},[task.busy]);
  return <Card><Row><H2>{section.title}</H2><Badge value="All modules open" tone="green"/></Row>
   <PageTabs value={tab} onChange={t=>{if(t!==tab)void confirmLeave().then(ok=>{if(ok)setTab(t);});}} tabs={[{key:'read',label:'Read'},{key:'lesson',label:'Lesson'},{key:'quiz',label:'Practice quiz'},{key:'ask',label:'Ask a doubt'}]}/>
   <ErrorBanner message={task.error||lessons.error||quizzes.error||chats.error}/>
-  {task.busy?<Notice title="Working on this device" message={tab==='quiz'?`Preparing question ${Math.min(done+1,Number(count))} of ${count}. Previous quizzes are unchanged until this set is complete.`:'The installed local model is working. No internet is used.'} action={<Button title="Cancel" variant="secondary" onPress={task.cancel}/>}/>:null}
+  {task.busy?<Notice title="Working on this device" message={tab==='quiz'?`Preparing question ${Math.min(done+1,Number(count))} of ${count}. Previous quizzes are unchanged until this set is complete.`:task.note||'The installed local model is working. No internet is used.'} action={<Button title="Cancel" variant="secondary" onPress={task.cancel}/>}/>:null}
   {section.ocr?<Notice title="Text recognised on this device" message="Compare OCR text with the original image, especially numbers, formulas and tables."/>:null}
   {!section.source.trim()?<Notice message="This page is available as an image. No usable text was recognised, so local AI cannot explain it."/>:null}
   {tab==='read'?<><SourceContent text={section.source}/><Row><Button title="Generate a lesson" onPress={()=>{setTab('lesson');generateLesson();}} disabled={task.busy}/><Button title="Next module" variant="secondary" onPress={next} disabled={task.busy}/></Row></>:null}

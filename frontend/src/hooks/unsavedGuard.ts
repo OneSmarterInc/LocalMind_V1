@@ -24,14 +24,14 @@ export function registerGuard(guard: Guard): () => void {
   return () => { guards.delete(id); };
 }
 
-export const hasUnsavedWork = () => guards.size > 0;
+export const hasUnsavedWork = () => [...guards.values()].some(g => !g.isDirty || g.isDirty());
 
 /**
  * Resolves true when navigation may go ahead.
  * `leaving: "signOut"` words the choices for signing out, where saving afterwards is not possible.
  */
 export async function confirmLeave(leaving: "navigate" | "signOut" = "navigate"): Promise<boolean> {
-  const all = [...guards.values()];
+  const all = [...guards.values()].filter(g => !g.isDirty || g.isDirty());
   if (!all.length) return true;
   const guard = all[all.length - 1];
   const choice = leaving === "signOut"
