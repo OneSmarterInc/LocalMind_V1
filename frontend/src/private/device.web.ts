@@ -80,7 +80,7 @@ async function install(stream:ReadableStream<Uint8Array>,name:string,progress:(n
   finally {reader.releaseLock();}
 }
 async function complete(req:Completion) {
- return lock.run(async()=>{
+ return lock.queue(async()=>{
   cancelled(req.signal); const info=await store.get<Installed>(MODEL_KEY);
   requireThat(info,'Download or import a local model in Offline AI first.');
   if(!engine || loaded!==info.file) {
@@ -108,7 +108,7 @@ async function complete(req:Completion) {
     if(abort.signal.aborted&&!req.signal.aborted)throw new Error('Local AI timed out. No partial work was saved. Try a shorter module or a smaller model.');
     throw e;
   } finally {clearTimeout(timer);req.signal.removeEventListener('abort',cancel);}
- });
+ },req.signal);
 }
 const implementation:Device={...store, complete,
  async parse(f, signal, progress) {

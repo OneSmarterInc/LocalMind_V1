@@ -130,3 +130,10 @@ New PDF imports group positioned text into lines and retain numeric sub/superscr
 Lessons process consecutive source passages and save a complete version only when all passages finish. Each call remains bounded for the small local model. This increases total generation time with module length; it prevents the old single-paragraph cap but does not certify educational completeness. Private doubts retrieve bounded passages across the same stored book, tolerate small spelling mistakes, and constrain supporting quotations to those passages.
 
 Embedded PDF raster illustrations are cropped from their original rendered positions with a small margin. Full pages are collapsed behind View original page and remain available for checking formulas, tables and context. Full-page scans and vector drawings are not reliably separable diagrams; use the original page where automatic cropping is unavailable. Crops are original pixels, not AI redrawings.
+
+
+### Background generation
+
+Private lessons, quizzes and doubts are application-owned jobs. Navigation no longer cancels them or opens a Save and leave prompt. Two jobs may be active while further jobs wait; the installed model serves individual inference calls in FIFO order, so lesson parts and quiz questions can interleave without loading duplicate models. Reading, checking saved MCQs, book imports and navigation remain available. One job per generation type/module is accepted at a time to prevent accidental duplicates.
+
+Generation jobs has its own student navigation entry and lists progress, failures and per-job cancellation. Sign-out/account changes cancel that session's outstanding jobs. Removing a book cancels and drains its jobs before deleting records. Completed results remain device-local and update their screens automatically. Jobs survive in-app navigation, not browser reload, app termination or guaranteed operating-system background suspension. Keep the app open while work is pending; no partially generated lesson or quiz is marked complete.

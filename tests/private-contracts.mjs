@@ -1,7 +1,7 @@
 import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import {fileURLToPath} from 'node:url';import {createRequire} from 'node:module';import {spawnSync} from 'node:child_process';import assert from 'node:assert/strict';import test from 'node:test';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),tmp=fs.mkdtempSync(path.join(os.tmpdir(),'lm-private-tests-'));
 const tsc=fs.existsSync(path.join(root,'frontend/node_modules/typescript/bin/tsc'))?[process.execPath,[path.join(root,'frontend/node_modules/typescript/bin/tsc')]]:['tsc',[]];
-const result=spawnSync(tsc[0],[...tsc[1],'--strict','--target','ES2022','--module','commonjs','--skipLibCheck','--outDir',tmp,...['core.ts','busy.ts','offlinePolicy.ts'].map(f=>path.join(root,'frontend/src/private',f))],{encoding:'utf8'});
+const result=spawnSync(tsc[0],[...tsc[1],'--strict','--target','ES2022','--module','commonjs','--skipLibCheck','--outDir',tmp,...['core.ts','busy.ts','offlinePolicy.ts','jobs.ts'].map(f=>path.join(root,'frontend/src/private',f))],{encoding:'utf8'});
 if(result.status!==0){console.error(result.stdout,result.stderr);process.exit(1);}
 const require=createRequire(import.meta.url),c=require(path.join(tmp,'core.js')),b=require(path.join(tmp,'busy.js')),policy=require(path.join(tmp,'offlinePolicy.js'));
 const source='Photosynthesis occurs in chloroplasts. Chlorophyll absorbs sunlight. Plants use carbon dioxide and release oxygen.';
@@ -68,4 +68,24 @@ test('PDF script runs remain attached to their mathematical base',async()=>{
  const run=(str,x,y,h=12,width=12)=>({str,width,height:h,transform:[h,0,0,h,x,y]});
  const result=readablePdfText([run('Charge q',20,700,12,50),run('1',70,697,8,5),run(' + q',78,700,12,25),run('2',103,697,8,5),run(' is conserved.',112,700,12,100)]);
  assert.equal(result,'Charge q₁ + q₂ is conserved.');
+});
+
+
+test('model completion queue is FIFO, cancellable and never overlaps',async()=>{
+ const lock=new b.Exclusive(),events=[];let finish;
+ const first=lock.queue(async()=>{events.push('first');await new Promise(r=>{finish=r;});});
+ const abort=new AbortController();const second=lock.queue(async()=>events.push('cancelled should not run'),abort.signal);const rejected=assert.rejects(second,/Cancelled/);
+ const third=lock.queue(async()=>events.push('third'));abort.abort();finish();await Promise.all([first,rejected,third]);assert.deepEqual(events,['first','third']);
+});
+test('app jobs bound concurrency and cancel queued work on account change',async()=>{
+ const {JobQueue}=require(path.join(tmp,'jobs.js'));const queue=new JobQueue(2),release=[];let running=0,peak=0;
+ const meta=i=>({scope:'old',bookId:'book',sectionId:String(i),kind:'lesson',label:'Lesson'});
+ for(let i=0;i<3;i++)queue.enqueue(meta(i),async signal=>{running++;peak=Math.max(peak,running);await new Promise(r=>release.push(r));running--;if(signal.aborted)throw Error('cancelled');});
+ assert.deepEqual(queue.list('old').map(j=>j.state),['running','running','queued']);queue.cancelOtherScopes('new');release.forEach(r=>r());await queue.cancelBook('old','book');assert.equal(peak,2);assert.ok(queue.list('old').every(j=>j.state==='cancelled'));assert.deepEqual(queue.list('new'),[]);
+});
+test('one failed background job does not block later work',async()=>{
+ const {JobQueue}=require(path.join(tmp,'jobs.js'));const queue=new JobQueue(1);
+ const meta=i=>({scope:'user',bookId:'book',sectionId:String(i),kind:'lesson',label:'Lesson'});
+ queue.enqueue(meta(1),async()=>{throw Error('failed generation');});queue.enqueue(meta(2),async()=>{});
+ await new Promise(r=>setTimeout(r,0));assert.deepEqual(queue.list('user').map(j=>j.state),['failed','completed']);
 });

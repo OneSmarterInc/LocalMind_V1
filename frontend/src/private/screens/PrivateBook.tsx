@@ -1,7 +1,10 @@
+import {generationJobs} from '../jobs';
+import {jobScope,useGenerationJobs} from '../useGenerationJobs';
+import {GenerationJobs} from '../GenerationJobs';
 import React,{useEffect,useRef,useState} from 'react';
 import {Pressable,ScrollView,View} from 'react-native';
 import {useLocalSearchParams,useRouter} from 'expo-router';
-import {Screen,PageHeading,Card,Row,H2,P,Button,Badge,Notice,ErrorBanner,Loading,PageTabs,Input,Split,Dropdown,ProgressBar,confirmAsync,colors} from '@/ui';
+import {Screen,PageHeading,Card,Row,H2,P,Button,Badge,Notice,ErrorBanner,Loading,PageTabs,Input,Split,Dropdown,confirmAsync,colors} from '@/ui';
 import {SourceVisuals} from '../SourceVisuals';
 import {SourceContent} from '@/ui/SourceContent';
 import {useAsync} from '@/hooks/useAsync';
@@ -29,33 +32,43 @@ export default function PrivateBook(){
  </Screen>;
 }
 function ModuleLearning({bookId,section,next}:{bookId:string;section:Section;next:()=>void}){
- const library=useLibrary()!,task=useTask(),router=useRouter();
- const [tab,setTab]=useState<Tab>('read'),[count,setCount]=useState('6'),[done,setDone]=useState(0);
- const lessons=useAsync(()=>library.lessons(bookId,section.id),[library,bookId,section.id]);
- const quizzes=useAsync(()=>library.quizzes(bookId,section.id),[library,bookId,section.id]);
- const chats=useAsync(()=>library.chats(bookId,section.id),[library,bookId,section.id]);
+ const library=useLibrary()!,router=useRouter();
+ const jobs=useGenerationJobs(library.prefix).filter(j=>j.bookId===bookId&&j.sectionId===section.id);
+ const completed=jobs.filter(j=>j.state==='completed').map(j=>j.id).join(',');
+ const [tab,setTab]=useState<Tab>('read'),[count,setCount]=useState('6');
+ const lessons=useAsync(()=>library.lessons(bookId,section.id),[library,bookId,section.id,completed]);
+ const quizzes=useAsync(()=>library.quizzes(bookId,section.id),[library,bookId,section.id,completed]);
+ const chats=useAsync(()=>library.chats(bookId,section.id),[library,bookId,section.id,completed]);
  const [lessonId,setLessonId]=useState(''),[quizId,setQuizId]=useState(''),[question,setQuestion]=useState('');
  const lesson=lessons.data?.find(l=>l.id===lessonId)||lessons.data?.[0];
  const quiz=quizzes.data?.find(q=>q.id===quizId)||quizzes.data?.[0];
- const generateLesson=()=>task.run(async signal=>{const l=await library.generateLesson(bookId,section.id,signal,task.setNote);if(signal.aborted)return;setLessonId(l.id);await lessons.reload();});
- const generateQuiz=()=>task.run(async signal=>{setDone(0);const q=await library.generateQuiz(bookId,section.id,Number(count),signal,n=>{if(!signal.aborted)setDone(n);});if(signal.aborted)return;setQuizId(q.id);await quizzes.reload();});
- const ask=()=>task.run(async signal=>{const q=question.trim();await library.ask(bookId,section.id,q,signal);if(signal.aborted)return;setQuestion('');await chats.reload();});
- useUnsavedWarning(task.busy);
- useEffect(()=>{if(!task.busy)return;return registerGuard({label:'the current local AI task (wait for it, or discard to cancel)',save:async()=>{task.setNote('Finishing and saving before leaving…');const saved=await task.wait();if(!saved)throw Error('The AI task did not finish successfully. Retry or cancel it before leaving.');return true;},discard:task.cancel,isDirty:task.isRunning});},[task.busy]);
+ useEffect(()=>{if(!quizId&&quizzes.data?.length)setQuizId(quizzes.data[0].id);},[quizId,quizzes.data]);
+ const currentKind=tab==='ask'?'doubt':tab;
+ const current=jobs.slice().reverse().find(j=>j.kind===currentKind);
+ useEffect(()=>{if(current?.kind==='doubt'&&current.state==='completed')setQuestion('');},[current?.id,current?.kind,current?.state]);
+ const active=(kind:string)=>jobs.some(j=>j.kind===kind&&['queued','running'].includes(j.state));
+ const [localError,setLocalError]=useState('');
+ const task={busy:!!current&&['queued','running'].includes(current.state),note:current?.note||'',error:localError||current?.error||'',cancel:()=>{if(current)generationJobs.cancel(current.id);}};
+ const enqueue=(kind:string,run:(signal:AbortSignal,progress:(s:string)=>void)=>Promise<unknown>)=>{
+  try{setLocalError('');generationJobs.enqueue({scope:jobScope(library.prefix),bookId,sectionId:section.id,kind,label:`${section.title} · ${kind}`},run);}catch(e){setLocalError(String(e));}
+ };
+ const generateLesson=()=>{setLessonId('');enqueue('lesson',(signal,progress)=>library.generateLesson(bookId,section.id,signal,progress));};
+ const generateQuiz=()=>{const total=Number(count);enqueue('quiz',(signal,progress)=>library.generateQuiz(bookId,section.id,total,signal,n=>progress(`Prepared question ${n} of ${total}`)));};
+ const ask=()=>{const q=question.trim();enqueue('doubt',signal=>library.ask(bookId,section.id,q,signal));};
  return <Card><Row><H2>{section.title}</H2><Badge value="All modules open" tone="green"/></Row>
   <PageTabs value={tab} onChange={t=>{if(t!==tab)void confirmLeave().then(ok=>{if(ok)setTab(t);});}} tabs={[{key:'read',label:'Read'},{key:'lesson',label:'Lesson'},{key:'quiz',label:'Practice quiz'},{key:'ask',label:'Ask a doubt'}]}/>
   <ErrorBanner message={task.error||lessons.error||quizzes.error||chats.error}/>
-  {task.busy?<Notice title="Working on this device" message={tab==='quiz'?`Preparing question ${Math.min(done+1,Number(count))} of ${count}. Previous quizzes are unchanged until this set is complete.`:task.note||'The installed local model is working. No internet is used.'} action={<Button title="Cancel" variant="secondary" onPress={task.cancel}/>}/>:null}
+  {task.busy?<Notice title="Working on this device" message={`${task.note} You can leave this page; the job will continue while the app stays open.`} action={<Button title="Cancel" variant="secondary" onPress={task.cancel}/>}/>:null}
   {section.ocr?<Notice title="Text recognised on this device" message="Compare OCR text with the original image, especially numbers, formulas and tables."/>:null}
   {!section.source.trim()?<Notice message="This page is available as an image. No usable text was recognised, so local AI cannot explain it."/>:null}
-  {tab==='read'?<><SourceContent text={section.source}/><Row><Button title="Generate a lesson" onPress={()=>{setTab('lesson');generateLesson();}} disabled={task.busy}/><Button title="Next module" variant="secondary" onPress={next} disabled={task.busy}/></Row></>:null}
+  {tab==='read'?<><SourceContent text={section.source}/><Row><Button title="Generate a lesson" onPress={()=>{setTab('lesson');generateLesson();}} disabled={active('lesson')}/><Button title="Next module" variant="secondary" onPress={next}/></Row></>:null}
   {tab==='lesson'?<><Row><Button title={lesson?'Regenerate lesson':'Generate lesson'} icon="sparkles-outline" onPress={generateLesson} disabled={task.busy}/>{lessons.data?.length?<Dropdown label="Saved lesson" value={lesson?.id||''} onChange={setLessonId} options={lessons.data.map((l,i)=>({value:l.id,label:`Version ${lessons.data!.length-i} · ${new Date(l.createdAt).toLocaleString()}`}))}/>:null}</Row>{lesson?<LocalLesson lesson={lesson}/>:<P muted>Generate an explanation from this module with your local AI model.</P>}</>:null}
   {tab==='quiz'?<><Row><Dropdown label="Questions" value={count} onChange={v=>{if(!task.busy)setCount(v);}} options={Array.from({length:10},(_,i)=>({value:String(i+1),label:String(i+1)}))}/><Button title={quiz?'Generate another quiz':'Generate quiz'} icon="sparkles-outline" onPress={()=>{void confirmLeave().then(ok=>{if(ok)generateQuiz();});}} disabled={task.busy}/>{quizzes.data?.length?<Dropdown label="Saved quiz" value={quiz?.id||''} onChange={v=>{void confirmLeave().then(ok=>{if(ok)setQuizId(v);});}} options={quizzes.data.map((q,i)=>({value:q.id,label:`Version ${quizzes.data!.length-i} · ${q.questions.length} questions`}))}/>:null}</Row>
-   {task.busy?<ProgressBar value={done/Number(count)*100}/>:null}
    {quiz?<QuizPractice key={quiz.id} quiz={quiz}/>:<P muted>Create a quiz to practise. A failed or incomplete generation never becomes a completed quiz.</P>}</>:null}
   {tab==='ask'?<><P muted>Your private doubts stay on this device.</P>{(chats.data||[]).map(c=><Chat key={c.id} chat={c}/>)}<Input label="Your question" value={question} onChangeText={setQuestion} multiline maxLength={1000} placeholder="What would you like to understand?" editable={!task.busy}/><Button title="Ask local AI" icon="send-outline" onPress={ask} disabled={task.busy||!question.trim()}/></>:null}
   {(tab==='read'||tab==='lesson')&&<SourceVisuals bookId={bookId} sectionId={section.id}/>}
-  <Row><Button title="Offline AI setup" small variant="secondary" onPress={()=>{void confirmLeave().then(ok=>{if(ok)router.push('/student/offline-ai');});}} disabled={task.busy}/></Row>
+  <GenerationJobs/>
+  <Row><Button title="Offline AI setup" small variant="secondary" onPress={()=>{void confirmLeave().then(ok=>{if(ok)router.push('/student/offline-ai');});}}/></Row>
  </Card>;
 }
 function LocalLesson({lesson}:{lesson:LessonVersion}){return <><P>{lesson.lesson.introduction}</P>{lesson.lesson.sections.map((s,i)=><View key={i} style={{gap:8}}><H2>{s.heading}</H2><P>{s.content}</P><P small muted>From the book: {s.quote}</P></View>)}<H2>Key takeaways</H2>{lesson.lesson.takeaways.map((t,i)=><P key={i}>• {t}</P>)}</>;}

@@ -1,3 +1,4 @@
+import {generationJobs} from './jobs';
 import { randomUUID } from 'expo-crypto';
 import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils';
@@ -42,7 +43,7 @@ export class Library {
     } catch (e) { await d.removePrefix(assetPrefix); throw e; }
     this.guard(); return { book, duplicate: false };
   }
-  async remove(id: string) { await this.book(id); this.guard(); const d = await device(); await d.removePrefix(this.key(id)); await d.removePrefix(this.work(id)); this.guard(); }
+  async remove(id: string) { await generationJobs.cancelBook(`${this.prefix}session:${currentSession()}`,id); await this.book(id); this.guard(); const d = await device(); await d.removePrefix(this.key(id)); await d.removePrefix(this.work(id)); this.guard(); }
   async visuals(bookId: string, sectionId: string): Promise<SourceVisual[]> {
     const book = await this.book(bookId), section = book.sections.find(s => s.id === sectionId);
     requireThat(section, 'Choose a module in this book'); const d = await device();

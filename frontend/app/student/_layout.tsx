@@ -16,6 +16,7 @@ const STUDENT_META: PortalMeta = {
   profilePath: "/student/profile",
   finder: [
     { title: "Private library", section: "Your books and local AI", path: "/student/private-library" },
+    { title: "Generation jobs", section: "Background progress", path: "/student/generation-jobs" },
     { title: "Offline AI", section: "Download or import a local model", path: "/student/offline-ai" },
     { title: "Overview", section: "Your next steps", path: "/student" },
     { title: "My subjects", section: "Books and modules", path: "/student/subjects" },
@@ -40,6 +41,7 @@ export default function StudentLayout() {
       <Tabs screenOptions={shell.screenOptions} tabBar={shell.tabBar}>
         <Tabs.Screen name="index" options={{ title: "Overview", tabBarIcon: icon("home-outline") }} />
         <Tabs.Screen name="private-library" options={{ title: "Private library", tabBarIcon: icon("book-outline") }} />
+        <Tabs.Screen name="generation-jobs" options={{ title: "Generation jobs", tabBarIcon: icon("time-outline") }} />
         <Tabs.Screen name="offline-ai" options={{ title: "Offline AI", tabBarIcon: icon("hardware-chip-outline") }} />
         <Tabs.Screen name="private-book/[id]" options={shellScreen({ href: null, title: "Private book" }, { backTo: "/student/private-library", backLabel: "Private library" })} />
         <Tabs.Screen name="subjects" options={{ title: "My subjects", tabBarIcon: icon("library-outline") }} />

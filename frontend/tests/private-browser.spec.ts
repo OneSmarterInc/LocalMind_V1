@@ -32,6 +32,7 @@ async function importBook(page:Page,name='Personal biology'){
  await expect(page.getByText(name,{exact:true})).toBeVisible();await page.getByText(name,{exact:true}).click();
  await expect(page).toHaveURL(/\/student\/private-book\/[a-f0-9]{64}/);return page.url();
 }
+const jobPanel=(page:Page)=>page.getByRole('heading',{name:'Generation jobs',exact:true}).locator('..').locator('..');
 async function countOne(page:Page){await page.getByRole('button',{name:'Questions',exact:true}).click();await page.getByRole('menuitem',{name:'1',exact:true}).click();}
 
 test('admin shares a plain book; legacy publishing route no longer shows the block editor',async({page})=>{
@@ -57,7 +58,7 @@ test('private lesson regeneration, quiz checking and new doubts survive a comple
  await expect(page.getByRole('button',{name:'Saved lesson'})).toContainText('Version 2');
  await page.evaluate(()=>{(window as any).__LM_TEST_FAIL_ONCE__=true;});
  await page.getByRole('button',{name:'Regenerate lesson',exact:true}).click();
- await expect(page.getByText(/Expected 1–3 lesson sections/)).toBeVisible();
+ await expect(page.getByText(/Expected 1–3 lesson sections/).filter({visible:true}).first()).toBeVisible();
  await expect(page.getByText('A local lesson about photosynthesis.',{exact:true})).toBeVisible();
  await page.getByRole('tab',{name:'Practice quiz',exact:true}).click();await countOne(page);
  await page.getByRole('button',{name:'Generate quiz',exact:true}).click();
@@ -68,7 +69,9 @@ test('private lesson regeneration, quiz checking and new doubts survive a comple
  await page.getByRole('button',{name:'Check my answers',exact:true}).click();
  await expect(page.getByText('1 of 1 correct',{exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Generate another quiz',exact:true}).click();
- await expect(page.getByRole('button',{name:'Saved quiz'})).toContainText('Version 2');
+ await expect(jobPanel(page).getByText('Completed',{exact:true})).toHaveCount(4);
+ await expect(page.getByRole('button',{name:'Saved quiz'})).toContainText('Version 1');
+ await page.getByRole('button',{name:'Saved quiz'}).click();await page.getByRole('menuitem',{name:/Version 2/}).click();
  await page.getByRole('radio',{name:'A. Chloroplasts',exact:true}).click();
  await expect(page.getByText('Answers saved on this device',{exact:true})).toBeVisible();
  expect(uploads,'Private model tasks must not post books, questions or answers to Django.').toEqual([]);
@@ -161,15 +164,27 @@ test('real English OCR and original table/diagram survive offline import, lesson
 });
 
 
-test('save and leave waits for lesson persistence and navigates without discard',async({page})=>{
- await signIn(page);await model(page);const url=await importBook(page,'Save and leave biology');
- await page.evaluate(()=>{(window as any).__LM_TEST_DELAY__=1500;});
+test('multiple background jobs continue across modules and navigation without a save prompt',async({page})=>{
+ await signIn(page);await model(page);await importBook(page,'Background biology');
+ await page.evaluate(()=>{(window as any).__LM_TEST_DELAY__=4000;});
+ await page.getByRole('button',{name:'Generate a lesson',exact:true}).click();
+ await page.getByRole('tab',{name:'Practice quiz',exact:true}).click();await countOne(page);
+ await page.getByRole('button',{name:'Generate quiz',exact:true}).click();
+ await page.getByRole('button',{name:'Open practice',exact:true}).click();
  await page.getByRole('button',{name:'Generate a lesson',exact:true}).click();
  await page.getByRole('button',{name:'Back to library',exact:true}).click();
- await page.getByRole('button',{name:'Save and leave',exact:true}).click();
  await expect(page).toHaveURL(/\/student\/private-library$/);
- await page.goto(url);await page.getByRole('tab',{name:'Lesson',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Save and leave',exact:true})).toHaveCount(0);
+ await expect(jobPanel(page).getByText(/^(Running|Queued)$/).first()).toBeVisible();
+ await expect(jobPanel(page).getByText('Completed',{exact:true})).toHaveCount(3,{timeout:30000});
+ await page.getByRole('heading',{name:'Saved books',exact:true}).locator('..').locator('..').getByText('Background biology',{exact:true}).click();
+ await page.getByRole('button',{name:'Leaf science',exact:true}).click();
+ await page.getByRole('tab',{name:'Lesson',exact:true}).click();
  await expect(page.getByRole('button',{name:'Saved lesson'})).toContainText('Version 1');
+ await page.getByRole('tab',{name:'Practice quiz',exact:true}).click();
+ await expect(page.getByRole('radio')).toHaveCount(4);
+ await page.getByRole('radio').first().click();await page.getByRole('button',{name:'Check my answers',exact:true}).click();
+ await expect(page.getByText('1 of 1 correct',{exact:true})).toBeVisible();
 });
 
 test('long module lesson processes successive passages before saving',async({page})=>{
@@ -180,4 +195,18 @@ test('long module lesson processes successive passages before saving',async({pag
  await page.getByRole('button',{name:'Generate a lesson',exact:true}).click();
  await expect(page.getByRole('button',{name:'Saved lesson'})).toContainText('Version 1');
  expect(await page.evaluate(()=>(window as any).__LM_TEST_CALLS__)).toBeGreaterThan(1);
+});
+
+
+test('cancelling a background lesson does not cancel the queued quiz',async({page})=>{
+ await signIn(page);await model(page);await importBook(page,'Cancellation biology');
+ await page.evaluate(()=>{(window as any).__LM_TEST_DELAY__=2500;});
+ await page.getByRole('button',{name:'Generate a lesson',exact:true}).click();
+ await page.getByRole('tab',{name:'Practice quiz',exact:true}).click();await countOne(page);
+ await page.getByRole('button',{name:'Generate quiz',exact:true}).click();
+ await page.getByRole('tab',{name:'Lesson',exact:true}).click();await page.getByRole('button',{name:'Cancel',exact:true}).click();
+ await page.getByRole('tab',{name:'Practice quiz',exact:true}).click();
+ await expect(page.getByRole('radio')).toHaveCount(4,{timeout:30000});
+ await expect(jobPanel(page).getByText('Cancelled',{exact:true})).toBeVisible();
+ await expect(jobPanel(page).getByText('Completed',{exact:true})).toBeVisible();
 });

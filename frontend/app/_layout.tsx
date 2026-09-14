@@ -1,3 +1,4 @@
+import {GenerationHost} from '@/private/GenerationJobs';
 import ParserHost from "@/private/ParserHost";
 import { Stack, useRouter, useSegments, type ErrorBoundaryProps } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -63,6 +64,7 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <AuthProvider>
         <Gate>
+          <GenerationHost />
           <StatusBar style="dark" />
           <Stack screenOptions={{ headerStyle: { backgroundColor: colors.bg }, headerShadowVisible: false, headerTintColor: colors.text, headerTitleStyle: { fontWeight: "800" }, contentStyle: { backgroundColor: colors.bg } }}>
             <Stack.Screen name="login/index" options={{ headerShown: false }} />

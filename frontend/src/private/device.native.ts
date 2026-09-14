@@ -40,7 +40,7 @@ async function accept(uri:string,name:string,progress:(n:number)=>void,signal?:A
  await store.put(MODEL_KEY,{uri,name,bytes:result.bytes,hash:result.hash});
  if(old?.uri)await FS.deleteAsync(old.uri,{idempotent:true}).catch(()=>{});progress(1);
 }
-async function complete(req:Completion){return lock.run(async()=>{
+async function complete(req:Completion){return lock.queue(async()=>{
  cancelled(req.signal);const m=await store.get<Installed>(MODEL_KEY);requireThat(m,'Download or import a model in Offline AI first.');
  requireThat(m.uri.startsWith('file://'),'AI models must be stored locally.');
  if(!context||loaded!==m.uri){await close();await info(m.uri);context=await initLlama({model:m.uri,n_ctx:CONTEXT_TOKENS,n_threads:2,n_gpu_layers:0,use_mlock:false});loaded=m.uri;}
@@ -57,7 +57,7 @@ async function complete(req:Completion){return lock.run(async()=>{
    response_format:{type:'json_object',schema:req.schema},stop:['<|im_end|>','<|eot_id|>','</s>']});
   cancelled(req.signal);requireThat(!expired && !('stopped_limit' in res && res.stopped_limit),'Local AI did not finish. No partial answer was saved.');return JSON.parse(res.text);
  }catch(e){if(expired&&!req.signal.aborted)throw new Error('Local AI timed out. No partial work was saved. Try a shorter module or a smaller model.');throw e;}finally{clearTimeout(timer);req.signal.removeEventListener('abort',cancel);}
-});}
+},req.signal);}
 const implementation:Device={...store,complete,
  async parse(f, signal, progress){
   const i=await info(f.uri);requireThat(i.size<=MAX_BOOK_BYTES,'Import a book up to 35 MB.');
