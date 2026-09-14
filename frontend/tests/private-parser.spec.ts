@@ -27,3 +27,18 @@ test('cancelling OCR releases the parser for the next import',async({page})=>{
  },fs.readFileSync('test-results/scanned-biology.pdf').toString('base64'));
  expect(outcome.error).toMatch(/cancel|abort|destroy/i);expect(outcome.text).toContain('after cancellation');
 });
+
+
+test('readable illustrated PDF keeps visuals and reports progress without OCR',async({page})=>{
+ await page.addScriptTag({path:'public/private-assets/parser.js',type:'module'});
+ const result=await page.evaluate(async raw=>{
+  const messages:string[]=[];
+  const parsed=await(window as any).__LM_PARSER__.parse(Uint8Array.from(atob(raw),c=>c.charCodeAt(0)),'illustrated.pdf',undefined,(s:string)=>messages.push(s));
+  return {parsed,messages};
+ },fs.readFileSync('test-results/illustrated-text.pdf').toString('base64'));
+ expect(result.parsed.items[0].ocr).toBe(false);
+ expect(result.parsed.items[0].text).toContain('photosynthesis');
+ expect(result.parsed.visuals).toHaveLength(1);
+ expect(result.messages).toContain('Preparing page 1 of 1');
+ expect(result.messages.some((s:string)=>s.includes('Recognising'))).toBe(false);
+});

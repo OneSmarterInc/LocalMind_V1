@@ -59,10 +59,10 @@ async function complete(req:Completion){return lock.run(async()=>{
  }catch(e){if(expired&&!req.signal.aborted)throw new Error('Local AI timed out. No partial work was saved. Try a shorter module or a smaller model.');throw e;}finally{clearTimeout(timer);req.signal.removeEventListener('abort',cancel);}
 });}
 const implementation:Device={...store,complete,
- async parse(f, signal){
+ async parse(f, signal, progress){
   const i=await info(f.uri);requireThat(i.size<=MAX_BOOK_BYTES,'Import a book up to 35 MB.');
   const base64=await FS.readAsStringAsync(f.uri,{encoding:FS.EncodingType.Base64});
-  const hash=bytesToHex(sha256(toByteArray(base64)));const parsed=await parseNative(f.name,base64,signal);
+  const hash=bytesToHex(sha256(toByteArray(base64)));const parsed=await parseNative(f.name,base64,signal,progress);
   return {hash,sections:makeSections(parsed.items),warnings:parsed.warnings,visuals:parsed.visuals};
  },
  async downloadBook(url,headers,name,signal){

@@ -72,7 +72,11 @@ async function parse(bytes,name,signal,progress=()=>{}){
      const visualIds=[capture(canvas,`Original page ${p} — tables and diagrams`,p)];
      // Mixed pages (a selectable header above a scanned body) also need OCR.
      const ops=await page.getOperatorList();const hasImage=ops.fnArray.some(op=>[pdfjs.OPS.paintImageXObject,pdfjs.OPS.paintInlineImageXObject,pdfjs.OPS.paintImageMaskXObject].includes(op));
-     const needsOCR=text.replace(/\s/g,'').length<50||hasImage;
+     const readableChars=text.replace(/\s/g,'').length;
+     // Preserve illustrations without re-recognising substantial selectable text.
+     // Sparse headers over scanned bodies still receive OCR.
+     const needsOCR=readableChars<50||(hasImage&&readableChars<300);
+     if(hasImage&&!needsOCR)warnings.push('Pages with substantial selectable text use that text without additional image OCR. Original illustrations remain visible; labels present only inside images may not be available to the tutor.');
      if(needsOCR){
       progress(`Recognising text on page ${p} of ${doc.numPages}`);ocr||=await recognizer(signal);
       const read=await ocr.read(canvas);
@@ -107,8 +111,8 @@ async function parse(bytes,name,signal,progress=()=>{}){
   let current={title:'Introduction',text:'',visualIds:[]},total=0;
   const push=()=>{if(current.text.trim()||current.visualIds.length)items.push(current);};
   const body=children(dom,'body')[0];assert(body,'Missing Word document body.');
-  for(const node of body.children){
-   check(signal);
+  for(const [index,node] of Array.from(body.children).entries()){
+   check(signal);progress(`Reading Word content ${index+1} of ${body.children.length}`);
    if(node.localName==='p'){
     const s=content(node),style=val(children(node,'pStyle')[0]),level=val(children(node,'outlineLvl')[0]);
     if((/^(heading|title)[ _-]?\d*/i.test(style)||(level!==''&&Number(level)<9))&&s.trim()){push();current={title:s.slice(0,300),text:'',visualIds:[]};}

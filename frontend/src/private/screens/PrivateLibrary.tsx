@@ -18,7 +18,7 @@ export default function PrivateLibrary(){
  const upload=()=>task.run(async signal=>{
   const pick=await Picker.getDocumentAsync({type:'*/*',copyToCacheDirectory:true});if(pick.canceled||!library||signal.aborted)return;
   const file=pick.assets[0];task.setNote('Preparing your book on this device. Scanned pages use local English OCR; large scans can take several minutes. Nothing is uploaded.');
-  const saved=await library.import({name:file.name,uri:file.uri,file:file.file,size:file.size},undefined,signal);
+  const saved=await library.import({name:file.name,uri:file.uri,file:file.file,size:file.size},undefined,signal,task.setNote);
   if(signal.aborted)return;task.setNote(saved.duplicate?'This book is already in your library. Your existing work is unchanged.':'Book saved on this device. Open any module to start learning.');await books.reload();setTab('device');
  });
  const add=(b:SharedBook)=>task.run(async signal=>{
@@ -26,7 +26,7 @@ export default function PrivateLibrary(){
   const f=await downloadShared(b,signal);
   try{
    if(signal.aborted)return;
-   const result=await library.import(f,{id:`${b.kind}:${b.id}`,title:b.title,sha256:b.sha256},signal);
+   const result=await library.import(f,{id:`${b.kind}:${b.id}`,title:b.title,sha256:b.sha256},signal,task.setNote);
    if(signal.aborted)return;task.setNote(result.duplicate?'Already in your library; saved work is unchanged.':'Private copy saved. All its modules are open for personal study.');await books.reload();setTab('device');
   }finally{await(await device()).releaseFile(f);}
  });

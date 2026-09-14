@@ -25,8 +25,8 @@ export class Library {
   private work(book: string) { return `${this.prefix}work:${book}:`; }
   async books(): Promise<PrivateBook[]> { this.guard(); const rows = await (await device()).list<PrivateBook>(`${this.prefix}book:`); this.guard(); return rows.map(validateBook).sort((a, b) => b.importedAt.localeCompare(a.importedAt)); }
   async book(id: string) { this.guard(); requireThat(/^[a-f0-9]{64}$/.test(id), 'Invalid private book ID'); const b = await (await device()).get<PrivateBook>(this.key(id)); this.guard(); requireThat(b, 'This book is no longer in your private library'); return validateBook(b); }
-  async import(file: LocalFile, shared?: { id: string; title: string; sha256?: string }, signal?: AbortSignal) {
-    cancelled(signal); this.guard(); const d = await device(); const parsed = await d.parse(file, signal); this.guard(); cancelled(signal);
+  async import(file: LocalFile, shared?: { id: string; title: string; sha256?: string }, signal?: AbortSignal, progress?: (message: string) => void) {
+    cancelled(signal); this.guard(); progress?.("Reading book on this device…"); const d = await device(); const parsed = await d.parse(file, signal, progress); this.guard(); cancelled(signal);
     if (shared?.sha256) requireThat(parsed.hash === shared.sha256, 'Downloaded book checksum mismatch. Nothing was imported.');
     const original = await d.get<PrivateBook>(this.key(parsed.hash)); this.guard();
     // Re-importing pre-OCR content creates a new revision without breaking its saved lessons/attempts.
@@ -37,7 +37,7 @@ export class Library {
     // Store assets separately so listing books does not load every page bitmap.
     const assetPrefix = `${this.work(id)}visual:${book.assetSet}:`;
     try {
-      for (const visual of parsed.visuals || []) { this.guard(); cancelled(signal); await d.put(`${assetPrefix}${visual.id}`, visual); }
+      for (const [index, visual] of (parsed.visuals || []).entries()) { progress?.(`Saving image ${index + 1} of ${parsed.visuals?.length} on this device`); this.guard(); cancelled(signal); await d.put(`${assetPrefix}${visual.id}`, visual); }
       this.guard(); cancelled(signal); await d.put(this.key(id), validateBook(book));
     } catch (e) { await d.removePrefix(assetPrefix); throw e; }
     this.guard(); return { book, duplicate: false };

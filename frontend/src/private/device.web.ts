@@ -10,7 +10,7 @@ type Engine = {
   createChatCompletion(opts:Record<string,unknown>):Promise<{choices:{finish_reason:string;message:{content:string}}[]}>;
   exit():Promise<void>;
 };
-type Parser = { parse:(bytes:Uint8Array,name:string,signal?:AbortSignal)=>Promise<import('./parserBridge').ParsedDocument> };
+type Parser = { parse:(bytes:Uint8Array,name:string,signal?:AbortSignal,progress?:(message:string)=>void)=>Promise<import('./parserBridge').ParsedDocument> };
 declare global { interface Window { __LM_WLLAMA__?:new (paths:Record<string,string>,options?:object)=>Engine; __LM_PARSER__?:Parser; } }
 const MODEL_KEY='@model-v1';
 let dbPromise:Promise<IDBDatabase>|undefined;
@@ -111,10 +111,10 @@ async function complete(req:Completion) {
  });
 }
 const implementation:Device={...store, complete,
- async parse(f, signal) {
+ async parse(f, signal, progress) {
   const file=await fileOf(f); await script('/private-assets/parser.js');requireThat(window.__LM_PARSER__,'Local book parser is missing.');
   const bytes=new Uint8Array(await file.arrayBuffer());const hash=bytesToHex(sha256(bytes));
-  const parsed=await window.__LM_PARSER__.parse(bytes,f.name,signal);
+  const parsed=await window.__LM_PARSER__.parse(bytes,f.name,signal,progress);
   return {hash,sections:makeSections(parsed.items),warnings:parsed.warnings,visuals:parsed.visuals};
  },
  async downloadBook(url,headers,name,signal) {
