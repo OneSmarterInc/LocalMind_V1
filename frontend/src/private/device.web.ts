@@ -2,6 +2,7 @@ import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex } from '@noble/hashes/utils';
 import { MAX_BOOK_BYTES, makeSections, requireThat } from './core';
 import { MODEL, MAX_MODEL_BYTES, CONTEXT_TOKENS } from './modelSpec';
+import { PARSER_ASSET } from './generated/parserAsset';
 import { inferenceThreads } from './performance';
 import { Exclusive, cancelled } from './busy';
 import type { Completion, Device, LocalFile } from './device.types';
@@ -122,7 +123,7 @@ async function complete(req:Completion) {
 }
 const implementation:Device={...store, complete,
  async parse(f, signal, progress, saveVisual) {
-  const file=await fileOf(f); await script('/private-assets/parser.js');requireThat(window.__LM_PARSER__,'Local book parser is missing.');
+  const file=await fileOf(f); await script(PARSER_ASSET);requireThat(window.__LM_PARSER__,'Local book parser is missing.');
   const bytes=new Uint8Array(await file.arrayBuffer());const hash=bytesToHex(sha256(bytes));
   const parsed=await window.__LM_PARSER__.parse(bytes,f.name,signal,progress,saveVisual?visual=>saveVisual(visual,hash):undefined);
   return {hash,sections:makeSections(parsed.items),warnings:parsed.warnings,visuals:parsed.visuals};

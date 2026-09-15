@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import {createHash} from 'node:crypto';
 import { build } from 'esbuild';
 import { fileURLToPath } from 'node:url';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
@@ -26,6 +27,12 @@ fs.writeFileSync(path.join(root,'scripts/generated-ocr.mjs'),'export const OCR_W
 const bundle=await build({entryPoints:[path.join(root,'scripts/parser-entry.mjs')],bundle:true,format:'esm',platform:'browser',target:'es2022',minify:true,write:false,logLevel:'warning',external:['node:*']});
 const code=bundle.outputFiles[0].text;
 fs.writeFileSync(path.join(dest,'parser.js'),code);
+// A changed parser must have a new pathname: existing offline workers cache by pathname.
+const parserName='parser-'+createHash('sha256').update(code).digest('hex').slice(0,20)+'.js';
+for(const name of fs.readdirSync(dest))if(/^parser-[a-f0-9]+\.js$/.test(name)&&name!==parserName)fs.unlinkSync(path.join(dest,name));
+fs.writeFileSync(path.join(dest,parserName),code);
+fs.mkdirSync(path.join(root,'src/private/generated'),{recursive:true});
+fs.writeFileSync(path.join(root,'src/private/generated/parserAsset.ts'),'export const PARSER_ASSET='+JSON.stringify('/private-assets/'+parserName)+';\n');
 const html='<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'unsafe-inline\' \'unsafe-eval\' blob:; worker-src blob:; connect-src blob: data:; img-src blob: data:; style-src \'unsafe-inline\'"><script type="module">'+code.replace(/<\/script/gi,'<\\/script')+'</script>';
 fs.mkdirSync(path.join(root,'src/private/generated'),{recursive:true});
 fs.writeFileSync(path.join(root,'src/private/generated/parser.ts'),'// Generated from pinned dependencies by prepare-private-assets.mjs\nexport const PARSER_HTML='+JSON.stringify(html)+';\n');

@@ -304,7 +304,8 @@ for(const kind of ['lesson','quiz'])test(`${kind} checkpoints survive offline re
 
 test('streamed import rolls back images on storage failure and saves successful images across reload',async({page})=>{
  await signIn(page);
- await page.addScriptTag({url:'/private-assets/parser.js',type:'module'});
+ const manifest=await(await page.request.get('/offline-files.json')).json();
+ await page.addScriptTag({url:manifest.files.find((f:string)=>/\/parser-[a-f0-9]+\.js$/.test(f)),type:'module'});
  await page.evaluate(()=>{
   (window as any).__LM_PARSER__.parse=async(_bytes:any,_name:any,_signal:any,progress:any,save:any)=>{
    progress('Preparing page 1 of 2');
@@ -333,4 +334,19 @@ test('streamed import rolls back images on storage failure and saves successful 
  expect((await keys()).filter(k=>k.includes('visual:'))).toHaveLength(1);
  await page.reload();await expect(page.getByText('Storage test',{exact:true})).toBeVisible();
  expect((await keys()).filter(k=>k.includes('visual:'))).toHaveLength(1);
+});
+
+
+test('new app bypasses an old offline-cached parser without deleting private data',async({page})=>{
+ await signIn(page);await model(page);
+ await page.evaluate(async()=>{
+  const names=(await caches.keys()).filter(n=>n.startsWith('localmind-shell-v2-'));
+  for(const name of names){const cache=await caches.open(name);for(const request of await cache.keys())if(/\/parser-[a-f0-9]+\.js$/.test(request.url))await cache.delete(request);await cache.put('/private-assets/parser.js',new Response("window.__LM_PARSER__={parse:async()=>{throw Error('The preserved page images exceed 48 MB. Import a chapter at a time. Nothing was saved.')}};",{headers:{'Content-Type':'application/javascript'}}));}
+  localStorage.setItem('preserve-private-data-test','retained');
+ });
+ const requests:string[]=[];page.on('request',r=>{if(r.url().includes('/private-assets/parser'))requests.push(r.url());});
+ await importBook(page,'Fresh parser book');
+ expect(requests.some(url=>/\/parser-[a-f0-9]+\.js$/.test(url))).toBe(true);
+ expect(requests.some(url=>url.endsWith('/parser.js'))).toBe(false);
+ expect(await page.evaluate(()=>localStorage.getItem('preserve-private-data-test'))).toBe('retained');
 });
