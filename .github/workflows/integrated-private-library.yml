@@ -1,7 +1,7 @@
 name: Integrated private library
 on:
   push:
-    branches: [feature/integrated-private-library]
+    branches: [feature/integrated-private-library, Image_Extraction]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -118,10 +118,13 @@ jobs:
           retention-days: 7
       - name: Require every integration check
         if: always()
-        env:
-          RESULTS: '${{ steps.migrations.outcome }} ${{ steps.django.outcome }} ${{ steps.install.outcome }} ${{ steps.types.outcome }} ${{ steps.lint.outcome }} ${{ steps.export.outcome }} ${{ steps.contracts.outcome }} ${{ steps.browser.outcome }} ${{ steps.clean.outcome }}'
         run: |
-          for result in $RESULTS; do
-            if [ "$result" != success ]; then echo 'A check failed or did not execute. Inspect the saved evidence.'; exit 1; fi
-          done
-          echo 'Integration passed. Controlled inference is used in this suite; the separate real-AI workflow tests the downloaded model. Native binaries, device performance and dependency security review are separate acceptance gates.'
+          test "${{ steps.migrations.outcome }}" = success
+          test "${{ steps.django.outcome }}" = success
+          test "${{ steps.install.outcome }}" = success
+          test "${{ steps.types.outcome }}" = success
+          test "${{ steps.lint.outcome }}" = success
+          test "${{ steps.export.outcome }}" = success
+          test "${{ steps.contracts.outcome }}" = success
+          test "${{ steps.browser.outcome }}" = success
+          test "${{ steps.clean.outcome }}" = success
