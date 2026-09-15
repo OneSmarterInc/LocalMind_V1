@@ -12,10 +12,14 @@ export function lessonVisualIds(sections:{heading:string;content:string;quote:st
  const out=sections.map(()=>[] as string[]);
  for(const v of visuals){
   if(v.kind==='page'||v.caption.startsWith('Original page'))continue;
-  const ranked=sections.map((s,index)=>({index,score:score(v.contextText||'',s.quote+'\n'+s.content)+
-   (v.captionOrigin==='source'?score(v.caption,s.quote+'\n'+s.content):0)+
-   (v.headingPath?.length&&normalize(s.heading)===normalize(v.headingPath[v.headingPath.length-1])?40:0)}))
-   .sort((a,b)=>b.score-a.score);
+  const ranked=sections.map((s,index)=>{
+   const source=s.quote+'\n'+s.content,context=v.contextText||'',caption=v.captionOrigin==='source'?v.caption:'';
+   const contextScore=score(context,source),captionScore=score(caption,source),terms=words(source);
+   const exactHeading=!!v.headingPath?.length&&normalize(s.heading)===normalize(v.headingPath[v.headingPath.length-1]);
+   const common=[...words(context+'\n'+caption)].filter(w=>terms.has(w)).length;
+   const strong=exactHeading||Math.max(contextScore,captionScore)>=10||common>=6;
+   return {index,score:strong?contextScore+captionScore+(exactHeading?40:0):0};
+  }).sort((a,b)=>b.score-a.score);
   if(ranked[0]?.score>=4&&(!ranked[1]||ranked[0].score-ranked[1].score>=3))out[ranked[0].index].push(v.id);
  }
  return out;

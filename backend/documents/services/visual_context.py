@@ -52,9 +52,17 @@ def choose_target(visual, targets, *, use_pages=True):
     for target in candidates:
         title = normalize(target.get("title"))
         source = target.get("source", "")
-        score = context_score(context, source)
-        if caption:
-            score += context_score(caption, source)
+        context_evidence = context_score(context, source)
+        caption_evidence = context_score(caption, source) if caption else 0
+        exact_heading = bool(headings and title == headings[-1])
+        lexical_evidence = len(words(context + "\n" + caption) & words(source))
+        # A common parent chapter or a few shared terms (for example "leaf"
+        # and "photosynthesis") must not relocate an orphaned figure after an
+        # edit. Require an exact source phrase, six distinct content words,
+        # or the nearest authored heading before adding structural bonuses.
+        if not exact_heading and max(context_evidence, caption_evidence) < 10 and lexical_evidence < 6:
+            continue
+        score = context_evidence + caption_evidence
         # Nearest authored heading beats a parent chapter name. The chapter
         # alone cannot arbitrarily select one of its several child modules.
         if headings and title == headings[-1]:

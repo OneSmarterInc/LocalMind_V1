@@ -27,7 +27,7 @@ class VisualCourseIntegrationTests(TestCase):
         subject = make_subject(code='VIS'+str(Document.objects.count()))
         assign(self.faculty, subject); enroll(self.student, subject)
         path=Path(self.tmp.name)/'reference.docx';reference_docx(path)
-        prefix = 'admin' if actor.role == 'admin' else 'faculty'
+        prefix = 'faculty'  # One content API admits both staff roles.
         response=client_for(actor).post(f'/api/{prefix}/documents/',
             {'subject_id':str(subject.pk), 'file':SimpleUploadedFile('reference.docx',path.read_bytes()), 'title':'Visual source'}, format='multipart')
         self.assertEqual(response.status_code,201,response.data)
@@ -62,7 +62,7 @@ class VisualCourseIntegrationTests(TestCase):
         document, modules=self.upload(self.faculty); self.ready(document, modules)
         module=modules[0]
         with patch('tutor.lessons.gateway') as gateway:
-            for actor,prefix,path in ((self.admin,'admin','lesson'),(self.faculty,'faculty','lesson'),(self.student,'student','teach')):
+            for actor,prefix,path in ((self.admin,'faculty','lesson'),(self.faculty,'faculty','lesson'),(self.student,'student','teach')):
                 response=client_for(actor).get(f'/api/{prefix}/modules/{module.pk}/{path}/')
                 self.assertEqual(response.status_code,200,response.data)
                 lesson=response.data['lesson']

@@ -122,6 +122,16 @@ class SourceVisualReferenceTests(unittest.TestCase):
         targets = [{'id':i,'source':'The same repeated passage about carbon and water.','title':'Same'} for i in (1,2)]
         self.assertIsNone(choose_target({'context_text':targets[0]['source']}, targets)[0])
 
+    def test_shared_chapter_and_generic_words_do_not_relocate_orphaned_picture(self):
+        visual={'context_text':'Chlorophyll absorbs sunlight in the leaves to supply energy for photosynthesis.',
+                'caption':'Figure 1: Sunlight and the leaf', 'caption_origin':'source',
+                'heading_path':['Plant science','Sunlight']}
+        targets=[{'id':'new','title':'New topic','chapter_title':'Plant science',
+                  'source':'This separate topic explains foreign currency markets and international banking.'},
+                 {'id':'water','title':'Water','chapter_title':'Plant science',
+                  'source':'Roots absorb water from the soil and transport it to leaves for photosynthesis. Figure 2: Water and the leaf'}]
+        self.assertIsNone(choose_target(visual, targets)[0])
+
     def test_known_page_never_borrows_another_pages_module(self):
         self.assertIsNone(choose_target({'page':9,'context_text':'Water moves through roots.'},
                          [{'id':1,'source':'Water moves through roots.','start_page':1,'end_page':2}])[0])

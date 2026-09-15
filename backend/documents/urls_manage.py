@@ -1,4 +1,4 @@
-"""Mounted under both /api/admin/ and /api/faculty/; scoping happens in views."""
+"""Mounted under /api/faculty/ for both staff roles; scoping happens in views."""
 from django.urls import path
 from . import lesson_views, views
 
