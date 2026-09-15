@@ -452,9 +452,24 @@ test('staff imports a new book offline and synchronizes its source and reviewed 
  await page.getByRole('button',{name:'Review and synchronize book draft',exact:true}).click();
  await page.getByRole('button',{name:'Synchronize draft',exact:true}).click();
  await expect(page.getByRole('button',{name:'Retry book synchronization',exact:true})).toBeVisible();
+ const sentOffsets:number[]=[];let lostAcknowledgement=false;
+ await page.route('**/api/faculty/local-books/transfers/',async route=>{
+  const response=await route.fetch(),body=await response.json();
+  await route.fulfill({response,json:{...body,chunk_bytes:256}});
+ });
+ await page.route(/\/api\/faculty\/local-books\/transfers\/[a-f0-9-]+\/$/,async route=>{
+  if(route.request().method()!=='POST'){await route.continue();return;}
+  const raw=route.request().postDataBuffer()!.toString();
+  const offset=Number(raw.match(/name="offset"\r\n\r\n(\d+)/)?.[1]);sentOffsets.push(offset);
+  const response=await route.fetch();
+  if(!lostAcknowledgement){lostAcknowledgement=true;await route.abort('failed');}else await route.fulfill({response});
+ });
  await context.setOffline(false);
  await page.getByRole('button',{name:'Retry book synchronization',exact:true}).click();
- await expect(page.getByRole('button',{name:'Open institutional review',exact:true})).toBeVisible();
+ await expect.poll(()=>lostAcknowledgement).toBeTruthy();
+ await page.reload();
+ await expect(page.getByRole('button',{name:'Open institutional review',exact:true})).toBeVisible({timeout:50000});
+ expect(sentOffsets[0]).toBe(0);expect(sentOffsets[1]).toBe(256);expect(sentOffsets.filter(n=>n===0)).toHaveLength(1);
  const headers={Authorization:`Bearer ${tokens.access}`};
  const documents=await page.request.get('/api/faculty/documents/',{headers});const payload=await documents.json();
  const rows=Array.isArray(payload)?payload:payload.results;

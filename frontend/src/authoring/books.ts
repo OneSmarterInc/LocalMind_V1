@@ -8,8 +8,8 @@ import {device} from '@/private/device';
 import {requireThat,type Section} from '@/private/core';
 import type {LocalFile} from '@/private/device.types';
 import {LocalAuthoring} from './local';
-import {retainFile,attachFile} from './files';
-export type LocalBook={id:string;bookId:string;title:string;subjectId:string;originalName:string;modules:{id:string;sectionId:string;title:string}[];state:'local'|'pending'|'synced'|'conflict';manifest?:{id:string;subject_id:string;title:string;sha256:string;sections:Section[];reviewed:true};documentId?:string;error?:string};
+import {retainFile,originalSize,originalChunk} from './files';
+export type LocalBook={id:string;bookId:string;title:string;subjectId:string;originalName:string;modules:{id:string;sectionId:string;title:string}[];state:'local'|'pending'|'synced'|'conflict';manifest?:{id:string;subject_id:string;title:string;sha256:string;sections:Section[];reviewed:true};documentId?:string;error?:string;bytesSent?:number;totalBytes?:number};
 type Receipt={document_id:string;modules:{local_id:string;module_id:string;revision:string}[]};
 const syncing=new Map<string,Promise<LocalBook>>();
 export class LocalBooks {
@@ -57,12 +57,32 @@ export class LocalBooks {
   const scope=new Library(this.authoring.library.owner).prefix;
   if(generationJobs.snapshot().some(j=>j.scope.startsWith(scope)&&row.modules.some(m=>m.id===j.bookId)&&['queued','running'].includes(j.state)))return row;
   try{
-   await this.prepare(row);const form=new FormData();form.append('manifest',JSON.stringify(row.manifest));await attachFile(this.fileKey(id),form,row.originalName);this.authoring.library.guard();
+   await this.prepare(row);
+   const size=await originalSize(this.fileKey(id));this.authoring.library.guard();
+   const transfer=await api<{received:number;chunk_bytes:number;completed:boolean}>('/faculty/local-books/transfers/',{method:'POST',body:{id:row.id,subject_id:row.subjectId,name:row.originalName,size,sha256:row.manifest.sha256},timeoutMs:15000});
+   this.authoring.library.guard();
+   requireThat(Number.isInteger(transfer.received)&&transfer.received>=0&&transfer.received<=size&&Number.isInteger(transfer.chunk_bytes)&&transfer.chunk_bytes>0&&transfer.chunk_bytes<=1024*1024,'Invalid transfer position from the server.');
+   row.bytesSent=transfer.received;row.totalBytes=size;row.error=undefined;await this.save(row);
+   while(row.bytesSent<size){
+    const offset=row.bytesSent,part=await originalChunk(this.fileKey(id),offset,Math.min(transfer.chunk_bytes,size-offset));
+    try{
+     this.authoring.library.guard();const result=await api<{received:number}>(`/faculty/local-books/transfers/${id}/`,{method:'POST',form:part.form,timeoutMs:30000});this.authoring.library.guard();
+     requireThat(Number.isInteger(result.received)&&result.received>offset&&result.received<=size,'Invalid chunk acknowledgement.');
+     row.bytesSent=result.received;await this.save(row);
+    }finally{await part.release();}
+   }
+   const form=new FormData();form.append('manifest',JSON.stringify(row.manifest));this.authoring.library.guard();
    const receipt=await api<Receipt>('/faculty/local-books/',{method:'POST',form,timeoutMs:120000});this.authoring.library.guard();
    for(const item of row.modules){const mapping=receipt.modules.find(m=>m.local_id===item.sectionId);requireThat(mapping,'The server did not return every module. Retry synchronization.');await this.authoring.linkLocal(item.id,receipt.document_id,mapping.module_id,mapping.revision);}
    row.documentId=receipt.document_id;row.state='synced';row.error=undefined;await this.save(row);
-  }catch(e){this.authoring.library.guard();row.state=e instanceof ApiError&&[400,403,404,409].includes(e.status)?'conflict':'pending';row.error=e instanceof Error?e.message:String(e);await this.save(row);}
+  }catch(e){this.authoring.library.guard();row.state=e instanceof ApiError&&e.code!=='TRANSFER_OFFSET'&&[400,403,404,409].includes(e.status)?'conflict':'pending';row.error=e instanceof Error?e.message:String(e);await this.save(row);}
   return row;
+ }
+ async clearTransfer(id:string){
+  requireThat(!syncing.has(this.key(id)),'Wait for the active transfer to finish before removing its staged copy.');
+  const row=await this.read(id);requireThat(row.state!=='synced','This book is already synchronized.');
+  await api(`/faculty/local-books/transfers/${id}/`,{method:'DELETE',timeoutMs:15000});
+  this.authoring.library.guard();row.state='local';row.bytesSent=0;row.error=undefined;await this.save(row);
  }
  async flushAll(){for(const row of await this.list())if(row.state==='pending')await this.flush(row.id);}
 }

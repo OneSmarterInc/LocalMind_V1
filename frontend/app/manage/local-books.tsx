@@ -19,11 +19,12 @@ function Books({owner}:{owner:string}){
   const picked=await DocumentPicker.getDocumentAsync({type:['application/pdf','application/vnd.openxmlformats-officedocument.wordprocessingml.document'],copyToCacheDirectory:true});if(picked.canceled)return;
   await service.import(picked.assets[0],title,subject,signal,task.setNote);setRows(await service.list());task.setNote('Book saved on this device. Open a module to review its source and generate.');
  })}/></Row>{task.note?<P>{task.note}</P>:null}{task.busy?<Button title="Cancel current action" variant="secondary" onPress={task.cancel}/>:null}</Card>
- {rows.map(row=><Card key={row.id}><Row><H2>{row.title}</H2><Badge value={row.state}/></Row><P muted>{row.modules.length} modules · Original file and source saved on this device</P>{row.error?<Notice tone="warning" message={row.error}/>:null}
+ {rows.map(row=><Card key={row.id}><Row><H2>{row.title}</H2><Badge value={row.state}/></Row><P muted>{row.modules.length} modules · Original file and source saved on this device</P>{row.totalBytes&&row.state!=='synced'?<P muted>Transferred {((row.bytesSent||0)/1024/1024).toFixed(1)} of {(row.totalBytes/1024/1024).toFixed(1)} MB. Interrupted transfers resume from the server’s saved position.</P>:null}{row.error?<Notice tone="warning" message={row.error}/>:null}
  {row.state!=='synced'?<Button title={row.state==='local'?'Review and synchronize book draft':'Retry book synchronization'} busy={task.busy} onPress={()=>task.run(async()=>{
   if(row.state==='local'&&!await confirmAsync('Synchronize this book draft?','Review the extracted source in its modules first. This sends the original book and extracted text to your institution as an unpublished review draft. Generated lessons and quizzes have separate approval actions.','Synchronize draft','Stay'))return;
   await service.share(row.id);setRows(await service.list());
  })}/>:<Button title="Open institutional review" variant="secondary" onPress={()=>router.push(`/manage/document/${row.documentId}`)}/>}
+ {row.state==='conflict'||row.state==='pending'?<Button title="Remove staged transfer and keep local book" variant="secondary" busy={task.busy} onPress={()=>task.run(async()=>{await service.clearTransfer(row.id);setRows(await service.list());})}/>:null}
  {row.modules.map(m=><Row key={m.id}><P>{m.title}</P><Button title="Open local module" small variant="secondary" disabled={task.busy} onPress={()=>task.run(()=>open(row,m.id))}/></Row>)}</Card>)}
  </Screen>;
 }

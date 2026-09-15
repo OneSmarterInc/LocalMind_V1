@@ -145,3 +145,25 @@ class LocalAuthoringReceipt(TimeStampedUUIDModel):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=['actor', 'operation_id'], name='unique_local_authoring_op')]
+
+
+class LocalBookUpload(TimeStampedUUIDModel):
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='+')
+    subject = models.ForeignKey('academics.Subject', on_delete=models.CASCADE, related_name='+')
+    operation_id = models.UUIDField()
+    original_name = models.CharField(max_length=300)
+    sha256 = models.CharField(max_length=64)
+    size = models.PositiveBigIntegerField()
+    received = models.PositiveBigIntegerField(default=0)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['actor', 'operation_id'], name='unique_local_book_upload')]
+
+
+class LocalBookUploadChunk(models.Model):
+    upload = models.ForeignKey(LocalBookUpload, on_delete=models.CASCADE, related_name='chunks')
+    offset = models.PositiveBigIntegerField()
+    data = models.BinaryField()
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['upload', 'offset'], name='unique_local_book_chunk')]

@@ -1,4 +1,5 @@
 """Accept a device-extracted book as an unpublished review draft. No AI jobs."""
+from contextlib import ExitStack
 import json
 import re
 from uuid import UUID
@@ -21,8 +22,12 @@ class LocalBookView(APIView):
     permission_classes = [IsAdminOrFaculty]
     parser_classes = [MultiPartParser]
 
-    @transaction.atomic
     def post(self, request):
+        with ExitStack() as stack:
+            return self.receive(request, stack)
+
+    @transaction.atomic
+    def receive(self, request, stack):
         raw = request.data.get('manifest', '')
         if not isinstance(raw, str) or len(raw) > 3_000_000:
             raise ValidationFailed('Invalid book manifest.')
@@ -71,8 +76,10 @@ class LocalBookView(APIView):
             get_or_404(Document.objects.visible_to(request.user), pk=old.response['document_id'])
             return Response(old.response)
         uploaded = request.FILES.get('file')
+        transfer = None
         if uploaded is None:
-            raise ValidationFailed('The original source file is required.')
+            from .book_transfers import assembled_file
+            uploaded, transfer = assembled_file(request.user, operation, subject, expected_hash, stack)
         validate_upload(uploaded)
         if file_digest(uploaded) != expected_hash:
             raise ValidationFailed('The original file checksum does not match. The book was not saved.')
@@ -93,6 +100,8 @@ class LocalBookView(APIView):
             output = {'document_id': str(document.pk), 'modules': mappings, 'status': document.status}
             LocalAuthoringReceipt.objects.create(actor=request.user, operation_id=operation,
                                                   payload_hash=fingerprint, response=output)
+            if transfer:
+                transfer.delete()
             return Response(output)
         except Exception:
             # File storage is outside the DB transaction; remove this operation's
