@@ -268,3 +268,36 @@ for(const release of ['Immediate','Held'])test(`institutional ${release} quiz an
  if(release==='Held')await expect(page.getByText('Your faculty will release the results.',{exact:true})).toBeVisible();
  else await expect(page.getByText('Your quiz result',{exact:true})).toBeVisible();
 });
+
+
+for(const kind of ['lesson','quiz'])test(`${kind} checkpoints survive offline reload and resume only missing parts`,async({page,context})=>{
+ await signIn(page);await model(page);
+ await page.goto('/student/private-library');
+ const source=('Photosynthesis happens in chloroplasts. Chlorophyll absorbs sunlight. Water enters through roots. ').repeat(18);
+ await pick(page,'Upload my book',{name:'Checkpoint lesson.txt',mimeType:'text/plain',buffer:Buffer.from(source)});
+ await page.getByText('Checkpoint lesson',{exact:true}).click();
+ await expect(page.getByText('All modules open',{exact:true})).toBeVisible();
+ expect(await page.evaluate(()=>window.crossOriginIsolated)).toBe(true);
+ await page.evaluate(()=>{(window as any).__LM_TEST_FAIL_AT__=2;});
+ await page.getByRole('tab',{name:kind==='lesson'?'Lesson':'Practice quiz',exact:true}).click();
+ if(kind==='quiz'){await page.getByRole('button',{name:'Questions',exact:true}).click();await page.getByRole('menuitem',{name:'3',exact:true}).click();}
+ await page.getByRole('button',{name:kind==='lesson'?'Generate lesson':'Generate quiz',exact:true}).click();
+ await expect(page.getByText('Local AI timed out: simulated interruption',{exact:true})).toBeVisible();
+ const before=await page.evaluate(async kind=>{
+  const db=await new Promise<IDBDatabase>((resolve,reject)=>{const r=indexedDB.open('localmind-private-library');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
+  const tx=db.transaction('records');const store=tx.objectStore('records');
+  const keys=await new Promise<IDBValidKey[]>(resolve=>{const r=store.getAllKeys();r.onsuccess=()=>resolve(r.result);});
+  const key=keys.find(k=>String(k).includes(`checkpoint:${kind}:`))!;
+  return new Promise<any>(resolve=>{const r=db.transaction('records').objectStore('records').get(key);r.onsuccess=()=>{db.close();resolve(r.result);};});
+ },kind);
+ expect(before.parts).toHaveLength(1);
+ await context.setOffline(true);await page.reload();
+ expect(await page.evaluate(()=>window.crossOriginIsolated)).toBe(true);
+ await page.getByRole('tab',{name:kind==='lesson'?'Lesson':'Practice quiz',exact:true}).click();
+ if(kind==='quiz'){await page.getByRole('button',{name:'Questions',exact:true}).click();await page.getByRole('menuitem',{name:'3',exact:true}).click();}
+ await page.getByRole('button',{name:kind==='lesson'?'Generate lesson':'Generate quiz',exact:true}).click();
+ await expect(page.getByRole('button',{name:kind==='lesson'?'Saved lesson':'Saved quiz',exact:true})).toContainText('Version 1');
+ const count=await page.evaluate(()=>(window as any).__LM_TEST_CALLS__);
+ expect(count).toBe(2); // Three passages total; the first was restored from IndexedDB.
+ await page.reload();await expect(page.getByRole('button',{name:kind==='lesson'?'Saved lesson':'Saved quiz',exact:true})).toContainText('Version 1');
+});

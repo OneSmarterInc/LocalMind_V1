@@ -5,6 +5,10 @@ on:
     paths:
       - '.github/workflows/private-library-real-ai.yml'
       - 'frontend/tests/private-real-model.spec.ts'
+      - 'frontend/tests/private-performance.spec.ts'
+      - 'frontend/tests/private.playwright.config.ts'
+      - 'backend/core/isolation.py'
+      - 'backend/config/settings.py'
       - 'frontend/src/private/**'
       - 'frontend/scripts/**'
       - 'frontend/package*.json'

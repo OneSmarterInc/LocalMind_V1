@@ -78,7 +78,7 @@ export function pageSource(sections: Section[], id: string): string {
 }
 export function retrieve(source: string, question: string, limit=MAX_SECTION_CHARS) {
   if(source.length<=limit) return source;
-  const words=new Set(question.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu)||[]);
+  const words=new Set(question.toLowerCase().match(/[\p{L}\p{N}]{2,}/gu)||[]);
   const chunks=makeSections([{title:'Reference',text:source}]);
   return [...chunks].sort((a,b)=>score(b.source)-score(a.source))[0].source;
   function score(s:string) { const w=s.toLowerCase(); return [...words].reduce((n,t)=>n+(w.includes(t)?1:0),0); }
@@ -126,17 +126,18 @@ export function lessonPassages(source:string, size=800):string[]{
  return parts;
 }
 /** Retrieve bounded passages from this private book, allowing small spelling mistakes. */
-export function bookReference(sections:Section[], selected:string, question:string):string{
- const stop=new Set(['what','does','this','that','with','from','have','explain','about','which','where','please','could','would']);
- const words=(s:string)=>s.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu)||[];
+export function bookReference(sections:Section[], selected:string, question:string, budget=1800):string{
+ const stop=new Set(['what','does','this','that','with','from','have','explain','about','which','where','please','could','would','tell','give','some','is','of','in','on','to','me','an','as','be','do','it']);
+ const words=(s:string)=>s.toLowerCase().match(/[\p{L}\p{N}]{2,}/gu)||[];
  const terms=[...new Set(words(question).filter(t=>!stop.has(t)))];
  const distance=(a:string,b:string)=>{let row=Array.from({length:b.length+1},(_,i)=>i);for(let i=0;i<a.length;i++){const next=[i+1];for(let j=0;j<b.length;j++)next.push(Math.min(next[j]+1,row[j+1]+1,row[j]+(a[i]===b[j]?0:1)));row=next;}return row[b.length];};
- const candidates=sections.flatMap(section=>lessonPassages(section.source,1000).map((source,index)=>{
+ const candidates=sections.flatMap(section=>lessonPassages(section.source,700).map((source,index)=>{
   const vocabulary=new Set(words(source));let score=0;
   for(const term of terms){if(vocabulary.has(term))score+=5;else if(term.length>=5&&[...vocabulary].some(w=>Math.abs(w.length-term.length)<=2&&distance(term,w)<= (term.length>=6?2:1)))score+=2;}
   return {source,title:section.title,index,score:score+(section.id===selected?0.1:0)};
  }));
  candidates.sort((a,b)=>b.score-a.score);let reference='';
- for(const c of candidates.slice(0,3)){const passage=`[${c.title}]\n${c.source}\n\n`;if(reference.length+passage.length<=MAX_SECTION_CHARS)reference+=passage;}
+ const relevant=candidates.filter(c=>c.score>=2);
+ for(const c of (relevant.length?relevant:candidates.filter(c=>c.score>0)).slice(0,3)){const passage=`[${c.title}]\n${c.source}\n\n`;if(reference.length+passage.length<=Math.min(budget,MAX_SECTION_CHARS))reference+=passage;}
  return reference.trim();
 }

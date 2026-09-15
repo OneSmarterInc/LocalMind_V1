@@ -52,6 +52,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "core.isolation.BrowserIsolationMiddleware",
     "django.middleware.security.SecurityMiddleware",
     # Serves collected static files without nginx so the standalone/offline
     # launcher is a single process.

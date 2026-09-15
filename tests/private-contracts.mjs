@@ -1,7 +1,7 @@
 import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import {fileURLToPath} from 'node:url';import {createRequire} from 'node:module';import {spawnSync} from 'node:child_process';import assert from 'node:assert/strict';import test from 'node:test';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),tmp=fs.mkdtempSync(path.join(os.tmpdir(),'lm-private-tests-'));
 const tsc=fs.existsSync(path.join(root,'frontend/node_modules/typescript/bin/tsc'))?[process.execPath,[path.join(root,'frontend/node_modules/typescript/bin/tsc')]]:['tsc',[]];
-const result=spawnSync(tsc[0],[...tsc[1],'--strict','--target','ES2022','--module','commonjs','--skipLibCheck','--outDir',tmp,...['core.ts','busy.ts','offlinePolicy.ts','jobs.ts'].map(f=>path.join(root,'frontend/src/private',f))],{encoding:'utf8'});
+const result=spawnSync(tsc[0],[...tsc[1],'--strict','--target','ES2022','--module','commonjs','--skipLibCheck','--outDir',tmp,...['core.ts','busy.ts','offlinePolicy.ts','jobs.ts','performance.ts'].map(f=>path.join(root,'frontend/src/private',f))],{encoding:'utf8'});
 if(result.status!==0){console.error(result.stdout,result.stderr);process.exit(1);}
 const require=createRequire(import.meta.url),c=require(path.join(tmp,'core.js')),b=require(path.join(tmp,'busy.js')),policy=require(path.join(tmp,'offlinePolicy.js'));
 const source='Photosynthesis occurs in chloroplasts. Chlorophyll absorbs sunlight. Plants use carbon dioxide and release oxygen.';
@@ -109,4 +109,29 @@ test('PDF small caps normalize display casing without changing ordinary scientif
  const run=(str,x,h,width)=>({str,transform:[h,0,0,h,x,700],height:h,width});
  assert.equal(readablePdfText([run('C',0,12,8),run('onductors',8,9,55)]),'CONDUCTORS');
  assert.equal(readablePdfText([run('Charge',0,12,40),run('q',45,9,5)]),'Charge q');
+});
+
+const perf=require(path.join(tmp,'performance.js'));
+test('inference threads preserve a non-isolated fallback and cap CPU use',()=>{
+ assert.equal(perf.inferenceThreads(false,true,16),1);assert.equal(perf.inferenceThreads(true,false,16),1);
+ assert.equal(perf.inferenceThreads(true,true,8),4);assert.equal(perf.inferenceThreads(true,true,4),2);
+ assert.equal(perf.inferenceThreads(true,true,1),1);assert.equal(perf.inferenceThreads(true,true,NaN),1);
+});
+test('checkpoint retry after reload generates only missing validated parts',async()=>{
+ let saved, calls=[];const signal=new AbortController().signal;
+ const options={checkpoint:{id:'version-one',parts:[]},total:3,signal,save:async row=>{saved=structuredClone(row);},generate:async index=>{calls.push(index);if(index===1)throw Error('timeout');return 'first';}};
+ await assert.rejects(perf.resumeParts(options));assert.deepEqual(saved.parts,['first']);
+ const resumed=await perf.resumeParts({...options,checkpoint:structuredClone(saved),generate:async index=>{calls.push(index);return 'part '+index;}});
+ assert.deepEqual(calls,[0,1,1,2]);assert.deepEqual(resumed,['first','part 1','part 2']);assert.equal(saved.id,'version-one');
+});
+test('checkpoint cancellation preserves completed parts but never accepts interrupted output',async()=>{
+ const abort=new AbortController();let saved;
+ await assert.rejects(perf.resumeParts({checkpoint:{id:'v',parts:[]},total:2,signal:abort.signal,
+ save:async row=>{saved=structuredClone(row);},generate:async index=>{if(index===1)abort.abort();return index;}}));
+ assert.deepEqual(saved.parts,[0]);
+});
+test('doubt retrieval removes unrelated filler and keeps AI acronym matches',()=>{
+ const sections=[{id:'s1',title:'Other',source:'Photosynthesis uses sunlight. '.repeat(40)},
+ {id:'s2',title:'Phones',source:'AI in smartphones supports voice recognition and camera processing.'}];
+ const ref=c.bookReference(sections,'s1','Tell me AI in smartphones');assert.ok(ref.includes('voice recognition'));assert.ok(!ref.includes('Photosynthesis'));assert.ok(ref.length<=1800);
 });

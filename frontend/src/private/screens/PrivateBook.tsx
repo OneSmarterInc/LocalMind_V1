@@ -59,8 +59,8 @@ function ModuleLearning({bookId,section,next,initialTab,onSourceSaved}:{bookId:s
   try{setLocalError('');generationJobs.enqueue({scope:jobScope(library.prefix),bookId,sectionId:section.id,kind,label:`${section.title} · ${kind}`},run);}catch(e){setLocalError(String(e));}
  };
  const generateLesson=()=>{setLessonId('');enqueue('lesson',(signal,progress)=>library.generateLesson(bookId,section.id,signal,progress));};
- const generateQuiz=()=>{const total=Number(count);enqueue('quiz',(signal,progress)=>library.generateQuiz(bookId,section.id,total,signal,n=>progress(`Prepared question ${n} of ${total}`)));};
- const ask=()=>{const q=question.trim();enqueue('doubt',signal=>library.ask(bookId,section.id,q,signal));};
+ const generateQuiz=()=>{const total=Number(count);enqueue('quiz',(signal,progress)=>library.generateQuiz(bookId,section.id,total,signal,n=>progress(`Prepared question ${n} of ${total}`),progress));};
+ const ask=()=>{const q=question.trim();enqueue('doubt',(signal,progress)=>library.ask(bookId,section.id,q,signal,progress));};
  return <Card><Row><H2>{section.title}</H2><Badge value="All modules open" tone="green"/></Row>
   <PageTabs value={tab} onChange={t=>{if(t!==tab)void confirmLeave().then(ok=>{if(ok)setTab(t);});}} tabs={[{key:'read',label:'Read'},{key:'lesson',label:'Lesson'},{key:'quiz',label:'Practice quiz'},{key:'ask',label:'Ask a doubt'}]}/>
   <ErrorBanner message={task.error||lessons.error||quizzes.error||chats.error}/>

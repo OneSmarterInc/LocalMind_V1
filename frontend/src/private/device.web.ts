@@ -2,6 +2,7 @@ import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex } from '@noble/hashes/utils';
 import { MAX_BOOK_BYTES, makeSections, requireThat } from './core';
 import { MODEL, MAX_MODEL_BYTES, CONTEXT_TOKENS } from './modelSpec';
+import { inferenceThreads } from './performance';
 import { Exclusive, cancelled } from './busy';
 import type { Completion, Device, LocalFile } from './device.types';
 
@@ -9,6 +10,7 @@ type Engine = {
   loadModel(files:File[],opts:Record<string,unknown>):Promise<unknown>;
   createChatCompletion(opts:Record<string,unknown>):Promise<{choices:{finish_reason:string;message:{content:string}}[]}>;
   exit():Promise<void>;
+  isMultithread?():boolean;
 };
 type Parser = { parse:(bytes:Uint8Array,name:string,signal?:AbortSignal,progress?:(message:string)=>void)=>Promise<import('./parserBridge').ParsedDocument> };
 declare global { interface Window { __LM_WLLAMA__?:new (paths:Record<string,string>,options?:object)=>Engine; __LM_PARSER__?:Parser; } }
@@ -79,22 +81,30 @@ async function install(stream:ReadableStream<Uint8Array>,name:string,progress:(n
   } catch(e) { await reader.cancel().catch(()=>{}); await out.abort().catch(()=>{});await folder.removeEntry(temp).catch(()=>{});throw e; }
   finally {reader.releaseLock();}
 }
+let activeThreads=1;
 async function complete(req:Completion) {
+ req.progress?.("Waiting for the local model…");
  return lock.queue(async()=>{
   cancelled(req.signal); const info=await store.get<Installed>(MODEL_KEY);
   requireThat(info,'Download or import a local model in Offline AI first.');
   if(!engine || loaded!==info.file) {
+    req.progress?.("Loading the model on this device…");
     await close(); await script('/private-assets/runtime-loader.js');
     requireThat(window.__LM_WLLAMA__,'The browser AI runtime could not be loaded.');
     const instance=new window.__LM_WLLAMA__({default:'/private-assets/wllama/esm/wasm/wllama.wasm'});
     try {
       const blob=await (await (await files()).getFileHandle(info.file)).getFile();
-      await instance.loadModel([blob],{n_ctx:CONTEXT_TOKENS,n_threads:1,n_gpu_layers:0});
+      activeThreads=inferenceThreads(globalThis.crossOriginIsolated,typeof SharedArrayBuffer!=='undefined',navigator.hardwareConcurrency);
+      await instance.loadModel([blob],{n_ctx:CONTEXT_TOKENS,n_threads:activeThreads,n_gpu_layers:0});
+      if(instance.isMultithread?.()===false)activeThreads=1;
       engine=instance;loaded=info.file;
     } catch(e) {await instance.exit().catch(()=>{});throw e;}
   }
   cancelled(req.signal);
   const abort=new AbortController();const cancel=()=>abort.abort();req.signal.addEventListener('abort',cancel);
+  const started=Date.now();
+  const report=()=>req.progress?.(`Generating with ${activeThreads} CPU thread${activeThreads===1?'':'s'} · ${Math.floor((Date.now()-started)/1000)}s`);
+  report();const ticker=setInterval(report,1000);
   const timer=setTimeout(()=>abort.abort(),180000);
   try {
     // Context overflow is rejected by the runtime; never trim a stored module silently.
@@ -105,9 +115,9 @@ async function complete(req:Completion) {
     const choice=result.choices[0];requireThat(choice && choice.finish_reason!=='length','The response was incomplete. Try fewer questions or a shorter module.');
     return JSON.parse(choice.message.content);
   } catch(e) {
-    if(abort.signal.aborted&&!req.signal.aborted)throw new Error('Local AI timed out. No partial work was saved. Try a shorter module or a smaller model.');
+    if(abort.signal.aborted&&!req.signal.aborted)throw new Error('Local AI timed out. No incomplete response was saved. Completed lesson parts and quiz questions are retained; generate again to resume.');
     throw e;
-  } finally {clearTimeout(timer);req.signal.removeEventListener('abort',cancel);}
+  } finally {clearInterval(ticker);clearTimeout(timer);req.signal.removeEventListener('abort',cancel);}
  },req.signal);
 }
 const implementation:Device={...store, complete,
@@ -125,7 +135,7 @@ const implementation:Device={...store, complete,
   const file=new File(parts,name);return {name,uri:'device-selected',file,size:file.size};
  },
  async releaseFile(){/* A browser File is released by garbage collection. */},
- async status(){const m=await store.get<Installed>(MODEL_KEY);if(!m)return {installed:false};try {const f=await (await (await files()).getFileHandle(m.file)).getFile();return {installed:f.size===m.bytes,name:m.name,bytes:m.bytes,loaded:loaded===m.file};}catch{return {installed:false};}},
+ async status(){const m=await store.get<Installed>(MODEL_KEY);if(!m)return {installed:false};try {const f=await (await (await files()).getFileHandle(m.file)).getFile();return {installed:f.size===m.bytes,name:m.name,bytes:m.bytes,hash:m.hash,threads:activeThreads,loaded:loaded===m.file};}catch{return {installed:false};}},
  download:(progress,signal)=>lock.run(async()=>{cancelled(signal);const r=await fetch(MODEL.url,{signal,credentials:'omit',referrerPolicy:'no-referrer'});requireThat(r.ok && r.body,'Model download failed. The existing model is unchanged.');await install(r.body,MODEL.name,progress,signal,MODEL);}),
  importModel:(f,progress,signal)=>lock.run(async()=>{requireThat(f.file && /\.gguf$/i.test(f.name),'Choose a .gguf file');requireThat(f.file.size<=MAX_MODEL_BYTES,'Choose a GGUF under 1.8 GB.');await install(f.file.stream(),f.name,progress,signal);}),
  removeModel:()=>lock.run(async()=>{const m=await store.get<Installed>(MODEL_KEY);await close();await store.removePrefix(MODEL_KEY);if(m)await(await files()).removeEntry(m.file).catch(()=>{});}),

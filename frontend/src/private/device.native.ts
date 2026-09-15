@@ -56,7 +56,7 @@ async function complete(req:Completion){return lock.queue(async()=>{
   const res=await context.completion({messages,n_predict:req.maxTokens,temperature:req.temperature,enable_thinking:false,
    response_format:{type:'json_object',schema:req.schema},stop:['<|im_end|>','<|eot_id|>','</s>']});
   cancelled(req.signal);requireThat(!expired && !('stopped_limit' in res && res.stopped_limit),'Local AI did not finish. No partial answer was saved.');return JSON.parse(res.text);
- }catch(e){if(expired&&!req.signal.aborted)throw new Error('Local AI timed out. No partial work was saved. Try a shorter module or a smaller model.');throw e;}finally{clearTimeout(timer);req.signal.removeEventListener('abort',cancel);}
+ }catch(e){if(expired&&!req.signal.aborted)throw new Error('Local AI timed out. No incomplete response was saved. Completed lesson parts and quiz questions are retained; generate again to resume.');throw e;}finally{clearTimeout(timer);req.signal.removeEventListener('abort',cancel);}
 },req.signal);}
 const implementation:Device={...store,complete,
  async parse(f, signal, progress){
@@ -73,7 +73,7 @@ const implementation:Device={...store,complete,
   catch(e){await FS.deleteAsync(uri,{idempotent:true}).catch(()=>{});throw e;}finally{signal.removeEventListener('abort',cancel);}
  },
  async releaseFile(f){if(f.uri.startsWith(`${FS.cacheDirectory}private-book-`))await FS.deleteAsync(f.uri,{idempotent:true});},
- async status(){const m=await store.get<Installed>(MODEL_KEY);if(!m)return {installed:false};const i=await FS.getInfoAsync(m.uri);return {installed:i.exists && !i.isDirectory && i.size===m.bytes,name:m.name,bytes:m.bytes,loaded:loaded===m.uri};},
+ async status(){const m=await store.get<Installed>(MODEL_KEY);if(!m)return {installed:false};const i=await FS.getInfoAsync(m.uri);return {installed:i.exists && !i.isDirectory && i.size===m.bytes,name:m.name,bytes:m.bytes,hash:m.hash,loaded:loaded===m.uri};},
  download:(progress,signal)=>lock.run(async()=>{
   await FS.makeDirectoryAsync(root,{intermediates:true});const uri=`${root}${randomUUID()}.gguf`;
   const task=FS.createDownloadResumable(MODEL.url,uri,{},p=>progress(Math.min(0.85,p.totalBytesWritten/MODEL.bytes*0.85)));
