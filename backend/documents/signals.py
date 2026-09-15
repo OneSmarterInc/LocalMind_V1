@@ -10,7 +10,7 @@ from django.dispatch import receiver
 
 from learning.models import Module
 
-from .models import Document, DocumentStatus
+from .models import Document, EDITABLE_STATUSES
 from .services.visuals import extract_source_visuals
 
 logger = logging.getLogger("localmind.documents.visuals")
@@ -57,14 +57,17 @@ def sync_document_visuals(document_id):
 
 @receiver(post_save, sender=Document)
 def document_visuals_after_processing(sender, instance, update_fields=None, **kwargs):
-    """Run after the processing transaction commits, before lesson jobs are queued.
+    """Refresh source visuals after processing and after outline edits.
 
-    The parser sets processed_markdown_path and UNDER_REVIEW only after module
-    rows exist. ``on_commit`` avoids rendering PDF regions while database rows
-    are locked. Later unrelated saves with explicit update_fields do not rerun it.
+    The parser first creates modules and then stores ``processed_markdown_path``.
+    Outline saves may later move page ranges between modules, including while a
+    book is published or unpublished. In both cases an on-commit refresh keeps
+    each crop attached to the module whose source pages actually contain it.
+    Unrelated document saves do not rerun PDF rendering.
     """
-    if instance.status != DocumentStatus.UNDER_REVIEW or not instance.processed_markdown_path:
+    if instance.status not in EDITABLE_STATUSES or not instance.processed_markdown_path:
         return
-    if update_fields is not None and not ({"processed_markdown_path", "status", "processed_at"} & set(update_fields)):
+    watched = {"processed_markdown_path", "processed_at", "outline_source"}
+    if update_fields is not None and not (watched & set(update_fields)):
         return
     transaction.on_commit(lambda: sync_document_visuals(instance.pk))
