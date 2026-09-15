@@ -43,6 +43,10 @@ class Module(TimeStampedUUIDModel):
     source_missing = models.BooleanField(default=False, db_index=True)
     start_page = models.PositiveIntegerField(null=True, blank=True)
     end_page = models.PositiveIntegerField(null=True, blank=True)
+    # Cropped source figures/charts/diagrams/tables that belong to this module.
+    # Metadata only; PNG bytes live beside the processed document. Full-page
+    # screenshots are deliberately never stored here.
+    source_visuals = models.JSONField(default=list, blank=True)
     is_user_edited = models.BooleanField(default=False)
 
     availability = models.CharField(max_length=10, choices=ModuleAvailability.choices, default=ModuleAvailability.LOCKED, db_index=True)
@@ -67,7 +71,7 @@ class Module(TimeStampedUUIDModel):
 
 
 class ProgressStatus(models.TextChoices):
-    NOT_STARTED = "not_started", "Not started"
+    NOT_STARTED = "not_started", "In progress"
     IN_PROGRESS = "in_progress", "In progress"
     COMPLETED = "completed", "Completed"
     NEEDS_REVIEW = "needs_review", "Needs review"
