@@ -93,6 +93,8 @@ def request_quizzes(modules, *, force: bool = False, reason: str = "") -> int:
     now = timezone.now()
     queued = 0
     for module in modules:
+        if module.chapter.document.parse_mode == "device-local":
+            continue
         ok, digest = _text_of(module)
         if not ok or too_short(module):
             continue

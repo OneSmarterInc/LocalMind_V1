@@ -4,9 +4,10 @@ import {Button,Card,H2,P,ErrorBanner,colors} from '@/ui';
 import {useAsync} from '@/hooks/useAsync';
 import {useLibrary} from './useLibrary';
 import type {SourceVisual} from './core';
+import type {Library} from './library';
 /** Only stored source images: the model cannot supply image URLs. */
-export function SourceVisuals({bookId,sectionId}:{bookId:string;sectionId:string}){
- const library=useLibrary();
+export function SourceVisuals({bookId,sectionId,sourceLibrary}:{bookId:string;sectionId:string;sourceLibrary?:Library}){
+ const privateLibrary=useLibrary(),library=sourceLibrary||privateLibrary;
  const visuals=useAsync(()=>library?library.visuals(bookId,sectionId):Promise.resolve([]),[library,bookId,sectionId]);
  const [expanded,setExpanded]=useState<SourceVisual|null>(null);
  return <View style={{gap:12,minWidth:0}}>

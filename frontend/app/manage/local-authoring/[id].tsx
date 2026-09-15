@@ -5,6 +5,7 @@ import {LocalAuthoring,type Draft,type ArchivedDraft} from '@/authoring/local';
 import {useLibrary} from '@/private/useLibrary';
 import {generationJobs} from '@/private/jobs';
 import {jobScope,useGenerationJobs} from '@/private/useGenerationJobs';
+import {SourceVisuals} from '@/private/SourceVisuals';
 import {useTask} from '@/private/useTask';
 import {Screen,PageHeading,Card,H2,P,Button,Row,Notice,ErrorBanner,Badge,confirmAsync} from '@/ui';
 export default function LocalAuthoringPage(){const {user}=useAuth();return user?<Authoring key={user.id}/>:null;}
@@ -19,9 +20,10 @@ function Authoring(){
  const generate=(kind:'lesson'|'quiz')=>{try{setError('');generationJobs.enqueue({scope:jobScope(library!.prefix),bookId:id,sectionId:id,kind:'staff-'+kind,label:`${draft?.snapshot.title||'Module'} · ${kind}`},(signal,progress)=>service.generate(id,kind,signal,progress));}catch(e){setError(String(e));}};
  return <Screen><PageHeading title={draft?.snapshot.title||'Local authoring'} subtitle="Generate on this device. Review and share with your institution." right={<Button title="Offline AI" variant="secondary" onPress={()=>router.push('/manage/offline-ai')}/>}/>
  <ErrorBanner message={error||task.error}/>
- <Card><Row><Button title="Save module on this device" disabled={busy} busy={task.busy} onPress={()=>task.run(async()=>{setDraft(await service.download(id));})}/><Button title="Books & modules" variant="secondary" onPress={()=>router.push('/manage/books')}/></Row>
+ <Card><Row><Button title="Save module on this device" disabled={busy||!!draft?.localBook} busy={task.busy} onPress={()=>task.run(async()=>{setDraft(await service.download(id));})}/><Button title="Books & modules" variant="secondary" onPress={()=>router.push('/manage/books')}/></Row>
  <P muted>Save the authorized source while connected. Generation then works offline. Reviewed lessons are synchronized to the course; quizzes are synchronized as drafts for the existing publication workflow.</P></Card>
- {draft?<><Card><H2>Source</H2><P>{draft.snapshot.source}</P></Card>
+ {draft?<><Card><H2>Source</H2><P>{draft.snapshot.source}</P>{draft.sourceBook&&draft.sourceSection?<SourceVisuals bookId={draft.sourceBook} sectionId={draft.sourceSection} sourceLibrary={service.library}/>:null}</Card>
+ {draft.localBook?<Button title="Open local book synchronization" variant="secondary" onPress={()=>router.push('/manage/local-books')}/>:null}
  <Card><Row><Button title="Generate local lesson" disabled={busy||task.busy} onPress={()=>generate('lesson')}/><Button title="Generate local quiz" disabled={busy||task.busy} onPress={()=>generate('quiz')}/></Row>
  {draft.run?<P muted>Saved through part {draft.run.done}. Select the same generation again after an interruption to resume.</P>:null}
  {jobs.map(j=><Row key={j.id}><Badge value={j.state}/><P>{j.error||j.note}</P>{['queued','running'].includes(j.state)?<Button title="Cancel generation" small variant="secondary" onPress={()=>generationJobs.cancel(j.id)}/>:null}</Row>)}
@@ -30,7 +32,7 @@ function Authoring(){
  {draft.questions?<Card><H2>Review quiz</H2>{draft.questions.map((q,i)=><Card key={i}><P>{i+1}. {q.question}</P>{q.options.map((o,n)=><P key={n}>{String.fromCharCode(65+n)}. {o}{n===q.answer?' — correct':''}</P>)}<P>{q.explanation}</P><P small muted>Source: {q.quote}</P></Card>)}<Button title="Approve and synchronize quiz draft" disabled={busy} busy={task.busy} onPress={()=>task.run(async()=>{setDraft(await service.share(id,'quiz'));})}/></Card>:null}
  {draft.state?<Notice title={draft.state==='synced'?'Received by institution':draft.state==='conflict'?'Review needed':'Waiting to synchronize'} message={draft.error||'Reviewed work is retained on this device.'}/>:null}
  {draft.state==='pending'||draft.state==='conflict'?<Button title="Retry synchronization" disabled={busy} busy={task.busy} onPress={()=>task.run(async()=>{setDraft(await service.flush(id));})}/>:null}
- <Button title="Refresh source and keep draft in history" variant="secondary" disabled={busy||task.busy||draft.state==='pending'} onPress={()=>task.run(async()=>{
+ <Button title="Refresh source and keep draft in history" variant="secondary" disabled={busy||task.busy||draft.state==='pending'||(!!draft.localBook&&!draft.snapshot.remote_id)} onPress={()=>task.run(async()=>{
   if(await confirmAsync('Refresh this module?', 'Your current source, generated content and sync details will remain in local draft history. The latest authorized source will become your working copy. Generate and review against that source before sharing again.', 'Keep draft and refresh', 'Stay')){setDraft(await service.refreshSource(id));setHistory(await service.history(id));}
  })}/>
  </>:null}

@@ -2,8 +2,10 @@
 from django.urls import path
 from . import views
 from .local_authoring import LocalAuthoringView
+from .local_books import LocalBookView
 
 urlpatterns = [
+    path("local-books/", LocalBookView.as_view()),
     path("modules/<uuid:module_id>/local-authoring/", LocalAuthoringView.as_view()),
     path("documents/", views.DocumentListUploadView.as_view(), name="documents-list"),
     path("documents/<uuid:document_id>/", views.DocumentDetailView.as_view(), name="documents-detail"),

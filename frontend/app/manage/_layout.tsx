@@ -51,6 +51,7 @@ export default function ManageLayout() {
       <Tabs.Screen name="profile" options={{ href: admin ? null : undefined, title: "My profile", tabBarIcon: icon("person-circle-outline") }} />
       <Tabs.Screen name="subject/[id]" options={shellScreen({ href: null, title: "Subject" }, { backTo: "/manage/subjects", backLabel: "Subjects" })} />
       <Tabs.Screen name="student/[id]" options={shellScreen({ href: null, title: "Student progress" }, { backTo: "/manage/subjects", backLabel: "Subjects" })} />
+      <Tabs.Screen name="local-books" options={shellScreen({ href: null, title: "Books on this device" }, { backTo: "/manage/books", backLabel: "Books & modules" })} />
       <Tabs.Screen name="local-authoring/[id]" options={shellScreen({ href: null, title: "Local authoring" }, { backTo: "/manage/books", backLabel: "Books & modules" })} />
       <Tabs.Screen name="document/[id]" options={shellScreen({ href: null, title: "Book" }, { backTo: "/manage/books", backLabel: "Books & modules" })} />
       <Tabs.Screen name="study/[id]" options={shellScreen({ href: null, title: "Books for private study" }, { backTo: "/manage/books", backLabel: "Books & modules" })} />

@@ -3,12 +3,13 @@ import {useRouter} from 'expo-router';
 import {Card,H2,P,Row,Button,Badge} from '@/ui';
 import {useLibrary} from './useLibrary';
 import {useAuth} from '@/auth/AuthContext';
+import {LocalBooks} from '@/authoring/books';
 import {LocalAuthoring} from '@/authoring/local';
 import {generationJobs} from './jobs';
 import {jobScope,useGenerationJobs} from './useGenerationJobs';
 /** Mounted under authentication, not under a learning page. */
 export function GenerationHost(){const library=useLibrary(),{user}=useAuth(),scope=library?jobScope(library.prefix):'',owner=user?.id,role=user?.role;
- useEffect(()=>{if(!owner||role==='student')return;const service=new LocalAuthoring(owner);const sync=()=>{void service.flushAll().catch(()=>{});};sync();const timer=setInterval(sync,15000);return()=>clearInterval(timer);},[owner,role,scope]);
+ useEffect(()=>{if(!owner||role==='student')return;const service=new LocalAuthoring(owner);const sync=()=>{void new LocalBooks(owner).flushAll().then(()=>service.flushAll()).catch(()=>{});};sync();const timer=setInterval(sync,15000);return()=>clearInterval(timer);},[owner,role,scope]);
  useEffect(()=>{generationJobs.cancelOtherScopes(scope);return()=>generationJobs.cancelOtherScopes('');},[scope]);return null;
 }
 export function GenerationJobs(){const library=useLibrary(),router=useRouter(),jobs=useGenerationJobs(library?.prefix||'');

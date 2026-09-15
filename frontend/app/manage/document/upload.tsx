@@ -45,6 +45,7 @@ export default function UploadBook() {
     <Screen>
       <PageHeading eyebrow="BOOKS & MODULES" title="Let’s add a book." subtitle="We’ll walk you from source material to student-ready modules."
         right={<Button title="Back to books" variant="secondary" icon="arrow-back" onPress={() => router.push("/manage/books")} />} />
+      <Button title="Import and generate on this device" variant="secondary" onPress={()=>router.push("/manage/local-books")} />
       <Stepper steps={["Upload a book", "Review the outline", "Publish to students"]} active={0} />
       <Split
         main={

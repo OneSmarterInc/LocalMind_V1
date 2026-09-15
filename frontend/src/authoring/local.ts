@@ -1,12 +1,13 @@
+import {activeBookTransfers} from './locks';
 import {randomUUID} from 'expo-crypto';
 import {api,ApiError} from '@/api/client';
 import {Library,fingerprint} from '@/private/library';
 import {device} from '@/private/device';
 import {generationJobs} from '@/private/jobs';
 import {makeSections,requireThat,type Lesson,type MCQ} from '@/private/core';
-export type Snapshot={module_id:string;document_id:string;title:string;source:string;revision:string};
+export type Snapshot={module_id:string;document_id:string;title:string;source:string;revision:string;remote_id?:string};
 type Operation={id:string;revision:string;kind:'lesson'|'quiz';reviewed:true;lesson?:Lesson;questions?:MCQ[]};
-export type Draft={snapshot:Snapshot;lesson?:Lesson;questions?:MCQ[];run?:{kind:'lesson'|'quiz';book:string;done:number;lessonParts:Lesson[];questions:MCQ[]};operation?:Operation;state?:'pending'|'synced'|'conflict';error?:string;quiz_id?:string;shared?:Partial<Record<'lesson'|'quiz',string>>};
+export type Draft={snapshot:Snapshot;localBook?:string;sourceBook?:string;sourceSection?:string;lesson?:Lesson;questions?:MCQ[];run?:{kind:'lesson'|'quiz';book:string;done:number;lessonParts:Lesson[];questions:MCQ[]};operation?:Operation;state?:'pending'|'synced'|'conflict';error?:string;quiz_id?:string;shared?:Partial<Record<'lesson'|'quiz',string>>};
 export type ArchivedDraft={id:string;archivedAt:string;draft:Draft};
 const syncing=new Map<string,Promise<Draft|undefined>>();
 export class LocalAuthoring {
@@ -17,9 +18,19 @@ export class LocalAuthoring {
  async flushAll(){const rows=await this.drafts();for(const row of rows)if(row.state==='pending')await this.flush(row.snapshot.module_id);}
  async read(id:string){this.library.guard();const value=await(await device()).get<Draft>(this.key(id));this.library.guard();return value;}
  private async save(id:string,draft:Draft){this.library.guard();await(await device()).put(this.key(id),draft);this.library.guard();}
+ async seedLocal(id:string,draft:Draft){if(!await this.read(id))await this.save(id,draft);}
+ async linkLocal(id:string,documentId:string,remoteId:string,revision:string){
+  const draft=await this.read(id);requireThat(draft,'Local draft is missing.');
+  if(draft.snapshot.remote_id)return; // replay must not roll a newer lesson revision back
+  draft.snapshot={...draft.snapshot,document_id:documentId,remote_id:remoteId,revision};
+  if(draft.operation)draft.operation.revision=revision;
+  await this.save(id,draft);
+ }
  async download(id:string){
   const old=await this.read(id);
-  const snapshot=await api<Snapshot>(`/faculty/modules/${id}/local-authoring/`);this.library.guard();
+  requireThat(!old?.localBook||old.snapshot.remote_id,"Synchronize the book draft first.");
+  const snapshot=await api<Snapshot>(`/faculty/modules/${old?.snapshot.remote_id||id}/local-authoring/`);this.library.guard();
+  if(old?.snapshot.remote_id){snapshot.remote_id=snapshot.module_id;snapshot.module_id=id;}
   if(old?.operation&&old.state!=='synced')throw Error('Synchronize or review the pending draft before replacing its source.');
   if(old&&(old.lesson||old.questions||old.run)&&old.snapshot.revision!==snapshot.revision)throw Error('The institutional source or lesson changed. Your local work is retained; resolve this draft before downloading a replacement.');
   const next={...old,snapshot};await this.save(id,next);return next;
@@ -36,13 +47,16 @@ export class LocalAuthoring {
   requireThat(!generationJobs.snapshot().some(j=>j.bookId===id&&j.scope.startsWith(scope)&&['running','queued'].includes(j.state)),'Finish or cancel the current generation before refreshing its source.');
   // Fetch succeeds before any local mutation. A revoked permission or failed
   // connection leaves both the current draft and its operation unchanged.
-  const snapshot=await api<Snapshot>(`/faculty/modules/${id}/local-authoring/`);this.library.guard();
+  requireThat(!old?.localBook||old.snapshot.remote_id,"Synchronize the book draft first.");
+  const snapshot=await api<Snapshot>(`/faculty/modules/${old?.snapshot.remote_id||id}/local-authoring/`);this.library.guard();
+  if(old?.snapshot.remote_id){snapshot.remote_id=snapshot.module_id;snapshot.module_id=id;}
   const archived:ArchivedDraft={id:randomUUID(),archivedAt:new Date().toISOString(),draft:old};
   await(await device()).put(this.library.prefix+'history:'+id+':'+archived.id,archived);this.library.guard();
-  const fresh:Draft={snapshot};await this.save(id,fresh);return fresh;
+  const fresh:Draft={snapshot,localBook:old.localBook,sourceBook:old.sourceBook,sourceSection:old.sourceSection};await this.save(id,fresh);return fresh;
  }
  async generate(id:string,kind:'lesson'|'quiz',signal:AbortSignal,progress:(message:string)=>void){
   const draft=await this.read(id);requireThat(draft,'Save this module on the device first.');
+  requireThat(!draft.localBook||!activeBookTransfers.has(this.library.prefix+'import:'+draft.localBook),'A book transfer is in progress. Try generation when it finishes.');
   requireThat(!draft.operation||draft.state==='synced','Finish synchronizing the reviewed draft before generating another version.');
   requireThat(!draft.run||draft.run.kind===kind,'Resume the interrupted generation first.');
   const d=await device();requireThat((await d.status()).installed,'Download a model in Offline AI first.');
@@ -65,6 +79,7 @@ export class LocalAuthoring {
  }
  async share(id:string,kind:'lesson'|'quiz'){
   const draft=await this.read(id);requireThat(draft,'No local draft.');requireThat(!draft.run,'Finish generation before sharing.');
+  requireThat(!draft.localBook||!activeBookTransfers.has(this.library.prefix+'import:'+draft.localBook),'A book transfer is in progress. Try approval when it finishes.');
   requireThat(kind==='lesson'?draft.lesson:draft.questions?.length,'Generate and review the content first.');
   if(draft.shared?.[kind]===fingerprint(JSON.stringify(kind==='lesson'?draft.lesson:draft.questions)))return draft;
   if(draft.operation&&draft.state!=='synced'){requireThat(draft.operation.kind===kind,'A different draft is already waiting to synchronize.');}
@@ -77,8 +92,10 @@ export class LocalAuthoring {
  }
  private async performFlush(id:string){
   const draft=await this.read(id);if(!draft?.operation||draft.state==='synced')return draft;
+  if(draft.localBook&&activeBookTransfers.has(this.library.prefix+'import:'+draft.localBook))return draft;
+  if(draft.localBook&&!draft.snapshot.remote_id){draft.error='Synchronize the book draft before its reviewed content.';await this.save(id,draft);return draft;}
   try{
-   const result=await api<{revision:string;quiz_id?:string}>(`/faculty/modules/${id}/local-authoring/`,{method:'POST',body:draft.operation,timeoutMs:15000});
+   const result=await api<{revision:string;quiz_id?:string}>(`/faculty/modules/${draft.snapshot.remote_id||id}/local-authoring/`,{method:'POST',body:draft.operation,timeoutMs:15000});
    this.library.guard();draft.snapshot.revision=result.revision;draft.state='synced';draft.error=undefined;draft.quiz_id=result.quiz_id;draft.shared={...draft.shared,[draft.operation.kind]:fingerprint(JSON.stringify(draft.operation.kind==='lesson'?draft.operation.lesson:draft.operation.questions))};await this.save(id,draft);
   }catch(e){this.library.guard();draft.state=e instanceof ApiError&&[400,403,404,409].includes(e.status)?'conflict':'pending';draft.error=e instanceof Error?e.message:String(e);await this.save(id,draft);}
   return draft;

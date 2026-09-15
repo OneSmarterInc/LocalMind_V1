@@ -100,6 +100,8 @@ def request_lessons(modules, *, force: bool = False, reason: str = "") -> int:
     now = timezone.now()
     queued = 0
     for module in modules:
+        if module.chapter.document.parse_mode == "device-local":
+            continue
         if not has_text(module):
             continue
         digest = source_hash(module.source_text)
@@ -168,10 +170,11 @@ def state_for(module, row=_UNSET) -> str:
         return "none"
     if row is _UNSET:
         row = ModuleLesson.objects.filter(module=module).first()
+    local = module.chapter.document.parse_mode == "device-local"
     if row is None:
-        return LessonStatus.PENDING if auto_generate_enabled() else "none"
+        return LessonStatus.PENDING if auto_generate_enabled() and not local else "none"
     if row.source_hash != source_hash(module.source_text):
-        return LessonStatus.PENDING
+        return "none" if local else LessonStatus.PENDING
     return row.status
 
 
@@ -196,6 +199,9 @@ def lesson_for_student(module) -> dict:
     if state == LessonStatus.READY and row and row.lesson:
         return {**base, "status": "ready", "lesson": row.lesson, "generator": "ai", "cached": True,
                 "model": row.model_name, "generated_at": row.generated_at}
+    if module.chapter.document.parse_mode == "device-local":
+        return {**base, "status": "unavailable", "lesson": None, "generator": None, "cached": False,
+                "ai_error": "local_authoring_required", "retry_scheduled": False}
     ai_on = bool(settings.AI.get("ENABLED"))
     if state in (LessonStatus.PENDING, LessonStatus.GENERATING) and ai_on:
         start_worker()

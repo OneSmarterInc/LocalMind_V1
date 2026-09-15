@@ -430,3 +430,37 @@ test('staff conflict recovery preserves the previous draft across refresh',async
  await expect(page.getByRole('heading',{name:'Previous lesson',exact:true})).toBeVisible();
  await expect(page.getByText('A local lesson about photosynthesis.',{exact:true})).toBeVisible();
 });
+
+test('staff imports a new book offline and synchronizes its source and reviewed lesson after refresh',async({page,context})=>{
+ const tokens=await signIn(page,'faculty','/manage/offline-ai');await model(page,'/manage/offline-ai');
+ await page.goto('/manage/local-books');
+ await page.getByRole('button',{name:'Subject',exact:true}).click();
+ await page.getByRole('menuitem',{name:/WEBTEST/}).click();
+ await page.getByLabel('Book title',{exact:true}).fill('Device imported textbook');
+ await context.setOffline(true);
+ await pick(page,'Import on this device',{name:'local-book.pdf',mimeType:'application/pdf',buffer:fs.readFileSync('test-results/private-fixture.pdf')});
+ await expect(page.getByRole('heading',{name:'Device imported textbook',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Open local module',exact:true}).first().click();
+ await expect(page.getByText('Photosynthesis happens in the chloroplasts of green leaves.',{exact:true}).first()).toBeVisible();
+ await page.getByRole('button',{name:'Generate local lesson',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Review lesson',exact:true})).toBeVisible({timeout:30000});
+ await page.getByRole('button',{name:'Approve and synchronize lesson',exact:true}).click();
+ await expect(page.getByText('Waiting to synchronize',{exact:true})).toBeVisible();
+ await page.reload();
+ await expect(page.getByRole('heading',{name:'Review lesson',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Open local book synchronization',exact:true}).click();
+ await page.getByRole('button',{name:'Review and synchronize book draft',exact:true}).click();
+ await page.getByRole('button',{name:'Synchronize draft',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Retry book synchronization',exact:true})).toBeVisible();
+ await context.setOffline(false);
+ await page.getByRole('button',{name:'Retry book synchronization',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Open institutional review',exact:true})).toBeVisible();
+ const headers={Authorization:`Bearer ${tokens.access}`};
+ const documents=await page.request.get('/api/faculty/documents/',{headers});const payload=await documents.json();
+ const rows=Array.isArray(payload)?payload:payload.results;
+ const matching=rows.filter((d:any)=>d.title==='Device imported textbook');expect(matching).toHaveLength(1);expect(matching[0].status).toBe('under_review');
+ await page.getByRole('button',{name:'Open local module',exact:true}).first().click();
+ await expect(page.getByText('Received by institution',{exact:true})).toBeVisible({timeout:25000});
+ await context.setOffline(true);await page.reload();
+ await expect(page.getByRole('heading',{name:'Review lesson',exact:true})).toBeVisible();
+});
