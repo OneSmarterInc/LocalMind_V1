@@ -71,7 +71,7 @@ class Module(TimeStampedUUIDModel):
 
 
 class ProgressStatus(models.TextChoices):
-    NOT_STARTED = "not_started", "In progress"
+    NOT_STARTED = "not_started", "Not started"
     IN_PROGRESS = "in_progress", "In progress"
     COMPLETED = "completed", "Completed"
     NEEDS_REVIEW = "needs_review", "Needs review"
