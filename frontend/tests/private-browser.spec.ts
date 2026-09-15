@@ -400,3 +400,33 @@ test('faculty generates offline and synchronizes a reviewed lesson without serve
  await expect(page.getByText('Received by institution',{exact:true})).toBeVisible();expect(aiRequests).toBe(0);
 
 });
+
+test('staff conflict recovery preserves the previous draft across refresh',async({page,context})=>{
+ const tokens=await signIn(page,'faculty','/manage/offline-ai');await model(page,'/manage/offline-ai');
+ const headers={Authorization:`Bearer ${tokens.access}`},id=fixture().module;
+ await page.goto(`/manage/local-authoring/${id}`);
+ await page.getByRole('button',{name:'Save module on this device',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Source',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Generate local lesson',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Review lesson',exact:true})).toBeVisible();
+ const changed=fixture().source+' The faculty added a new source sentence.';
+ const update=await page.request.patch(`/api/faculty/modules/${id}/`,{headers,data:{source_text:changed}});expect(update.ok(),await update.text()).toBeTruthy();
+ await page.getByRole('button',{name:'Approve and synchronize lesson',exact:true}).click();
+ await expect(page.getByText('Review needed',{exact:true})).toBeVisible();
+ await context.setOffline(true);
+ await page.getByRole('button',{name:'Refresh source and keep draft in history',exact:true}).click();
+ await page.getByRole('button',{name:'Keep draft and refresh',exact:true}).click();
+ await expect(page.getByText(/You are offline and this page has not been saved/)).toBeVisible();
+ await expect(page.getByRole('heading',{name:'Review lesson',exact:true})).toBeVisible();
+ await expect(page.getByRole('heading',{name:'Previous local drafts',exact:true})).toHaveCount(0);
+ await context.setOffline(false);
+ await page.getByRole('button',{name:'Refresh source and keep draft in history',exact:true}).click();
+ await page.getByRole('button',{name:'Keep draft and refresh',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Review lesson',exact:true})).toHaveCount(0);
+ await expect(page.getByRole('heading',{name:'Previous local drafts',exact:true})).toBeVisible();
+ await context.setOffline(true);await page.reload();
+ await expect(page.getByText(changed,{exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'View previous draft',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Previous lesson',exact:true})).toBeVisible();
+ await expect(page.getByText('A local lesson about photosynthesis.',{exact:true})).toBeVisible();
+});

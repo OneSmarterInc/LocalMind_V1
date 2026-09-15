@@ -2,10 +2,12 @@ import {randomUUID} from 'expo-crypto';
 import {api,ApiError} from '@/api/client';
 import {Library,fingerprint} from '@/private/library';
 import {device} from '@/private/device';
+import {generationJobs} from '@/private/jobs';
 import {makeSections,requireThat,type Lesson,type MCQ} from '@/private/core';
 export type Snapshot={module_id:string;document_id:string;title:string;source:string;revision:string};
 type Operation={id:string;revision:string;kind:'lesson'|'quiz';reviewed:true;lesson?:Lesson;questions?:MCQ[]};
 export type Draft={snapshot:Snapshot;lesson?:Lesson;questions?:MCQ[];run?:{kind:'lesson'|'quiz';book:string;done:number;lessonParts:Lesson[];questions:MCQ[]};operation?:Operation;state?:'pending'|'synced'|'conflict';error?:string;quiz_id?:string;shared?:Partial<Record<'lesson'|'quiz',string>>};
+export type ArchivedDraft={id:string;archivedAt:string;draft:Draft};
 const syncing=new Map<string,Promise<Draft|undefined>>();
 export class LocalAuthoring {
  readonly library:Library;
@@ -21,6 +23,23 @@ export class LocalAuthoring {
   if(old?.operation&&old.state!=='synced')throw Error('Synchronize or review the pending draft before replacing its source.');
   if(old&&(old.lesson||old.questions||old.run)&&old.snapshot.revision!==snapshot.revision)throw Error('The institutional source or lesson changed. Your local work is retained; resolve this draft before downloading a replacement.');
   const next={...old,snapshot};await this.save(id,next);return next;
+ }
+ async history(id:string){
+  this.library.guard();const rows=await(await device()).list<ArchivedDraft>(this.library.prefix+'history:'+id+':');this.library.guard();
+  return rows.sort((a,b)=>b.archivedAt.localeCompare(a.archivedAt));
+ }
+ async refreshSource(id:string){
+  const inflight=syncing.get(this.key(id));if(inflight)await inflight;
+  const old=await this.read(id);requireThat(old,'Save the module first.');
+  requireThat(old.state!=='pending','A reviewed draft is still waiting to synchronize. Retry it before refreshing the source.');
+  const scope=new Library(this.library.owner).prefix;
+  requireThat(!generationJobs.snapshot().some(j=>j.bookId===id&&j.scope.startsWith(scope)&&['running','queued'].includes(j.state)),'Finish or cancel the current generation before refreshing its source.');
+  // Fetch succeeds before any local mutation. A revoked permission or failed
+  // connection leaves both the current draft and its operation unchanged.
+  const snapshot=await api<Snapshot>(`/faculty/modules/${id}/local-authoring/`);this.library.guard();
+  const archived:ArchivedDraft={id:randomUUID(),archivedAt:new Date().toISOString(),draft:old};
+  await(await device()).put(this.library.prefix+'history:'+id+':'+archived.id,archived);this.library.guard();
+  const fresh:Draft={snapshot};await this.save(id,fresh);return fresh;
  }
  async generate(id:string,kind:'lesson'|'quiz',signal:AbortSignal,progress:(message:string)=>void){
   const draft=await this.read(id);requireThat(draft,'Save this module on the device first.');
