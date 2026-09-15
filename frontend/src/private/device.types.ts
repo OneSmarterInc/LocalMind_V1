@@ -8,7 +8,7 @@ export interface Device {
   put(key:string,value:unknown): Promise<void>;
   list<T>(prefix:string): Promise<T[]>;
   removePrefix(prefix:string): Promise<void>;
-  parse(file:LocalFile,signal?:AbortSignal,progress?:(message:string)=>void): Promise<Parsed>;
+  parse(file:LocalFile,signal?:AbortSignal,progress?:(message:string)=>void,saveVisual?:(visual:SourceVisual,hash:string)=>Promise<void>): Promise<Parsed>;
   downloadBook(url:string,headers:Record<string,string>,name:string,signal:AbortSignal): Promise<LocalFile>;
   releaseFile(file:LocalFile): Promise<void>;
   complete(req:Completion): Promise<unknown>;

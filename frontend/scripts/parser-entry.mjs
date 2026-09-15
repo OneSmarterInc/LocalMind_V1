@@ -4,7 +4,7 @@ import { unzipSync } from 'fflate';
 import { readablePdfText, imageRectangles } from './pdf-layout.mjs';
 import { OCR_WORKER } from './generated-ocr.mjs';
 globalThis.pdfjsWorker={WorkerMessageHandler};
-const LIMIT=2_000_000, IMAGE_LIMIT=48*1024*1024;
+const LIMIT=2_000_000;
 const assert=(v,m)=>{if(!v)throw new Error(m);};
 const decode=b=>new TextDecoder('utf-8',{fatal:true}).decode(b).replace(/^\uFEFF/,'');
 const check=signal=>{if(signal?.aborted)throw Error('Book import cancelled. Nothing was saved.');};
@@ -42,16 +42,19 @@ async function recognizer(signal){
 }
 
 let running=false;
-async function parse(bytes,name,signal,progress=()=>{}){
+async function parse(bytes,name,signal,progress=()=>{},saveVisual){
  assert(!running,'A book is already being imported. Wait for it to finish.');running=true;
  let ocr;
  try {
  check(signal);assert(bytes.length>0 && bytes.length<=35*1024*1024,'Choose a book up to 35 MB.');
- const ext=name.split('.').pop().toLowerCase(), warnings=[],visuals=[];let items=[],imageBytes=0;
- const capture=(canvas,caption,page,kind='figure')=>{
-  const dataUrl=canvas.toDataURL('image/png');imageBytes+=dataUrl.length;
-  assert(imageBytes<=IMAGE_LIMIT,'The preserved page images exceed 48 MB. Import a chapter at a time. Nothing was saved.');
-  const id=`v${visuals.length+1}`;visuals.push({id,dataUrl,kind,width:canvas.width,height:canvas.height,caption,...(page?{page}:{})});return id;
+ const ext=name.split('.').pop().toLowerCase(), warnings=[],visuals=[];let items=[],visualCount=0;
+ const capture=async(canvas,caption,page,kind='figure')=>{
+  check(signal);
+  const id=`v${++visualCount}`;
+  const visual={id,dataUrl:canvas.toDataURL('image/png'),kind,width:canvas.width,height:canvas.height,caption,...(page?{page}:{})};
+  // Await durable storage before rendering the next image. Never accumulate a book of bitmaps.
+  if(saveVisual)await saveVisual(visual);else visuals.push(visual);
+  check(signal);return id;
  };
  if(ext==='pdf') {
   assert(String.fromCharCode(...bytes.slice(0,5))==='%PDF-','This file is not a PDF.');
@@ -69,7 +72,7 @@ async function parse(bytes,name,signal,progress=()=>{}){
     const canvas=document.createElement('canvas');canvas.width=Math.ceil(view.width);canvas.height=Math.ceil(view.height);
     try {
      await page.render({canvasContext:canvas.getContext('2d'),viewport:view,background:'white'}).promise;
-     const visualIds=[capture(canvas,`Original page ${p} — tables and diagrams`,p,'page')];
+     const visualIds=[await capture(canvas,`Original page ${p} — tables and diagrams`,p,'page')];
      // Mixed pages (a selectable header above a scanned body) also need OCR.
      const ops=await page.getOperatorList();const hasImage=ops.fnArray.some(op=>[pdfjs.OPS.paintImageXObject,pdfjs.OPS.paintInlineImageXObject,pdfjs.OPS.paintImageMaskXObject].includes(op));
      // Crop embedded illustrations from the rendered page, retaining surrounding labels.
@@ -80,7 +83,7 @@ async function parse(bytes,name,signal,progress=()=>{}){
       const crop=document.createElement('canvas');crop.width=Math.min(canvas.width-x,Math.ceil(width+32));crop.height=Math.min(canvas.height-y,Math.ceil(height+32));
       if(crop.width<=0||crop.height<=0)continue;
       crop.getContext('2d').drawImage(canvas,x,y,crop.width,crop.height,0,0,crop.width,crop.height);
-      visualIds.push(capture(crop,`Illustration from page ${p}`,p));crop.width=0;crop.height=0;
+      visualIds.push(await capture(crop,`Illustration from page ${p}`,p));crop.width=0;crop.height=0;
      }
      const readableChars=text.replace(/\s/g,'').length;
      // Preserve illustrations without re-recognising substantial selectable text.
@@ -139,7 +142,7 @@ async function parse(bytes,name,signal,progress=()=>{}){
     try{
      await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(Error('An embedded Word image could not be decoded. Export this document as PDF.'));img.src=url;});
      check(signal);const canvas=document.createElement('canvas'),scale=Math.min(1,2400/Math.max(img.naturalWidth,img.naturalHeight));canvas.width=Math.max(1,Math.round(img.naturalWidth*scale));canvas.height=Math.max(1,Math.round(img.naturalHeight*scale));canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
-     current.visualIds.push(capture(canvas,`Original illustration — ${current.title}`));
+     current.visualIds.push(await capture(canvas,`Original illustration — ${current.title}`));
      ocr||=await recognizer(signal);const read=await ocr.read(canvas);if(read.text.trim())current.text+=`\n[Text recognised from illustration]\n${read.text}\n`;canvas.width=0;canvas.height=0;
     }finally{URL.revokeObjectURL(url);}
    }
@@ -158,11 +161,12 @@ async function parse(bytes,name,signal,progress=()=>{}){
  }finally{try{await ocr?.close();}finally{running=false;}}
 }
 window.__LM_PARSER__={parse};
-let nativeAbort;
-window.__LM_CANCEL_PARSE__=()=>nativeAbort?.abort();
-window.__LM_PARSE_BASE64__=async(id,name,data)=>{
+let nativeAbort,nativeVisual;
+window.__LM_VISUAL_ACK__=(id,error)=>{if(nativeVisual?.id!==id)return;const p=nativeVisual;nativeVisual=undefined;error?p.reject(Error(error)):p.resolve();};
+window.__LM_CANCEL_PARSE__=()=>{nativeAbort?.abort();if(nativeVisual){nativeVisual.reject(Error('Book import cancelled.'));nativeVisual=undefined;}};
+window.__LM_PARSE_BASE64__=async(id,name,data,stream=false)=>{
  nativeAbort=new AbortController();
- try{const parsed=await parse(base64(data),name,nativeAbort.signal,progress=>window.ReactNativeWebView.postMessage(JSON.stringify({id,progress})));window.ReactNativeWebView.postMessage(JSON.stringify({id,parsed}));}
+ try{const parsed=await parse(base64(data),name,nativeAbort.signal,progress=>window.ReactNativeWebView.postMessage(JSON.stringify({id,progress})),stream?visual=>new Promise((resolve,reject)=>{nativeVisual={id,resolve,reject};window.ReactNativeWebView.postMessage(JSON.stringify({id,visual}));}):undefined);window.ReactNativeWebView.postMessage(JSON.stringify({id,parsed}));}
  catch(e){window.ReactNativeWebView.postMessage(JSON.stringify({id,error:e.message||String(e)}));}
  finally{nativeAbort=undefined;}
 };

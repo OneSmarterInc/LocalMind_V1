@@ -301,3 +301,36 @@ for(const kind of ['lesson','quiz'])test(`${kind} checkpoints survive offline re
  expect(count).toBe(2); // Three passages total; the first was restored from IndexedDB.
  await page.reload();await expect(page.getByRole('button',{name:kind==='lesson'?'Saved lesson':'Saved quiz',exact:true})).toContainText('Version 1');
 });
+
+test('streamed import rolls back images on storage failure and saves successful images across reload',async({page})=>{
+ await signIn(page);
+ await page.addScriptTag({url:'/private-assets/parser.js',type:'module'});
+ await page.evaluate(()=>{
+  (window as any).__LM_PARSER__.parse=async(_bytes:any,_name:any,_signal:any,progress:any,save:any)=>{
+   progress('Preparing page 1 of 2');
+   await save({id:'v1',dataUrl:'data:image/png;base64,aGVsbG8=',kind:'page',width:10,height:10,caption:'Source page',page:1});
+   throw new DOMException('Device full','QuotaExceededError');
+  };
+ });
+ const book={name:'Storage test.md',mimeType:'text/markdown',buffer:Buffer.from('# Source\n'+fixture().source)};
+ await pick(page,'Upload my book',book);
+ await expect(page.getByText(/insufficient storage/)).toBeVisible();
+ await expect(page.getByText('Preparing page 1 of 2',{exact:true})).toHaveCount(0);
+ const keys=()=>page.evaluate(async()=>{
+  const db=await new Promise<IDBDatabase>((resolve,reject)=>{const r=indexedDB.open('localmind-private-library');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
+  return await new Promise<string[]>((resolve,reject)=>{const r=db.transaction('records').objectStore('records').getAllKeys();r.onsuccess=()=>{db.close();resolve(r.result.map(String));};r.onerror=()=>reject(r.error);});
+ });
+ expect((await keys()).filter(k=>k.includes('visual:'))).toHaveLength(0);
+ await page.evaluate(()=>{
+  (window as any).__LM_PARSER__.parse=async(_b:any,_n:any,_s:any,_p:any,save:any)=>{
+   await save({id:'v1',dataUrl:'data:image/png;base64,aGVsbG8=',kind:'page',width:10,height:10,caption:'Source page',page:1});
+   return {items:[{title:'Source',text:'Photosynthesis occurs in chloroplasts.',visualIds:['v1']}],warnings:[],visuals:[]};
+  };
+ });
+ await pick(page,'Upload my book',book);await expect(page.getByText('Storage test',{exact:true})).toBeVisible();
+ expect((await keys()).filter(k=>k.includes('visual:'))).toHaveLength(1);
+ await pick(page,'Upload my book',book);await expect(page.getByText(/This book is already in your library/)).toBeVisible();
+ expect((await keys()).filter(k=>k.includes('visual:'))).toHaveLength(1);
+ await page.reload();await expect(page.getByText('Storage test',{exact:true})).toBeVisible();
+ expect((await keys()).filter(k=>k.includes('visual:'))).toHaveLength(1);
+});

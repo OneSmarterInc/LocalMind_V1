@@ -1,7 +1,7 @@
 import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import {fileURLToPath} from 'node:url';import {createRequire} from 'node:module';import {spawnSync} from 'node:child_process';import assert from 'node:assert/strict';import test from 'node:test';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),tmp=fs.mkdtempSync(path.join(os.tmpdir(),'lm-private-tests-'));
 const tsc=fs.existsSync(path.join(root,'frontend/node_modules/typescript/bin/tsc'))?[process.execPath,[path.join(root,'frontend/node_modules/typescript/bin/tsc')]]:['tsc',[]];
-const result=spawnSync(tsc[0],[...tsc[1],'--strict','--target','ES2022','--module','commonjs','--skipLibCheck','--outDir',tmp,...['core.ts','busy.ts','offlinePolicy.ts','jobs.ts','performance.ts'].map(f=>path.join(root,'frontend/src/private',f))],{encoding:'utf8'});
+const result=spawnSync(tsc[0],[...tsc[1],'--strict','--target','ES2022','--module','commonjs','--skipLibCheck','--outDir',tmp,...['core.ts','busy.ts','offlinePolicy.ts','jobs.ts','performance.ts','parserBridge.ts'].map(f=>path.join(root,'frontend/src/private',f))],{encoding:'utf8'});
 if(result.status!==0){console.error(result.stdout,result.stderr);process.exit(1);}
 const require=createRequire(import.meta.url),c=require(path.join(tmp,'core.js')),b=require(path.join(tmp,'busy.js')),policy=require(path.join(tmp,'offlinePolicy.js'));
 const source='Photosynthesis occurs in chloroplasts. Chlorophyll absorbs sunlight. Plants use carbon dioxide and release oxygen.';
@@ -134,4 +134,17 @@ test('doubt retrieval removes unrelated filler and keeps AI acronym matches',()=
  const sections=[{id:'s1',title:'Other',source:'Photosynthesis uses sunlight. '.repeat(40)},
  {id:'s2',title:'Phones',source:'AI in smartphones supports voice recognition and camera processing.'}];
  const ref=c.bookReference(sections,'s1','Tell me AI in smartphones');assert.ok(ref.includes('voice recognition'));assert.ok(!ref.includes('Photosynthesis'));assert.ok(ref.length<=1800);
+});
+
+
+test('native import cancellation waits for an in-flight image save before rollback',async()=>{
+ const bridge=require(path.join(tmp,'parserBridge.js'));let parseId;let finishSave;let settled=false;let acked=false;
+ bridge.attachParser(id=>{parseId=id;},()=>{},()=>{acked=true;});
+ const abort=new AbortController();
+ const job=bridge.parseNative('book.pdf','AA==',abort.signal,undefined,()=>new Promise(resolve=>{finishSave=resolve;}));
+ const outcome=job.then(()=>{settled=true;return '';},e=>{settled=true;return e.message;});
+ bridge.parserResult({id:parseId,visual:{id:'v1',dataUrl:'data:image/png;base64,AA==',width:1,height:1,caption:'Page'}});
+ abort.abort();await Promise.resolve();assert.equal(settled,false);
+ finishSave();assert.match(await outcome,/cancel/i);assert.equal(acked,false);
+ bridge.attachParser(undefined);
 });

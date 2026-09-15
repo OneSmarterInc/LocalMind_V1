@@ -38,22 +38,37 @@ export class Library {
     section.source=source.trim();this.guard();await d.put(this.key(bookId),book);this.guard();
   }
   async import(file: LocalFile, shared?: { id: string; title: string; sha256?: string }, signal?: AbortSignal, progress?: (message: string) => void) {
-    cancelled(signal); this.guard(); progress?.("Reading book on this device…"); const d = await device(); const parsed = await d.parse(file, signal, progress); this.guard(); cancelled(signal);
-    if (shared?.sha256) requireThat(parsed.hash === shared.sha256, 'Downloaded book checksum mismatch. Nothing was imported.');
-    const original = await d.get<PrivateBook>(this.key(parsed.hash)); this.guard();
-    // Re-importing pre-OCR content creates a new revision without breaking its saved lessons/attempts.
-    const upgraded = !!original && original.importVersion !== 4;
-    const id = upgraded ? fingerprint(`${parsed.hash}|source-layout-v4`) : parsed.hash;
-    const existing = await d.get<PrivateBook>(this.key(id)); this.guard(); if (existing) return { book: validateBook(existing), duplicate: true };
-    const book: PrivateBook = { importVersion: 4, assetSet: randomUUID(), id, title: ((shared?.title || file.name.replace(/\.[^.]+$/, '')) + (upgraded ? ' · new extraction' : '')).slice(0, 300), originalName: file.name, importedAt: new Date().toISOString(), origin: shared ? 'shared' : 'personal', ...(shared ? { sourceId: shared.id } : {}), sections: parsed.sections, warnings: [...parsed.warnings, ...(upgraded ? ['The earlier import and its practice history are unchanged. This copy uses the new extraction.'] : [])] };
-    // Store assets separately so listing books does not load every page bitmap.
-    const assetPrefix = `${this.work(id)}visual:${book.assetSet}:`;
+    cancelled(signal); this.guard(); progress?.("Reading book on this device…");
+    const d = await device(), assetSet=randomUUID();let assetPrefix='';let committed=false;
+    const resolveId=async(hash:string)=>{
+      const original=await d.get<PrivateBook>(this.key(hash));this.guard();
+      return original&&original.importVersion!==4?fingerprint(`${hash}|source-layout-v4`):hash;
+    };
     try {
-      for (const [index, visual] of (parsed.visuals || []).entries()) { progress?.(`Saving image ${index + 1} of ${parsed.visuals?.length} on this device`); this.guard(); cancelled(signal); await d.put(`${assetPrefix}${visual.id}`, visual); }
-      this.guard(); cancelled(signal); await d.put(this.key(id), validateBook(book));
-    } catch (e) { await d.removePrefix(assetPrefix); throw e; }
-    this.guard(); return { book, duplicate: false };
+      const parsed=await d.parse(file,signal,progress,async(visual,hash)=>{
+        this.guard();cancelled(signal);
+        if(!assetPrefix)assetPrefix=`${this.work(await resolveId(hash))}visual:${assetSet}:`;
+        await d.put(`${assetPrefix}${visual.id}`,visual);
+        this.guard();cancelled(signal);
+      });
+      this.guard();cancelled(signal);
+      if(shared?.sha256)requireThat(parsed.hash===shared.sha256,'Downloaded book checksum mismatch. Nothing was imported.');
+      const id=await resolveId(parsed.hash), upgraded=id!==parsed.hash;
+      const existing=await d.get<PrivateBook>(this.key(id));this.guard();
+      if(existing)return {book:validateBook(existing),duplicate:true};
+      const book:PrivateBook={importVersion:4,assetSet,id,title:((shared?.title||file.name.replace(/\.[^.]+$/,''))+(upgraded?' · new extraction':'')).slice(0,300),originalName:file.name,importedAt:new Date().toISOString(),origin:shared?'shared':'personal',...(shared?{sourceId:shared.id}:{}),sections:parsed.sections,warnings:[...parsed.warnings,...(upgraded?['The earlier import and its practice history are unchanged. This copy uses the new extraction.']:[])]};
+      // Compatibility for parsers that return images instead of streaming them.
+      assetPrefix ||= `${this.work(id)}visual:${assetSet}:`;
+      for(const visual of parsed.visuals||[]){this.guard();cancelled(signal);await d.put(`${assetPrefix}${visual.id}`,visual);}
+      this.guard();cancelled(signal);await d.put(this.key(id),validateBook(book));committed=true;
+      this.guard();return {book,duplicate:false};
+    } catch(e) {
+      if(e instanceof Error && /quota|disk.*full|storage.*full/i.test(e.name+' '+e.message))
+        throw new Error('This device has insufficient storage for the book images. Free some device storage and try again. No new book was saved.');
+      throw e;
+    } finally {if(!committed&&assetPrefix)await d.removePrefix(assetPrefix);}
   }
+
   async remove(id: string) { await generationJobs.cancelBook(`${this.prefix}session:${currentSession()}`,id); await this.book(id); this.guard(); const d = await device(); await d.removePrefix(this.key(id)); await d.removePrefix(this.work(id)); this.guard(); }
   async visuals(bookId: string, sectionId: string): Promise<SourceVisual[]> {
     const book = await this.book(bookId), section = book.sections.find(s => s.id === sectionId);

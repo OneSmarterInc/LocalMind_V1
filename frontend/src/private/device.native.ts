@@ -59,10 +59,10 @@ async function complete(req:Completion){return lock.queue(async()=>{
  }catch(e){if(expired&&!req.signal.aborted)throw new Error('Local AI timed out. No incomplete response was saved. Completed lesson parts and quiz questions are retained; generate again to resume.');throw e;}finally{clearTimeout(timer);req.signal.removeEventListener('abort',cancel);}
 },req.signal);}
 const implementation:Device={...store,complete,
- async parse(f, signal, progress){
+ async parse(f, signal, progress, saveVisual){
   const i=await info(f.uri);requireThat(i.size<=MAX_BOOK_BYTES,'Import a book up to 35 MB.');
   const base64=await FS.readAsStringAsync(f.uri,{encoding:FS.EncodingType.Base64});
-  const hash=bytesToHex(sha256(toByteArray(base64)));const parsed=await parseNative(f.name,base64,signal,progress);
+  const hash=bytesToHex(sha256(toByteArray(base64)));const parsed=await parseNative(f.name,base64,signal,progress,saveVisual?visual=>saveVisual(visual,hash):undefined);
   return {hash,sections:makeSections(parsed.items),warnings:parsed.warnings,visuals:parsed.visuals};
  },
  async downloadBook(url,headers,name,signal){

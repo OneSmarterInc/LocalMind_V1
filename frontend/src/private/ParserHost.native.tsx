@@ -11,6 +11,6 @@ export default function ParserHost() {
    allowFileAccess={false} allowUniversalAccessFromFileURLs={false} mixedContentMode="never"
    onShouldStartLoadWithRequest={r=>r.url==='about:blank'}
    onError={()=>attachParser(undefined)}
-   onMessage={event=>{try{const r=JSON.parse(event.nativeEvent.data);if(r.ready)attachParser((id,name,body)=>ref.current?.injectJavaScript(`window.__LM_PARSE_BASE64__(${JSON.stringify(id)},${JSON.stringify(name)},${JSON.stringify(body)});true;`),()=>ref.current?.injectJavaScript("window.__LM_CANCEL_PARSE__();true;"));else parserResult(r);}catch{attachParser(undefined);}}} />
+   onMessage={event=>{try{const r=JSON.parse(event.nativeEvent.data);if(r.ready)attachParser((id,name,body)=>ref.current?.injectJavaScript(`window.__LM_PARSE_BASE64__(${JSON.stringify(id)},${JSON.stringify(name)},${JSON.stringify(body)},true);true;`),()=>ref.current?.injectJavaScript("window.__LM_CANCEL_PARSE__();true;"),(id,error)=>ref.current?.injectJavaScript(`window.__LM_VISUAL_ACK__(${JSON.stringify(id)},${JSON.stringify(error||null)});true;`));else parserResult(r);}catch{attachParser(undefined);}}} />
  </View>;
 }

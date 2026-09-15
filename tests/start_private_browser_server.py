@@ -85,6 +85,16 @@ with tempfile.TemporaryDirectory(prefix='localmind-browser-') as folder:
     illustrated=io.BytesIO();c=Canvas(illustrated,pagesize=(600,780));c.drawImage(ImageReader(raster),350,30,200,260)
     for line in range(12):c.drawString(30,750-line*20,'Readable textbook content about sunlight, leaves and photosynthesis.')
     c.save();(results/'illustrated-text.pdf').write_bytes(illustrated.getvalue())
+    # A small PDF whose expanded PNG pages exceed the former 48 MiB limit.
+    import random
+    from PIL import Image
+    noise=Image.frombytes('RGB',(700,700),random.Random(42).randbytes(700*700*3))
+    large=io.BytesIO();c=Canvas(large,pagesize=(600,780))
+    for n in range(44):
+        c.drawImage(ImageReader(noise),30,30,540,540)
+        for line in range(8):c.drawString(30,750-line*18,'Readable textbook content about sunlight, leaves and photosynthesis.')
+        c.showPage()
+    c.save();(results/'large-illustrated.pdf').write_bytes(large.getvalue())
     bitmap.close();page.close();original.close()
     (results/'fixture.json').write_text(json.dumps({'quizImmediate':str(immediate.pk),'quizHeld':str(held.pk),'module':str(module.id),'document':str(doc.id),'subject':str(subject.id),'source':source,'password':password}))
     # runserver stays in this process so temporary storage settings are retained.
