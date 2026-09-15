@@ -1,8 +1,11 @@
+import base64
+
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.permissions import IsStudent
+from documents.services.visuals import visual_path
 
 from . import services as svc
 
@@ -10,6 +13,41 @@ from . import services as svc
 def _msg(m):
     return {"id": str(m.id), "role": m.role, "content": m.content, "grounded": m.grounded, "source_reference": m.source_reference,
             "created_at": m.created_at}
+
+
+def _lesson_visuals(student, module_id):
+    """Return only cropped source visuals for the accessible module.
+
+    Data URLs keep the normal authenticated lesson request self-contained on
+    web/native/offline caches; the client never needs an unauthenticated media
+    URL. The extractor rejects full-page regions before these files exist.
+    """
+    module = svc._module(student, module_id)
+    document = module.chapter.document
+    output = []
+    for visual in module.source_visuals or []:
+        path = visual_path(document, module, str(visual.get("id") or ""))
+        if path is None or not path.is_file():
+            continue
+        encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+        output.append({
+            "id": visual.get("id"),
+            "kind": visual.get("kind", "figure"),
+            "page": visual.get("page"),
+            "caption": visual.get("caption", "Source visual"),
+            "width": visual.get("width"),
+            "height": visual.get("height"),
+            "data_url": f"data:image/png;base64,{encoded}",
+        })
+    return output
+
+
+def _with_source_visuals(student, module_id, data):
+    if not data.get("lesson"):
+        return data
+    lesson = dict(data["lesson"])
+    lesson["source_visuals"] = _lesson_visuals(student, module_id)
+    return {**data, "lesson": lesson}
 
 
 class TeachView(APIView):
@@ -24,10 +62,11 @@ class TeachView(APIView):
     permission_classes = [IsStudent]
 
     def get(self, request, module_id):
-        return Response(svc.teach(request.user, module_id, request))
+        return Response(_with_source_visuals(request.user, module_id, svc.teach(request.user, module_id, request)))
 
     def post(self, request, module_id):
-        return Response(svc.teach(request.user, module_id, request, legacy=True))
+        data = svc.teach(request.user, module_id, request, legacy=True)
+        return Response(_with_source_visuals(request.user, module_id, data))
 
 
 class AskView(APIView):
