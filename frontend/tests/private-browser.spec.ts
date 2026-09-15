@@ -17,8 +17,8 @@ export async function signIn(page:Page,role='student',path='/student/private-lib
 async function pick(page:Page,button:string,file:{name:string;mimeType:string;buffer:Buffer}){
  const chooser=page.waitForEvent('filechooser');await page.getByRole('button',{name:button,exact:true}).click();await(await chooser).setFiles(file);
 }
-export async function model(page:Page){
- await page.goto('/student/offline-ai');await expect(page.getByText('Model on this device',{exact:true})).toBeVisible();
+export async function model(page:Page,path='/student/offline-ai'){
+ await page.goto(path);await expect(page.getByText('Model on this device',{exact:true})).toBeVisible();
  await pick(page,'Import a .gguf file',{name:'browser-fixture.gguf',mimeType:'application/octet-stream',buffer:Buffer.from('GGUFunit-test-model-not-real-inference')});
  await expect(page.getByText('Downloaded',{exact:true})).toBeVisible();
  // A model file alone is not the offline application. Complete the same setup
@@ -124,7 +124,7 @@ test('normal course doubts use the same device model offline and reject a known 
  const endpoint=`/api/faculty/modules/${id}/availability/`;const headers={Authorization:`Bearer ${admin.access}`};
  const lock=await page.request.post(endpoint,{headers,data:{availability:'locked'}});expect(lock.ok()).toBeTruthy();
  try{
-  await expect(page.getByText('Ask about this module. If the server disconnects, the installed local model can answer from your downloaded source.',{exact:true})).toBeVisible({timeout:35000});
+  await expect(page.getByText('Connected',{exact:true})).toBeVisible({timeout:35000});
   await page.getByLabel('Your question',{exact:true}).fill('Explain the leaf again.');await page.getByRole('button',{name:'Ask',exact:true}).click();
   await expect(page.getByText('This module has not been opened by faculty.',{exact:true})).toBeVisible();
   await context.setOffline(true);
@@ -349,4 +349,54 @@ test('new app bypasses an old offline-cached parser without deleting private dat
  expect(requests.some(url=>/\/parser-[a-f0-9]+\.js$/.test(url))).toBe(true);
  expect(requests.some(url=>url.endsWith('/parser.js'))).toBe(false);
  expect(await page.evaluate(()=>localStorage.getItem('preserve-private-data-test'))).toBe('retained');
+});
+
+
+for(const role of ['admin','faculty'])test(`${role} can configure local AI within their own portal`,async({page})=>{
+ await signIn(page,role,role==='admin'?'/admin/offline-ai':'/manage/offline-ai');
+ await expect(page.getByText('Model on this device',{exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:/^Download model/})).toBeVisible();
+ await page.getByRole('button',{name:'Books & modules',exact:true}).click();await expect(page).toHaveURL(/\/manage\/books/);
+});
+
+test('connected course doubt uses device AI and synchronizes exactly once',async({page})=>{
+ const tokens=await signIn(page);await model(page);let serverCalls=0;
+ page.on('request',r=>{if(r.method()==='POST'&&/\/modules\/[^/]+\/ask\//.test(r.url()))serverCalls++;});
+ await page.goto(`/student/module/${fixture().module}?tab=ask`);
+ await page.getByLabel('Your question',{exact:true}).fill('Where does photosynthesis happen?');
+ await page.getByRole('button',{name:'Ask',exact:true}).click();
+ await expect(page.getByText('The local model explains that photosynthesis happens in chloroplasts.',{exact:true})).toBeVisible();
+ await expect.poll(async()=>{const r=await page.request.get(`/api/student/conversations/?module=${fixture().module}`,{headers:{Authorization:`Bearer ${tokens.access}`}});return r.ok()?(await r.json()).length:0;}).toBe(1);
+ await page.reload();await expect(page.getByText('The local model explains that photosynthesis happens in chloroplasts.',{exact:true})).toHaveCount(1);expect(serverCalls).toBe(0);
+});
+
+
+test('faculty generates offline and synchronizes a reviewed lesson without server inference',async({page,context})=>{
+ const tokens=await signIn(page,'faculty','/manage/offline-ai');await model(page,'/manage/offline-ai');
+ const headers={Authorization:`Bearer ${tokens.access}`};
+ let aiRequests=0;page.on('request',r=>{if(r.method()==='POST'&&/\/(?:lesson|auto-quiz|lessons|auto-quizzes)\/$/.test(r.url()))aiRequests++;});
+ await page.goto(`/manage/local-authoring/${fixture().module}`);
+ await page.getByRole('button',{name:'Save module on this device',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Source',exact:true})).toBeVisible();
+ await context.setOffline(true);
+ await page.getByRole('button',{name:'Generate local lesson',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Review lesson',exact:true})).toBeVisible();
+ await page.reload();await expect(page.getByRole('heading',{name:'Review lesson',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Approve and synchronize lesson',exact:true}).click();
+ await expect(page.getByText('Waiting to synchronize',{exact:true})).toBeVisible();
+ await context.setOffline(false);
+ await page.getByRole('button',{name:'Retry synchronization',exact:true}).click();
+ await expect(page.getByText('Received by institution',{exact:true})).toBeVisible();
+ const result=await page.request.get(`/api/faculty/modules/${fixture().module}/lesson/`,{headers});
+ expect(result.ok()).toBeTruthy();const lesson=await result.json();expect(lesson.model).toBe('device-local');expect(lesson.status).toBe('ready');expect(aiRequests).toBe(0);
+ await context.setOffline(true);
+ await page.getByRole('button',{name:'Generate local quiz',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Review quiz',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Approve and synchronize quiz draft',exact:true}).click();
+ await expect(page.getByText('Waiting to synchronize',{exact:true})).toBeVisible();
+ await page.reload();await expect(page.getByRole('heading',{name:'Review quiz',exact:true})).toBeVisible();
+ await context.setOffline(false);
+ await page.getByRole('button',{name:'Retry synchronization',exact:true}).click();
+ await expect(page.getByText('Received by institution',{exact:true})).toBeVisible();expect(aiRequests).toBe(0);
+
 });

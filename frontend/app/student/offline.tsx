@@ -64,7 +64,7 @@ export default function OfflineLibrary() {
           <CardHead title="Available on this device" />
           <ListRow plain icon="document-text-outline" title="Saved course text" subtitle="Previously downloaded, authorized modules." right={<Badge value={s?.modules ? "Available" : "Not saved yet"} tone={s?.modules ? "green" : "neutral"} />} />
           <ListRow plain icon="sparkles-outline" title="Saved course lessons" subtitle="Previously prepared lessons in your course copy." right={<Badge value={s?.lessons ? "Available" : "None saved"} tone={s?.lessons ? "green" : "neutral"} />} />
-          <ListRow plain icon="chatbubble-ellipses-outline" title="New doubts" subtitle="The installed local model answers from source already on this device. Offline conversations are not uploaded." />
+          <ListRow plain icon="chatbubble-ellipses-outline" title="New doubts" subtitle="The installed local model answers from source already on this device. Institutional course conversations synchronize when connected; Private Study conversations stay local." />
           <ListRow plain icon="book-outline" title="Private books, lessons and quizzes" subtitle="Import supported books locally. Generate or regenerate with the local model, check practice answers and keep history here. No module progression locks." />
         </Card>
         <Card>

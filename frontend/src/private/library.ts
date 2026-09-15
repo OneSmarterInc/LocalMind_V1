@@ -18,13 +18,14 @@ export const fingerprint = (s: string) => bytesToHex(sha256(utf8ToBytes(s)));
 export class Library {
   readonly prefix: string;
   private session: number;
-  constructor(readonly owner: string) {
+  constructor(readonly owner: string, domain: 'private'|'authoring' = 'private') {
     requireThat(!!owner, 'Sign in on this device to open your private library');
-    this.prefix = `private:${fingerprint(`${BASE_URL}|${owner}`)}:`; this.session = currentSession();
+    this.prefix = `${domain}:${fingerprint(`${BASE_URL}|${owner}`)}:`; this.session = currentSession();
   }
   guard() { if (currentSession() !== this.session) throw new SessionChangedError(); }
   private key(book: string) { return `${this.prefix}book:${book}`; }
   private work(book: string) { return `${this.prefix}work:${book}:`; }
+  async seed(book: PrivateBook) { this.guard(); await (await device()).put(this.key(book.id), validateBook(book)); this.guard(); }
   async books(): Promise<PrivateBook[]> { this.guard(); const rows = await (await device()).list<PrivateBook>(`${this.prefix}book:`); this.guard(); return rows.map(validateBook).sort((a, b) => b.importedAt.localeCompare(a.importedAt)); }
   async book(id: string) { this.guard(); requireThat(/^[a-f0-9]{64}$/.test(id), 'Invalid private book ID'); const b = await (await device()).get<PrivateBook>(this.key(id)); this.guard(); requireThat(b, 'This book is no longer in your private library'); return validateBook(b); }
   async viewState(bookId: string, key: string) { await this.book(bookId); const row=await (await device()).get<string>(`${this.work(bookId)}view:${key}`); this.guard(); return row || ''; }

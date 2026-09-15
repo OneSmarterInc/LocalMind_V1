@@ -41,6 +41,7 @@ export default function AdminLayout() {
   const shell = useShell(META);
   return (
     <Tabs screenOptions={shell.screenOptions} tabBar={shell.tabBar}>
+      <Tabs.Screen name="offline-ai" options={{ title: "Offline AI", tabBarIcon: icon("hardware-chip-outline") }} />
       <Tabs.Screen name="index" options={{ title: "Overview", tabBarIcon: icon("home-outline") }} />
       <Tabs.Screen name="users" options={{ title: "People", tabBarIcon: icon("people-outline") }} />
       <Tabs.Screen name="subjects" options={{ title: "Subjects", tabBarIcon: icon("library-outline") }} />

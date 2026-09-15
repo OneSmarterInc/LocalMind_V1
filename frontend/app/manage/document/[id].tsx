@@ -310,6 +310,7 @@ function ReadinessTab({ doc, onQueueLessons, lessonsBusy, onQueueQuizzes, quizze
     { key: "q", label: "Automatic quiz", flex: 1, render: (m) => <Badge value={QUIZ_TEXT[m.quiz_status ?? "none"] ?? String(m.quiz_status)} tone={QUIZ_TONE[m.quiz_status ?? "none"] ?? "neutral"} /> },
     { key: "x", label: "", flex: 1.7, render: (m) => (
       <View style={{ flexDirection: "row", gap: 6 }}>
+        <Button title="Generate on this device" small variant="secondary" onPress={()=>router.push(`/manage/local-authoring/${m.id}`)}/>
         <Button title="Preview lesson" small variant="secondary" disabled={m.lesson_status === "none"} onPress={() => onPreview({ id: m.id!, title: m.title, quizStatus: m.quiz_status ?? "off", quizId: m.auto_quiz_id ?? null })} />
         {m.quiz_status === "held" && m.auto_quiz_id
           ? <Button title="Review quiz" small variant="secondary" onPress={() => router.push(`/manage/quiz/${m.auto_quiz_id}`)} />
@@ -853,6 +854,7 @@ function SaveReport({ report, onDismiss }: { report: OutlineReport; onDismiss: (
 
 /** The module's lesson, as students will see it, with its generation state. */
 function ModuleLessonPanel({ moduleId, textEdited }: { moduleId: string; textEdited: boolean }) {
+  const router = useRouter();
   const q = useAsync(() => manage.moduleLesson(moduleId), [moduleId]);
   const d: LessonDetail | null = q.data;
   const { setData } = q;
@@ -871,6 +873,7 @@ function ModuleLessonPanel({ moduleId, textEdited }: { moduleId: string; textEdi
   else if (d?.status === "none") line = "This module has no text, so there is no lesson.";
   return (
     <View style={{ gap: 16 }}>
+      <Button title="Generate on this device" variant="secondary" disabled={textEdited} onPress={()=>router.push(`/manage/local-authoring/${moduleId}`)}/>
       <ErrorBanner message={q.error ?? again.error} onRetry={q.error ? q.reload : undefined} />
       {q.loading && !d ? <Loading /> : null}
       {d ? (

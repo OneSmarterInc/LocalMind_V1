@@ -1,6 +1,7 @@
 """Version-bound course downloads and idempotent ingestion of device work."""
 import hashlib
 import json
+import unicodedata
 from uuid import UUID
 from datetime import timedelta
 from django.utils import timezone
@@ -91,6 +92,31 @@ class CourseSyncView(APIView):
                     raise ValidationFailed('Seconds must be an integer between 0 and 900.')
                 from activity.services import record_learning_time
                 response = {'learning_seconds': record_learning_time(request.user, module, seconds)}
+        elif kind == 'doubt':
+            try:
+                module_id = UUID(str(data.get('module_id')))
+            except (ValueError, TypeError):
+                raise ValidationFailed('A valid module ID is required.')
+            module = services.resolve_accessible_module(request.user, module_id)
+            from tutor.lessons import source_hash
+            if data.get('source_hash') != source_hash(module.source_text):
+                raise Conflict('The course source changed. Your local conversation is retained.', code='OFFLINE_VERSION_CHANGED')
+            question, answer, quote = (data.get(k) for k in ('question', 'answer', 'quote'))
+            if not isinstance(question, str) or not 1 <= len(question.strip()) <= 1000:
+                raise ValidationFailed('Invalid question.')
+            if not isinstance(answer, str) or not 1 <= len(answer.strip()) <= 6000:
+                raise ValidationFailed('Invalid answer.')
+            if not isinstance(quote, str) or len(quote) > 1800 or type(data.get('supported')) is not bool:
+                raise ValidationFailed('Invalid source reference.')
+            if data['supported'] and (len(quote.strip()) < 8 or ' '.join(unicodedata.normalize('NFKC', quote).split()).lower() not in ' '.join(unicodedata.normalize('NFKC', module.source_text).split()).lower()):
+                raise ValidationFailed('The reference does not match this course source.')
+            # This is a device-generated conversation, not a server-verified educational answer.
+            from tutor.models import Conversation, Message
+            conv = Conversation.objects.create(student=request.user, module=module, title=question[:200], last_message_at=timezone.now())
+            Message.objects.create(conversation=conv, role='user', content=question)
+            Message.objects.create(conversation=conv, role='assistant', content=answer, source_reference=quote,
+                                   grounded=data['supported'], model_name='device-local')
+            response = {'recorded': True, 'kind': 'doubt', 'conversation_id': str(conv.id)}
         elif kind == 'quiz':
             if not isinstance(data.get('grant'), str):
                 raise Forbidden('Invalid downloaded quiz authorization.')

@@ -134,3 +134,14 @@ class Document(TimeStampedUUIDModel):
     @property
     def is_published(self):
         return self.status == DocumentStatus.PUBLISHED
+
+
+class LocalAuthoringReceipt(TimeStampedUUIDModel):
+    """An atomic acknowledgement for replaying a device authoring operation."""
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='+')
+    operation_id = models.UUIDField()
+    payload_hash = models.CharField(max_length=64)
+    response = models.JSONField(default=dict)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['actor', 'operation_id'], name='unique_local_authoring_op')]

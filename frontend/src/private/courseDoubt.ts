@@ -1,5 +1,6 @@
 import {api,ApiError,currentSession,SessionChangedError} from '@/api/client';
 import type {AskResponse,ModuleFull} from '@/api/types';
+import {saveCourseDoubt,courseDoubtHistory} from '@/offline/coursework';
 import {readEntry,offlineScope} from '@/offline/store';
 import {isOnline} from '@/offline/connectivity';
 import {randomUUID} from 'expo-crypto';
@@ -11,7 +12,7 @@ import {offlineFallbackAllowed} from './offlinePolicy';
 export function canUseLocal(error:unknown){return error instanceof ApiError && offlineFallbackAllowed(error.status,error.code);}
 export async function localCourseHistory(owner:string,moduleId:string){
  const l=new Library(owner);l.guard();
- const rows=await(await device()).list<PrivateChat>(`${l.prefix}course:${moduleId}:chat:`);l.guard();return rows.sort((a,b)=>a.createdAt.localeCompare(b.createdAt));
+ const rows=await(await device()).list<PrivateChat>(`${l.prefix}course:${moduleId}:chat:`);l.guard();return [...rows.map(r=>({...r,conversationId:undefined as string|undefined})),...await courseDoubtHistory(moduleId)].sort((a,b)=>a.createdAt.localeCompare(b.createdAt));
 }
 export async function answerCourse(owner:string,moduleId:string,question:string,conversationId:string|undefined,signal:AbortSignal):Promise<{online?:AskResponse;local?:PrivateChat}>{
  const library=new Library(owner),session=currentSession(),d=await device();
@@ -19,8 +20,8 @@ export async function answerCourse(owner:string,moduleId:string,question:string,
  const denied=`${library.prefix}course:${moduleId}:denied`;guard();text(question,1000,'question');
  if(isOnline()){
   try{
-   const result=await api<AskResponse>(`/student/modules/${moduleId}/ask/`,{method:'POST',body:{question,conversation_id:conversationId},signal,timeoutMs:120000});
-   guard();await d.removePrefix(denied);return {online:result};
+   await api<ModuleFull>(`/student/modules/${moduleId}/`,{signal});
+   guard();await d.removePrefix(denied);
   }catch(e){
    guard();
    if(e instanceof ApiError && [401,403,404,409].includes(e.status))await d.put(denied,true);
@@ -38,5 +39,5 @@ export async function answerCourse(owner:string,moduleId:string,question:string,
  const latest=await readEntry<ModuleFull>(`/student/modules/${moduleId}/`);guard();
  requireThat(latest?.availability==='open' && fingerprint(latest.source_text)===fingerprint(m.source_text),'The downloaded module changed. Ask again with the new version.');
  const row:PrivateChat={id:randomUUID(),question,...answer,createdAt:new Date().toISOString()};
- await d.put(`${library.prefix}course:${moduleId}:chat:${row.id}`,row);guard();return {local:row};
+ await saveCourseDoubt({id:row.id,kind:'doubt',module_id:moduleId,occurred_at:row.createdAt,question:row.question,answer:row.answer,quote:row.quote,supported:row.supported,source_hash:fingerprint(m.source_text.trim())});guard();return {local:row};
 }

@@ -73,3 +73,27 @@ class CourseSyncTests(TestCase):
         scores=response.data['entries']['/student/scores/'];self.assertEqual(len(scores),27)
         self.assertTrue(all(r['score'] is None for r in scores))
         self.assertNotIn('marking',response.data['entries']['/student/offline/quizzes/'][str(self.quiz.pk)])
+
+    def doubt(self):
+        from tutor.lessons import source_hash
+        return {'id':str(uuid4()),'kind':'doubt','module_id':str(self.module.pk),
+                'question':'Explain this concept.','answer':self.module.source_text,
+                'quote':self.module.source_text,'supported':True,'source_hash':source_hash(self.module.source_text)}
+    def test_local_doubt_replay_is_atomic_and_does_not_call_ai(self):
+        from unittest.mock import patch
+        from tutor.models import Conversation, Message
+        with patch('ai.gateway.gateway.complete',side_effect=AssertionError('No server inference'),create=True):
+            event=self.doubt();a=self.send(event);b=self.send(event)
+        self.assertEqual(a.status_code,200,a.data);self.assertEqual(a.data,b.data)
+        self.assertEqual(Conversation.objects.count(),1);self.assertEqual(Message.objects.count(),2)
+        self.assertEqual(Message.objects.get(role='assistant').model_name,'device-local')
+    def test_local_doubt_rejects_changed_source_and_invented_reference(self):
+        event=self.doubt();event['source_hash']='0'*64
+        self.assertEqual(self.send(event).status_code,409)
+        event=self.doubt();event['quote']='This sentence is absent from the book.'
+        self.assertEqual(self.send(event).status_code,400)
+        self.assertEqual(CourseSyncReceipt.objects.count(),0)
+    def test_local_doubt_requires_course_access(self):
+        event=self.doubt();self.module.availability='locked';self.module.save()
+        self.assertIn(self.send(event).status_code,[403,409])
+        self.assertEqual(CourseSyncReceipt.objects.count(),0)

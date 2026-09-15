@@ -41,6 +41,7 @@ export default function ManageLayout() {
   const shell = useShell(meta);
   return (
     <Tabs screenOptions={shell.screenOptions} tabBar={shell.tabBar}>
+      <Tabs.Screen name="offline-ai" options={{ title: "Offline AI", tabBarIcon: icon("hardware-chip-outline") }} />
       <Tabs.Screen name="index" options={{ title: "Overview", tabBarIcon: icon("home-outline") }} />
       <Tabs.Screen name="subjects" options={{ title: "Subjects", tabBarIcon: icon("library-outline") }} />
       <Tabs.Screen name="private-library" options={{ title: "Private study books", tabBarIcon: icon("library-outline") }} />
@@ -50,6 +51,7 @@ export default function ManageLayout() {
       <Tabs.Screen name="profile" options={{ href: admin ? null : undefined, title: "My profile", tabBarIcon: icon("person-circle-outline") }} />
       <Tabs.Screen name="subject/[id]" options={shellScreen({ href: null, title: "Subject" }, { backTo: "/manage/subjects", backLabel: "Subjects" })} />
       <Tabs.Screen name="student/[id]" options={shellScreen({ href: null, title: "Student progress" }, { backTo: "/manage/subjects", backLabel: "Subjects" })} />
+      <Tabs.Screen name="local-authoring/[id]" options={shellScreen({ href: null, title: "Local authoring" }, { backTo: "/manage/books", backLabel: "Books & modules" })} />
       <Tabs.Screen name="document/[id]" options={shellScreen({ href: null, title: "Book" }, { backTo: "/manage/books", backLabel: "Books & modules" })} />
       <Tabs.Screen name="study/[id]" options={shellScreen({ href: null, title: "Books for private study" }, { backTo: "/manage/books", backLabel: "Books & modules" })} />
       <Tabs.Screen name="document/upload" options={shellScreen({ href: null, title: "Upload a book" }, { backTo: "/manage/books", backLabel: "Books & modules" })} />

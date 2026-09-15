@@ -7,8 +7,8 @@ import {fingerprint} from '@/private/library';
 import {offlineScope,readEntry} from './store';
 import {isOnline} from './connectivity';
 export type Package={quiz:Quiz;questions:Question[];marking?:Question[];grant:string;attempts_used:number};
-export type Event={id:string;occurred_at?:string;kind:'read'|'lesson'|'time'|'quiz';module_id?:string;seconds?:number;grant?:string;answers?:Record<string,string>;started_at?:string;submitted_at?:string};
-export type Pending={event:Event;state:'pending'|'synced'|'conflict';error?:string;server_id?:string;result?:Attempt};
+export type Event={id:string;occurred_at?:string;kind:'read'|'lesson'|'time'|'quiz'|'doubt';question?:string;answer?:string;quote?:string;supported?:boolean;source_hash?:string;module_id?:string;seconds?:number;grant?:string;answers?:Record<string,string>;started_at?:string;submitted_at?:string};
+export type Pending={event:Event;state:'pending'|'synced'|'conflict';error?:string;server_id?:string;conversation_id?:string;result?:Attempt};
 type LocalAttempt={start:StartAttempt;pack:Package;event?:Event};
 export type CourseResult=Attempt&{sync_status?:string;sync_error?:string;results_released?:boolean};
 function context(){const owner=offlineScope(),session=currentSession();if(!owner)throw Error('Sign in to access saved course work.');return {prefix:`course:${fingerprint(`${BASE_URL}|${owner}`)}:`,guard:()=>{if(owner!==offlineScope()||session!==currentSession())throw new SessionChangedError();}};}
@@ -18,7 +18,7 @@ export async function courseEvents(){const c=context(),rows=await(await device()
 export async function flushCourseWork(){const c=context();return exclusive(async()=>{
  const d=await device();for(const row of (await d.list<Pending>(c.prefix+'event:')).sort((a,b)=>(a.event.submitted_at||a.event.occurred_at||'').localeCompare(b.event.submitted_at||b.event.occurred_at||''))){
   c.guard();if(row.state!=='pending')continue;
-  try{const response=await api<{attempt?:Attempt;server_id?:string}>('/student/offline/events/',{method:'POST',body:row.event,cacheOffline:false});c.guard();await d.put(c.prefix+'event:'+row.event.id,{...row,state:'synced',result:response.attempt,server_id:response.server_id});}
+  try{const response=await api<{attempt?:Attempt;server_id?:string;conversation_id?:string}>('/student/offline/events/',{method:'POST',body:row.event,cacheOffline:false});c.guard();await d.put(c.prefix+'event:'+row.event.id,{...row,state:'synced',result:response.attempt,server_id:response.server_id,conversation_id:response.conversation_id});}
   catch(e){c.guard();if(e instanceof ApiError&&[400,403,404,409].includes(e.status)){await d.put(c.prefix+'event:'+row.event.id,{...row,state:'conflict',error:e.message});}else throw e;}
  }
  });}
@@ -80,7 +80,7 @@ export async function courseQuizzes(query:Record<string,string|number|undefined|
 /** Overlay unconfirmed device progress without changing the downloaded institutional record. */
 export async function localProgress<T extends import('@/api/types').ModuleBrief>(module:T,snapshot?:{events:Pending[];attempts:LocalAttempt[]}):Promise<T>{
  const c=context(),d=await device(),events=snapshot?.events||await d.list<Pending>(c.prefix+'event:'),attempts=snapshot?.attempts||await d.list<LocalAttempt>(c.prefix+'attempt:');c.guard();
- const own=events.filter(e=>e.state==='pending'&&e.event.module_id===module.id);
+ const own=events.filter(e=>e.state==='pending'&&e.event.kind!=='doubt'&&e.event.module_id===module.id);
  const results=events.filter(e=>e.state==='pending'&&e.event.kind==='quiz').flatMap(e=>{const a=attempts.find(a=>a.start.attempt_id===e.event.id&&a.pack.quiz.module_id===module.id);return a?[localGrade(a,e.event)]:[];}).filter(r=>r.results_released);
  if(!own.length&&!results.length)return module;
  const progress={status:'not_started' as import('@/api/types').ProgressStatus,best_quiz_percentage:null as number|null,quiz_attempts:0,learning_seconds:0,...module.progress,sync_pending:true};
@@ -89,3 +89,11 @@ export async function localProgress<T extends import('@/api/types').ModuleBrief>
  progress.learning_seconds+=own.reduce((n,e)=>n+(e.event.seconds||0),0);return {...module,progress};
 }
 export async function courseDocument(id:string){const c=context(),d=await device(),snapshot={events:await d.list<Pending>(c.prefix+'event:'),attempts:await d.list<LocalAttempt>(c.prefix+'attempt:')};c.guard();const tree=await api<import('@/api/types').DocumentTree>(`/student/documents/${id}/`);return {...tree,chapters:await Promise.all(tree.chapters.map(async ch=>({...ch,modules:await Promise.all(ch.modules.map(m=>localProgress(m,snapshot)))})))};}
+
+export async function saveCourseDoubt(event:Event){
+ const c=context();c.guard();await(await device()).put(c.prefix+'event:'+event.id,{event,state:'pending'});c.guard();
+ if(isOnline())void flushCourseWork().catch(()=>{});
+}
+export async function courseDoubtHistory(moduleId:string){
+ return (await courseEvents()).filter(r=>r.event.kind==='doubt'&&r.event.module_id===moduleId).map(r=>({id:r.event.id,question:r.event.question!,answer:r.event.answer!,quote:r.event.quote!,supported:r.event.supported!,createdAt:r.event.occurred_at!,syncStatus:r.state,conversationId:r.conversation_id}));
+}

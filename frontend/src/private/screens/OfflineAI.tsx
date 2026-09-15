@@ -4,11 +4,13 @@ import * as Picker from 'expo-document-picker';
 import { useRouter } from 'expo-router';
 import { Screen, Card, PageHeading, H2, P, Row, Button, ErrorBanner, Notice, ProgressBar, Badge, confirmAsync } from '@/ui';
 import { device } from '../device';
+import { useAuth } from '@/auth/AuthContext';
 import { MODEL } from '../modelSpec';
 import type { ModelStatus } from '../device.types';
 
 export default function OfflineAI() {
   const router = useRouter();
+  const {user}=useAuth();const student=user?.role==='student';
   const [status, setStatus] = useState<ModelStatus | null>(null);
   const [busy, setBusy] = useState(false), [progress, setProgress] = useState(0);
   const [error, setError] = useState(''), [notice, setNotice] = useState('');
@@ -36,7 +38,7 @@ export default function OfflineAI() {
     if (alive.current) setNotice('Local GGUF imported. Use only a model from a source you trust. Its compatibility is checked when it is loaded.');
   });
   return <Screen>
-    <PageHeading title="Offline AI" subtitle="One local model for your private library and course doubts." right={<Button title="Private library" variant="secondary" icon="library-outline" onPress={() => router.push('/student/private-library')} disabled={busy} />} />
+    <PageHeading title="Offline AI" subtitle="Download a model to run AI on this device." right={<Button title={student?"Private library":"Books & modules"} variant="secondary" icon="library-outline" onPress={() => router.push(student?'/student/private-library':'/manage/books')} disabled={busy} />} />
     <ErrorBanner message={error} />
     {!!notice && <Notice tone="success" message={notice} />}
     <Card>

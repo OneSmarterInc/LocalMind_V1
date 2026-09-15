@@ -1,8 +1,10 @@
 """Mounted under both /api/admin/ and /api/faculty/; scoping happens in views."""
 from django.urls import path
 from . import views
+from .local_authoring import LocalAuthoringView
 
 urlpatterns = [
+    path("modules/<uuid:module_id>/local-authoring/", LocalAuthoringView.as_view()),
     path("documents/", views.DocumentListUploadView.as_view(), name="documents-list"),
     path("documents/<uuid:document_id>/", views.DocumentDetailView.as_view(), name="documents-detail"),
     path("documents/<uuid:document_id>/process/", views.ProcessView.as_view(), name="documents-process"),
