@@ -1,7 +1,7 @@
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { WorkerMessageHandler } from 'pdfjs-dist/legacy/build/pdf.worker.mjs';
 import { unzipSync } from 'fflate';
-import { readablePdfText, imageRectangles } from './pdf-layout.mjs';
+import { readablePdfText, imageRectangles, visualRectangles } from './pdf-layout.mjs';
 import { OCR_WORKER } from './generated-ocr.mjs';
 globalThis.pdfjsWorker={WorkerMessageHandler};
 const LIMIT=2_000_000;
@@ -41,6 +41,12 @@ async function recognizer(signal){
  }catch(e){close();throw e;}
 }
 
+const overlap=(a,b)=>{
+ const x0=Math.max(a[0],b[0]),y0=Math.max(a[1],b[1]),x1=Math.min(a[2],b[2]),y1=Math.min(a[3],b[3]);
+ if(x1<=x0||y1<=y0)return 0;
+ const inter=(x1-x0)*(y1-y0),aa=(a[2]-a[0])*(a[3]-a[1]),bb=(b[2]-b[0])*(b[3]-b[1]);return inter/Math.max(1,Math.min(aa,bb));
+};
+
 let running=false;
 async function parse(bytes,name,signal,progress=()=>{},saveVisual){
  assert(!running,'A book is already being imported. Wait for it to finish.');running=true;
@@ -72,10 +78,11 @@ async function parse(bytes,name,signal,progress=()=>{},saveVisual){
     const canvas=document.createElement('canvas');canvas.width=Math.ceil(view.width);canvas.height=Math.ceil(view.height);
     try {
      await page.render({canvasContext:canvas.getContext('2d'),viewport:view,background:'white'}).promise;
-     const visualIds=[await capture(canvas,`Original page ${p} — tables and diagrams`,p,'page')];
+     // Never save the rendered page itself. Only cropped visual regions may be persisted.
+     const visualIds=[],captured=[];
      // Mixed pages (a selectable header above a scanned body) also need OCR.
      const ops=await page.getOperatorList();const hasImage=ops.fnArray.some(op=>[pdfjs.OPS.paintImageXObject,pdfjs.OPS.paintInlineImageXObject,pdfjs.OPS.paintImageMaskXObject].includes(op));
-     // Crop embedded illustrations from the rendered page, retaining surrounding labels.
+     // Crop embedded raster illustrations from the rendered page, retaining a small label margin.
      for(const rect of imageRectangles(ops,pdfjs.OPS,pdfjs.Util.transform)){
       const r=view.convertToViewportRectangle(rect);const left=Math.min(r[0],r[2]),top=Math.min(r[1],r[3]),width=Math.abs(r[2]-r[0]),height=Math.abs(r[3]-r[1]);
       if(width<40||height<40||width*height>canvas.width*canvas.height*0.65||left>=canvas.width||top>=canvas.height||left+width<=0||top+height<=0)continue;
@@ -83,13 +90,22 @@ async function parse(bytes,name,signal,progress=()=>{},saveVisual){
       const crop=document.createElement('canvas');crop.width=Math.min(canvas.width-x,Math.ceil(width+32));crop.height=Math.min(canvas.height-y,Math.ceil(height+32));
       if(crop.width<=0||crop.height<=0)continue;
       crop.getContext('2d').drawImage(canvas,x,y,crop.width,crop.height,0,0,crop.width,crop.height);
-      visualIds.push(await capture(crop,`Illustration from page ${p}`,p));crop.width=0;crop.height=0;
+      visualIds.push(await capture(crop,`Source image from page ${p}`,p));captured.push([x,y,x+crop.width,y+crop.height]);crop.width=0;crop.height=0;
+     }
+     // Detect vector charts, flow diagrams and table grids after masking selectable text.
+     // The detector returns crop rectangles only; it can never return a full-page image.
+     for(const rect of visualRectangles(canvas,c.items,view)){
+      if(captured.some(old=>overlap(rect,old)>=0.65))continue;
+      const x=Math.max(0,Math.floor(rect[0])),y=Math.max(0,Math.floor(rect[1])),w=Math.min(canvas.width-x,Math.ceil(rect[2]-rect[0])),h=Math.min(canvas.height-y,Math.ceil(rect[3]-rect[1]));
+      if(w<40||h<40||w*h>canvas.width*canvas.height*0.65)continue;
+      const crop=document.createElement('canvas');crop.width=w;crop.height=h;crop.getContext('2d').drawImage(canvas,x,y,w,h,0,0,w,h);
+      visualIds.push(await capture(crop,`Source diagram, chart or table from page ${p}`,p));captured.push([x,y,x+w,y+h]);crop.width=0;crop.height=0;
      }
      const readableChars=text.replace(/\s/g,'').length;
-     // Preserve illustrations without re-recognising substantial selectable text.
+     // Preserve cropped illustrations without re-recognising substantial selectable text.
      // Sparse headers over scanned bodies still receive OCR.
      const needsOCR=readableChars<50||(hasImage&&readableChars<300);
-     if(hasImage&&!needsOCR)warnings.push('Pages with substantial selectable text use that text without additional image OCR. Original illustrations remain visible; labels present only inside images may not be available to the tutor.');
+     if(hasImage&&!needsOCR)warnings.push('Pages with substantial selectable text use that text without additional image OCR. Cropped source images remain visible; labels present only inside images may not be available to the tutor.');
      if(needsOCR){
       progress(`Recognising text on page ${p} of ${doc.numPages}`);ocr||=await recognizer(signal);
       const read=await ocr.read(canvas);
@@ -97,15 +113,16 @@ async function parse(bytes,name,signal,progress=()=>{},saveVisual){
       const norm=s=>s.toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');const known=norm(text);
       const extra=read.text.split('\n').filter(line=>line.trim()&&!known.includes(norm(line))).join('\n');
       text=text.trim()?(extra?`${text.trim()}\n\n[Additional text recognised from the page image]\n${extra}`:text):read.text;
-      if(read.confidence<65)warnings.push(`Page ${p}: OCR confidence is low. Compare the recognised text with the preserved page before relying on it.`);
+      if(read.confidence<65)warnings.push(`Page ${p}: OCR confidence is low. Compare recognised text with the source file before relying on it.`);
      }
      total+=text.length;assert(total<=LIMIT,'Import a chapter at a time; this book has too much text.');
-     if(!text.trim())warnings.push(`Page ${p}: no text recognised. The original image is retained; the text tutor cannot explain image-only content.`);
+     if(!text.trim()&&visualIds.length)warnings.push(`Page ${p}: no usable text was recognised. Cropped visual regions are retained, but the text tutor cannot interpret image-only content.`);
+     if(!text.trim()&&!visualIds.length)warnings.push(`Page ${p}: no usable text or visual region was detected.`);
      items.push({title:`Page ${p}`,text,page:p,visualIds,ocr:needsOCR});
     }finally{canvas.width=0;canvas.height=0;page.cleanup();}
    }
   } finally {signal?.removeEventListener('abort',abort);if(doc)await doc.destroy();else await task.destroy();}
-  warnings.unshift('Embedded raster illustrations are cropped where possible; scanned-page and vector diagrams may require the original page. Original PDF pages are preserved as images. OCR runs locally in English; check numbers, formulas and table reading order against the original. Diagrams are displayed, not interpreted by the text model.');
+  warnings.unshift('Only detected source visual regions are retained: embedded images, vector diagrams/charts and table-like line art. Full PDF pages are never stored as lesson images. OCR runs locally in English; check numbers, formulas and table reading order against the source file.');
  } else if(ext==='docx') {
   let size=0,count=0;
   const entries=unzipSync(bytes,{filter:f=>{size+=f.originalSize;count++;assert(size<=100*1024*1024&&count<=3000,'DOCX expanded content is too large.');return /^(word\/(document\.xml|_rels\/document.xml.rels|media\/[^/]+)|\[Content_Types\]\.xml)$/.test(f.name);}});
@@ -149,7 +166,7 @@ async function parse(bytes,name,signal,progress=()=>{},saveVisual){
    total+=content(node).length;assert(total<=LIMIT,'Import a chapter at a time; too much extracted text.');
   }
   push();
-  warnings.push('Word text, tables and embedded raster images are retained. For exact page layout, merged-cell geometry, charts or SmartArt, import a PDF export; the original PDF pages are preserved.');
+  warnings.push('Word text, tables and embedded raster images are retained. Only embedded image content is stored as a visual; surrounding document pages are not captured. For charts or SmartArt that Word does not expose as an image, import a PDF export.');
   if(children(dom,'numPr').length)warnings.push('Word list items are shown as bullets; use a PDF export to preserve exact numbering.');
  } else {
   assert(ext==='txt'||ext==='md','Supported files: PDF (including English scans), DOCX, TXT and Markdown.');
