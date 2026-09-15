@@ -1,3 +1,4 @@
+import {pdfPictureContext, wordPictureContext, usefulPicture} from './picture-context.mjs';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { WorkerMessageHandler } from 'pdfjs-dist/legacy/build/pdf.worker.mjs';
 import { unzipSync } from 'fflate';
@@ -36,7 +37,7 @@ async function recognizer(signal){
   await job('initialize',{langs:'eng',oem:1,config:{}});
   return {read:async canvas=>{
    check(signal);
-   return await job('recognize',{image:base64(canvas.toDataURL('image/png').split(',')[1]),options:{preserve_interword_spaces:'1',tessedit_pageseg_mode:'3'},output:{text:true}});
+   return await job('recognize',{image:base64(canvas.toDataURL('image/png').split(',')[1]),options:{preserve_interword_spaces:'1',tessedit_pageseg_mode:'3'},output:{text:true,blocks:true}});
   },close:async()=>close()};
  }catch(e){close();throw e;}
 }
@@ -54,10 +55,11 @@ async function parse(bytes,name,signal,progress=()=>{},saveVisual){
  try {
  check(signal);assert(bytes.length>0 && bytes.length<=35*1024*1024,'Choose a book up to 35 MB.');
  const ext=name.split('.').pop().toLowerCase(), warnings=[],visuals=[];let items=[],visualCount=0;
- const capture=async(canvas,caption,page,kind='figure')=>{
+ const capture=async(canvas,caption,page,kind='figure',metadata={})=>{
   check(signal);
+  if(visualCount>=500){warnings.push('The 500-visual limit was reached; remaining pictures were not imported.');return '';}
   const id=`v${++visualCount}`;
-  const visual={id,dataUrl:canvas.toDataURL('image/png'),kind,width:canvas.width,height:canvas.height,caption,...(page?{page}:{})};
+  const visual={...metadata,id,dataUrl:canvas.toDataURL('image/png'),kind,width:canvas.width,height:canvas.height,caption:metadata.caption||caption,...(page?{page}:{})};
   // Await durable storage before rendering the next image. Never accumulate a book of bitmaps.
   if(saveVisual)await saveVisual(visual);else visuals.push(visual);
   check(signal);return id;
@@ -86,34 +88,36 @@ async function parse(bytes,name,signal,progress=()=>{},saveVisual){
      for(const rect of imageRectangles(ops,pdfjs.OPS,pdfjs.Util.transform)){
       const r=view.convertToViewportRectangle(rect);const left=Math.min(r[0],r[2]),top=Math.min(r[1],r[3]),width=Math.abs(r[2]-r[0]),height=Math.abs(r[3]-r[1]);
       if(width<40||height<40||width*height>canvas.width*canvas.height*0.65||left>=canvas.width||top>=canvas.height||left+width<=0||top+height<=0)continue;
-      const x=Math.max(0,Math.floor(left-16)),y=Math.max(0,Math.floor(top-16));
-      const crop=document.createElement('canvas');crop.width=Math.min(canvas.width-x,Math.ceil(width+32));crop.height=Math.min(canvas.height-y,Math.ceil(height+32));
-      if(crop.width<=0||crop.height<=0)continue;
+      const x=Math.max(0,Math.floor(left)),y=Math.max(0,Math.floor(top));
+      const crop=document.createElement('canvas');crop.width=Math.min(canvas.width-x,Math.ceil(width));crop.height=Math.min(canvas.height-y,Math.ceil(height));
+      if(!usefulPicture(crop.width,crop.height)||crop.width*crop.height>canvas.width*canvas.height*0.65)continue;
       crop.getContext('2d').drawImage(canvas,x,y,crop.width,crop.height,0,0,crop.width,crop.height);
-      visualIds.push(await capture(crop,`Source image from page ${p}`,p));captured.push([x,y,x+crop.width,y+crop.height]);crop.width=0;crop.height=0;
-     }
-     // Detect vector charts, flow diagrams and table grids after masking selectable text.
-     // The detector returns crop rectangles only; it can never return a full-page image.
-     for(const rect of visualRectangles(canvas,c.items,view)){
-      if(captured.some(old=>overlap(rect,old)>=0.65))continue;
-      const x=Math.max(0,Math.floor(rect[0])),y=Math.max(0,Math.floor(rect[1])),w=Math.min(canvas.width-x,Math.ceil(rect[2]-rect[0])),h=Math.min(canvas.height-y,Math.ceil(rect[3]-rect[1]));
-      if(w<40||h<40||w*h>canvas.width*canvas.height*0.65)continue;
-      const crop=document.createElement('canvas');crop.width=w;crop.height=h;crop.getContext('2d').drawImage(canvas,x,y,w,h,0,0,w,h);
-      visualIds.push(await capture(crop,`Source diagram, chart or table from page ${p}`,p));captured.push([x,y,x+w,y+h]);crop.width=0;crop.height=0;
+      visualIds.push(await capture(crop,`Source image from page ${p}`,p,'figure',pdfPictureContext(c.items,view,[x,y,x+crop.width,y+crop.height])));captured.push([x,y,x+crop.width,y+crop.height]);crop.width=0;crop.height=0;
      }
      const readableChars=text.replace(/\s/g,'').length;
      // Preserve cropped illustrations without re-recognising substantial selectable text.
      // Sparse headers over scanned bodies still receive OCR.
+     let ocrBoxes=[];
      const needsOCR=readableChars<50||(hasImage&&readableChars<300);
      if(hasImage&&!needsOCR)warnings.push('Pages with substantial selectable text use that text without additional image OCR. Cropped source images remain visible; labels present only inside images may not be available to the tutor.');
      if(needsOCR){
       progress(`Recognising text on page ${p} of ${doc.numPages}`);ocr||=await recognizer(signal);
       const read=await ocr.read(canvas);
+      ocrBoxes=(read.blocks||[]).flatMap(b=>(b.paragraphs||[]).flatMap(p=>(p.lines||[]).flatMap(l=>(l.words||[]).map(w=>w.bbox)))).filter(Boolean);
       // Keep accurate selectable text and append only additional recognised lines.
       const norm=s=>s.toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');const known=norm(text);
       const extra=read.text.split('\n').filter(line=>line.trim()&&!known.includes(norm(line))).join('\n');
       text=text.trim()?(extra?`${text.trim()}\n\n[Additional text recognised from the page image]\n${extra}`:text):read.text;
       if(read.confidence<65)warnings.push(`Page ${p}: OCR confidence is low. Compare recognised text with the source file before relying on it.`);
+     }
+     // Detect vector charts, flow diagrams and table grids after masking selectable text.
+     // The detector returns crop rectangles only; it can never return a full-page image.
+     for(const rect of (needsOCR&&!ocrBoxes.length?[]:visualRectangles(canvas,c.items,view,ocrBoxes))){
+      if(captured.some(old=>overlap(rect,old)>=0.65))continue;
+      const x=Math.max(0,Math.floor(rect[0])),y=Math.max(0,Math.floor(rect[1])),w=Math.min(canvas.width-x,Math.ceil(rect[2]-rect[0])),h=Math.min(canvas.height-y,Math.ceil(rect[3]-rect[1]));
+      if(w<40||h<40||w*h>canvas.width*canvas.height*0.65)continue;
+      const crop=document.createElement('canvas');crop.width=w;crop.height=h;crop.getContext('2d').drawImage(canvas,x,y,w,h,0,0,w,h);
+      visualIds.push(await capture(crop,`Source diagram, chart or table from page ${p}`,p,'figure',pdfPictureContext(c.items,view,[x,y,x+w,y+h])));captured.push([x,y,x+w,y+h]);crop.width=0;crop.height=0;
      }
      total+=text.length;assert(total<=LIMIT,'Import a chapter at a time; this book has too much text.');
      if(!text.trim()&&visualIds.length)warnings.push(`Page ${p}: no usable text was recognised. Cropped visual regions are retained, but the text tutor cannot interpret image-only content.`);
@@ -141,7 +145,11 @@ async function parse(bytes,name,signal,progress=()=>{},saveVisual){
   let current={title:'Introduction',text:'',visualIds:[]},total=0;
   const push=()=>{if(current.text.trim()||current.visualIds.length)items.push(current);};
   const body=children(dom,'body')[0];assert(body,'Missing Word document body.');
-  for(const [index,node] of Array.from(body.children).entries()){
+  const pageSizes=children(dom,'pgSz');
+  const pageArea=Math.min(...(pageSizes.length?pageSizes.map(n=>Number(n.getAttributeNS(ns,'w')||12240)*Number(n.getAttributeNS(ns,'h')||15840)*635*635):[12240*15840*635*635]));
+  const bodyNodes=Array.from(body.children);
+  const isHeading=node=>/^(heading|title)[ _-]?\d*/i.test(val(children(node,'pStyle')[0]))||(children(node,'outlineLvl').length&&Number(val(children(node,'outlineLvl')[0]))<9);
+  for(const [index,node] of bodyNodes.entries()){
    check(signal);progress(`Reading Word content ${index+1} of ${body.children.length}`);
    if(node.localName==='p'){
     const s=content(node),style=val(children(node,'pStyle')[0]),level=val(children(node,'outlineLvl')[0]);
@@ -155,12 +163,23 @@ async function parse(bytes,name,signal,progress=()=>{},saveVisual){
    for(const blip of node.getElementsByTagNameNS('http://schemas.openxmlformats.org/drawingml/2006/main','blip')){
     const target=rels.get(blip.getAttributeNS(relns,'embed'));
     if(!target||!/^media\/[^/]+\.(png|jpe?g|gif|webp)$/i.test(target)||!entries[`word/${target}`]){warnings.push('An unsupported Word drawing could not be rendered. Import a PDF export to retain its exact appearance.');continue;}
-    const url=URL.createObjectURL(new Blob([entries[`word/${target}`]]));const img=new Image();
+    let drawing=blip.parentElement;while(drawing&&drawing.localName!=='drawing')drawing=drawing.parentElement;
+    const extent=drawing?.getElementsByTagNameNS('http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing','extent')[0];
+    if(extent&&Number(extent.getAttribute('cx'))*Number(extent.getAttribute('cy'))>pageArea*.72){warnings.push('A page-sized Word picture was excluded by the cropped-only policy.');continue;}
+    const url=URL.createObjectURL(new Blob([entries[`word/${target}`]]));const img=new Image();let storing=false;
     try{
      await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(Error('An embedded Word image could not be decoded. Export this document as PDF.'));img.src=url;});
-     check(signal);const canvas=document.createElement('canvas'),scale=Math.min(1,2400/Math.max(img.naturalWidth,img.naturalHeight));canvas.width=Math.max(1,Math.round(img.naturalWidth*scale));canvas.height=Math.max(1,Math.round(img.naturalHeight*scale));canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
-     current.visualIds.push(await capture(canvas,`Original illustration — ${current.title}`));
+     check(signal);
+     assert(img.naturalWidth*img.naturalHeight<=36_000_000,'Embedded image exceeds 36 million pixels.');
+     const sr=blip.parentElement?.getElementsByTagNameNS('http://schemas.openxmlformats.org/drawingml/2006/main','srcRect')[0];
+     const part=k=>Math.max(0,Math.min(1,Number(sr?.getAttribute(k)||0)/100000));
+     const x=img.naturalWidth*part('l'),y=img.naturalHeight*part('t'),w=img.naturalWidth*(1-part('l')-part('r')),h=img.naturalHeight*(1-part('t')-part('b'));
+     if(!usefulPicture(w,h)){warnings.push('A tiny, thin or invalid Word picture was excluded.');continue;}
+     const canvas=document.createElement('canvas'),scale=Math.min(1,2200/Math.max(w,h));canvas.width=Math.max(1,Math.round(w*scale));canvas.height=Math.max(1,Math.round(h*scale));canvas.getContext('2d').drawImage(img,x,y,w,h,0,0,canvas.width,canvas.height);
+     const metadata={...wordPictureContext(bodyNodes,index,content,isHeading),headingPath:[current.title]};
+     storing=true;current.visualIds.push(await capture(canvas,`Original illustration — ${current.title}`,undefined,'figure',metadata));storing=false;
      ocr||=await recognizer(signal);const read=await ocr.read(canvas);if(read.text.trim())current.text+=`\n[Text recognised from illustration]\n${read.text}\n`;canvas.width=0;canvas.height=0;
+    }catch(error){check(signal);if(storing)throw error;warnings.push(`A Word picture could not be imported: ${String(error.message||error).slice(0,180)}`);
     }finally{URL.revokeObjectURL(url);}
    }
    total+=content(node).length;assert(total<=LIMIT,'Import a chapter at a time; too much extracted text.');
@@ -173,6 +192,7 @@ async function parse(bytes,name,signal,progress=()=>{},saveVisual){
   const source=decode(bytes);assert(source.length<=LIMIT&&!source.includes('\0'),'Unsupported or oversized text.');let current={title:'Introduction',text:''};
   for(const line of source.split(/\r?\n/)){const h=/^#{1,6}\s+(.+)$/.exec(line);if(h){if(current.text.trim())items.push(current);current={title:h[1],text:''};}else current.text+=line+'\n';}if(current.text.trim())items.push(current);
  }
+ for(const item of items)if(item.visualIds)item.visualIds=item.visualIds.filter(Boolean);
  check(signal);assert(items.some(i=>i.text.trim()||i.visualIds?.length),'No readable source content found.');
  return {items,visuals,warnings:[...new Set(warnings)].slice(0,30)};
  }finally{try{await ocr?.close();}finally{running=false;}}

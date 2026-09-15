@@ -1,3 +1,5 @@
+import {SourceFigures} from '@/ui/SourceFigures';
+import {lessonVisualIds} from '../visualPlacement';
 import {generationJobs} from '../jobs';
 import {jobScope,useGenerationJobs} from '../useGenerationJobs';
 import React,{useEffect,useRef,useState} from 'react';
@@ -27,6 +29,7 @@ export default function PrivateBook(){
  </ScrollView></Card>;
  return <Screen><PageHeading title={b?.title||'Private book'} subtitle="Personal study · Saved only on this device" right={<Button title="Back to library" variant="secondary" onPress={()=>{void confirmLeave().then(ok=>{if(ok)router.push('/student/private-library');});}}/>}/><ErrorBanner message={book.error} onRetry={book.reload}/>
   {book.loading&&!b?<Loading/>:null}
+  {b&&(b.importVersion||0)<5?<Notice title="Earlier picture extraction" message="Reimport the original file to create a new copy with improved pictures and captions. This copy and its saved practice history will be preserved."/>:null}
   {b?.warnings.length?<Notice tone="warning" title="About this import" message={b.warnings.join('\n')}/>:null}
   {b&&s&&library?<Split side={sidebar} main={<ModuleLearning key={`${library.prefix}:${id}:${s.id}`} bookId={id} initialTab={targetTab} onSourceSaved={book.reload} section={s} next={()=>{const n=b.sections.findIndex(x=>x.id===s.id)+1;if(b.sections[n])void confirmLeave().then(ok=>{if(ok)selectSection(b.sections[n].id);});}}/>}/>:null}
  </Screen>;
@@ -68,15 +71,25 @@ function ModuleLearning({bookId,section,next,initialTab,onSourceSaved}:{bookId:s
   {section.ocr?<Notice title="Text recognised on this device" message="Compare OCR text with the original image, especially numbers, formulas and tables."/>:null}
   {!section.source.trim()?<Notice message="This page is available as an image. No usable text was recognised, so local AI cannot explain it."/>:null}
   {tab==='read'?<>{editing?<><Input label="Correct extracted source" value={sourceDraft} onChangeText={setSourceDraft} multiline maxLength={3200}/><P muted>Compare with the original page. Saving cancels unfinished jobs for this book; existing lessons and quizzes remain as earlier versions. Regenerate them to use the correction.</P><Row><Button title="Save source correction" onPress={()=>{void saveSource();}} busy={savingSource}/><Button title="Cancel correction" variant="secondary" disabled={savingSource} onPress={()=>setEditing(false)}/></Row></>:<><SourceContent text={section.source}/><Button title="Correct extracted text" variant="secondary" onPress={()=>{setSourceDraft(section.source);setEditing(true);}}/></>}<Row><Button title="Generate a lesson" onPress={()=>{setTab('lesson');generateLesson();}} disabled={active('lesson')}/><Button title="Next module" variant="secondary" onPress={next}/></Row></>:null}
-  {tab==='lesson'?<><Row><Button title={lesson?'Regenerate lesson':'Generate lesson'} icon="sparkles-outline" onPress={generateLesson} disabled={task.busy}/>{lessons.data?.length?<Dropdown label="Saved lesson" value={lesson?.id||''} onChange={setLessonId} options={lessons.data.map((l,i)=>({value:l.id,label:`Version ${lessons.data!.length-i} · ${new Date(l.createdAt).toLocaleString()}`}))}/>:null}</Row>{lesson?<LocalLesson lesson={lesson}/>:<P muted>Generate an explanation from this module with your local AI model.</P>}</>:null}
+  {tab==='lesson'?<><Row><Button title={lesson?'Regenerate lesson':'Generate lesson'} icon="sparkles-outline" onPress={generateLesson} disabled={task.busy}/>{lessons.data?.length?<Dropdown label="Saved lesson" value={lesson?.id||''} onChange={setLessonId} options={lessons.data.map((l,i)=>({value:l.id,label:`Version ${lessons.data!.length-i} · ${new Date(l.createdAt).toLocaleString()}`}))}/>:null}</Row>{lesson?<LocalLesson lesson={lesson} bookId={bookId} sectionId={section.id}/>:<P muted>Generate an explanation from this module with your local AI model.</P>}</>:null}
   {tab==='quiz'?<><Row><Dropdown label="Questions" value={count} onChange={v=>{if(!task.busy)setCount(v);}} options={Array.from({length:10},(_,i)=>({value:String(i+1),label:String(i+1)}))}/><Button title={quiz?'Generate another quiz':'Generate quiz'} icon="sparkles-outline" onPress={()=>{void confirmLeave().then(ok=>{if(ok)generateQuiz();});}} disabled={task.busy}/>{quizzes.data?.length?<Dropdown label="Saved quiz" value={quiz?.id||''} onChange={v=>{void confirmLeave().then(ok=>{if(ok)setQuizId(v);});}} options={quizzes.data.map((q,i)=>({value:q.id,label:`Version ${quizzes.data!.length-i} · ${q.questions.length} questions`}))}/>:null}</Row>
    {quiz?<QuizPractice key={quiz.id} quiz={quiz}/>:<P muted>Create a quiz to practise. A failed or incomplete generation never becomes a completed quiz.</P>}</>:null}
   {tab==='ask'?<><P muted>Your private doubts stay on this device.</P>{(chats.data||[]).map(c=><Chat key={c.id} chat={c}/>)}<Input label="Your question" value={question} onChangeText={changeQuestion} multiline maxLength={1000} placeholder="What would you like to understand?" editable={viewReady&&!task.busy}/><Button title="Ask local AI" icon="send-outline" onPress={ask} disabled={!viewReady||task.busy||!question.trim()}/></>:null}
-  {(tab==='read'||tab==='lesson')&&<SourceVisuals bookId={bookId} sectionId={section.id}/>}
+  {tab==='read'&&<SourceVisuals bookId={bookId} sectionId={section.id}/>}
   <Row><Button title="Offline AI setup" small variant="secondary" onPress={()=>{void confirmLeave().then(ok=>{if(ok)router.push('/student/offline-ai');});}}/></Row>
  </Card>;
 }
-function LocalLesson({lesson}:{lesson:LessonVersion}){return <><P>{lesson.lesson.introduction}</P>{lesson.lesson.sections.map((s,i)=><View key={i} style={{gap:8}}><H2>{s.heading}</H2><P>{s.content}</P><P small muted>From the book: {s.quote}</P></View>)}<H2>Key takeaways</H2>{lesson.lesson.takeaways.map((t,i)=><P key={i}>• {t}</P>)}</>;}
+function LocalLesson({lesson,bookId,sectionId}:{lesson:LessonVersion;bookId:string;sectionId:string}){
+ const library=useLibrary()!;
+ const pictures=useAsync(()=>library.visuals(bookId,sectionId),[library,bookId,sectionId]);
+ const visuals=pictures.data || [],ids=lessonVisualIds(lesson.lesson.sections,visuals);
+ return <><ErrorBanner message={pictures.error}/><P>{lesson.lesson.introduction}</P>
+  {lesson.lesson.sections.map((s,i)=><View key={i} style={{gap:8}}><H2>{s.heading}</H2><SourceContent text={s.content}/>
+   <P small muted>From the book: {s.quote}</P><SourceFigures visuals={visuals.filter(v=>ids[i].includes(v.id))}/></View>)}
+  <SourceFigures visuals={visuals.filter(v=>!ids.some(group=>group.includes(v.id)))}/>
+  <H2>Key takeaways</H2>{lesson.lesson.takeaways.map((t,i)=><P key={i}>• {t}</P>)}
+ </>;
+}
 function Chat({chat}:{chat:PrivateChat}){return <View style={{gap:8,padding:14,backgroundColor:colors.bg,borderRadius:8}}><P style={{fontWeight:'600'}}>You: {chat.question}</P><P>{chat.answer}</P>{!!chat.quote&&<P muted small>From the book: {chat.quote}</P>}</View>;}
 function QuizPractice({quiz}:{quiz:QuizVersion}){
  const library=useLibrary()!,task=useTask();

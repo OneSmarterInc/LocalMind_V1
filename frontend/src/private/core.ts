@@ -2,11 +2,11 @@
 export const MAX_BOOK_BYTES = 35 * 1024 * 1024;
 export const MAX_TEXT_CHARS = 2_000_000;
 export const MAX_SECTION_CHARS = 3200;
-export type SourceVisual = { id: string; dataUrl: string; width: number; height: number; caption: string; kind?: 'page'|'figure'; page?: number };
+export type SourceVisual = { id: string; dataUrl: string; width: number; height: number; caption: string; kind?: 'page'|'figure'; page?: number; contextText?: string; captionOrigin?: 'source'|'label'; headingPath?: string[]; assetId?: string };
 export type SourceItem = { title: string; text: string; page?: number; visualIds?: string[]; ocr?: boolean };
 export type Section = { id: string; title: string; source: string; page?: number; visualIds?: string[]; ocr?: boolean };
 export type PrivateBook = { importVersion?: number; assetSet?: string; id: string; title: string; originalName: string; importedAt: string; origin: 'personal'|'shared'; sourceId?: string; sections: Section[]; warnings: string[] };
-export type Lesson = { introduction: string; sections: {heading: string; content: string; quote: string}[]; takeaways: string[] };
+export type Lesson = { introduction: string; sections: {heading: string; content: string; quote: string; visualIds?: string[]}[]; takeaways: string[] };
 export type MCQ = { id: string; sectionId: string; question: string; options: string[]; answer: number; explanation: string; quote: string };
 export function requireThat(value: unknown, message: string): asserts value { if (!value) throw new Error(message); }
 export function text(value: unknown, max: number, name: string): string {

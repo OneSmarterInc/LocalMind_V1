@@ -44,7 +44,7 @@ export function imageRectangles(ops,OPS,transform){
  * at low resolution, then cluster connected drawing pixels. This catches line
  * art (flow diagrams, axes, bars, table grids) that PDF image operators miss.
  */
-export function visualRectangles(canvas,textItems,view){
+export function visualRectangles(canvas,textItems,view,ocrBoxes=[]){
  const width=canvas.width,height=canvas.height,pageArea=width*height;
  if(width<1||height<1)return [];
  const work=document.createElement('canvas');work.width=width;work.height=height;
@@ -56,6 +56,12 @@ export function visualRectangles(canvas,textItems,view){
   const scale=view.scale||1, w=Math.max(2,Math.abs(item.width||0)*scale),h=Math.max(8,Math.abs(item.height||item.transform[3]||10)*scale);
   // PDF text origin is on the baseline; erase a padded glyph box only.
   ctx.fillRect(Math.max(0,m[0]-3),Math.max(0,m[1]-h-4),Math.min(width,w+6),Math.min(height,h+9));
+ }
+ // Scans have no selectable glyphs: use the boxes from the OCR already done
+ // for source text, not another recognition pass. This prevents prose blocks
+ // from being mistaken for diagrams on scanned pages.
+ for(const box of ocrBoxes){
+  if([box.x0,box.y0,box.x1,box.y1].every(Number.isFinite))ctx.fillRect(box.x0-2,box.y0-2,box.x1-box.x0+4,box.y1-box.y0+4);
  }
  const data=ctx.getImageData(0,0,width,height).data;work.width=0;work.height=0;
  const step=Math.max(5,Math.ceil(Math.max(width,height)/420));

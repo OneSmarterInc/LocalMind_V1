@@ -1,43 +1,21 @@
 """Visual-aware faculty/admin lesson preview endpoints."""
-import base64
-
-from documents.services.visuals import visual_path
-
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from core.permissions import IsAdminOrFaculty
+from .services.visual_delivery import enrich_lesson
 from . import views as base_views
 
 
-def _visuals(module):
-    document = module.chapter.document
-    rows = []
-    for visual in module.source_visuals or []:
-        path = visual_path(document, module, str(visual.get("id") or ""))
-        if path is None or not path.is_file():
-            continue
-        rows.append({
-            "id": visual.get("id"),
-            "kind": visual.get("kind", "figure"),
-            "page": visual.get("page"),
-            "caption": visual.get("caption", "Source visual"),
-            "width": visual.get("width"),
-            "height": visual.get("height"),
-            "data_url": "data:image/png;base64," + base64.b64encode(path.read_bytes()).decode("ascii"),
-        })
-    return rows
-
-
 def _enrich(response, module):
-    data = response.data
-    if isinstance(data, dict) and data.get("lesson"):
-        lesson = dict(data["lesson"])
-        lesson["source_visuals"] = _visuals(module)
-        data = {**data, "lesson": lesson}
-        response.data = data
+    if isinstance(response.data, dict):
+        response.data = {**response.data, "visual_report": module.chapter.document.visual_report,
+                         "lesson": enrich_lesson(response.data.get("lesson"), module)}
+        if response.data["lesson"] is not None:
+            response.data["lesson"]["visual_review_document"] = str(module.chapter.document_id)
     return response
 
 
 class ModuleLessonView(base_views.ModuleLessonView):
-    """Existing lesson endpoint plus original cropped source visuals."""
-
     def get(self, request, module_id):
         module = self._module(request, module_id)
         return _enrich(super().get(request, module_id), module)
@@ -45,3 +23,13 @@ class ModuleLessonView(base_views.ModuleLessonView):
     def post(self, request, module_id):
         module = self._module(request, module_id)
         return _enrich(super().post(request, module_id), module)
+
+
+class DocumentVisualReportView(APIView):
+    """Read-only staff report; never expose another subject's private visuals."""
+    permission_classes = [IsAdminOrFaculty]
+
+    def get(self, request, document_id):
+        document = base_views._doc(request.user, document_id)
+        return Response({"document_id": str(document.pk), "title": document.title,
+                         "report": document.visual_report})
