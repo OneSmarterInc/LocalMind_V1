@@ -1,15 +1,8 @@
 """Extract source visuals without ever saving a full page screenshot.
 
-PDF visuals are cropped from conservative source evidence:
-* embedded raster image rectangles;
-* caption-linked vector diagrams/charts;
-* table regions that pass tabular-quality checks;
-* horizontally ruled textbook tables missed by normal table inference.
-
-Page furniture, large prose panels, page masks and near-full-page regions are
-rejected before rendering. Lesson generation stays text-grounded; the original
-source visual is shown beside the generated lesson rather than asking the local
-text model to invent an interpretation of pixels.
+PDF visuals are detected from source evidence, then all candidates pass one
+instructional-visual policy before rendering.  The rendered crop receives one last
+content-level QR check.  DOCX extraction uses the same QR quality rule.
 """
 from __future__ import annotations
 
@@ -30,16 +23,16 @@ from .pdf_visual_regions import (
     dedupe as _dedupe,
 )
 from .pdf_visual_sanitizer import pdf_regions
-from .ruled_tables import ruled_table_regions
+from .visual_quality import looks_like_qr_png
 
 logger = logging.getLogger("localmind.documents.visuals")
 
 MAX_VISUALS_PER_DOCUMENT = 500
 RENDER_SCALE = 2.0
-# Version 6 adds caption-anchored multipart figures and borderless text tables
-# for NCERT-style and similarly typeset textbooks. Bump so previously cached
-# visual manifests are rebuilt with the new detector.
-EXTRACTOR_VERSION = 6
+# Version 7 unifies every PDF detector under the same safety policy, adds
+# rendered QR rejection, and removes repeated layout furniture by position as
+# well as by identical bytes.
+EXTRACTOR_VERSION = 7
 MAX_STORED_BYTES = 128 * 1024 * 1024
 
 
@@ -55,13 +48,8 @@ def _expanded(rect, page_rect, margin=6):
 
 
 def _pdf_regions(page, page_no):
-    """Return sanitized visual regions plus ruled-text table fallback."""
-    regions = list(pdf_regions(page, page_no))
-    try:
-        regions.extend(ruled_table_regions(page, page_no))
-    except Exception as exc:
-        logger.debug("Ruled table detection failed on page %s: %s", page_no, exc)
-    return _dedupe(regions)
+    """All candidate types are already sanitized inside pdf_regions()."""
+    return list(pdf_regions(page, page_no))
 
 
 def _atomic_json(path, value):
@@ -130,17 +118,50 @@ def _nearby_pdf_text(page, rect):
     return "\n".join(nearby)[:1800], caption
 
 
-def filter_repeated_furniture(rows):
-    """Only repeated SMALL margin artwork is furniture, not repeated concepts.
+def _layout_key(row):
+    """Approximate page-position signature for repeated publisher furniture."""
+    bbox = row.get("bbox") or []
+    page_size = row.get("page_size") or []
+    if len(bbox) != 4 or len(page_size) != 2 or not all(page_size):
+        return None
+    x0, y0, x1, y1 = bbox
+    width, height = page_size
+    return (
+        round(x0 / width, 1), round(y0 / height, 1),
+        round((x1 - x0) / width, 1), round((y1 - y0) / height, 1),
+    )
 
-    Count distinct source pages. Keep every body occurrence, even when the
-    same figure is taught in several modules. AssetStore deduplicates bytes.
+
+def filter_repeated_furniture(rows):
+    """Remove repeated margin/header/footer art without removing body figures.
+
+    Two signals are used: identical bytes on several pages and repeated placement
+    at the same page-relative location.  The positional rule applies only to
+    uncaptained small/margin candidates, so repeated teaching figures in the body
+    remain available.
     """
-    pages = {}
+    digest_pages = {}
+    layout_pages = {}
     for row in rows:
-        if row.get("margin_art") and row.get("page"):
-            pages.setdefault(row["digest"], set()).add(row["page"])
-    return [r for r in rows if not (r.get("margin_art") and len(pages.get(r["digest"], ())) >= 4)]
+        page = row.get("page")
+        if not page:
+            continue
+        if row.get("margin_art"):
+            digest_pages.setdefault(row.get("digest"), set()).add(page)
+        key = _layout_key(row)
+        if key and row.get("caption_origin") != "source" and row.get("layout_furniture_candidate"):
+            layout_pages.setdefault(key, set()).add(page)
+
+    result = []
+    for row in rows:
+        repeated_digest = row.get("margin_art") and len(digest_pages.get(row.get("digest"), ())) >= 4
+        key = _layout_key(row)
+        repeated_layout = bool(key and row.get("layout_furniture_candidate") and
+                               row.get("caption_origin") != "source" and len(layout_pages.get(key, ())) >= 4)
+        if repeated_digest or repeated_layout:
+            continue
+        result.append(row)
+    return result
 
 
 def _save_pdf_visuals(source: Path, output_dir: Path, notices=None):
@@ -149,8 +170,6 @@ def _save_pdf_visuals(source: Path, output_dir: Path, notices=None):
     store = AssetStore(output_dir)
     with pymupdf.open(str(source)) as document:
         for index, page in enumerate(document):
-            # Text/drawing rectangles are unrotated. Work in that coordinate
-            # system; the original uploaded PDF is never changed or saved.
             rotation = page.rotation
             page.set_rotation(0)
             try:
@@ -162,19 +181,23 @@ def _save_pdf_visuals(source: Path, output_dir: Path, notices=None):
                     if len(store.rows) >= MAX_VISUALS_PER_DOCUMENT:
                         notices.append("The 500-visual limit was reached; remaining pictures were not imported.")
                         return filter_repeated_furniture(store.rows)
-                    # Embedded pictures keep their exact rectangle. Vector/table
-                    # crops receive only two points of breathing room, never the
-                    # surrounding prose or whole page.
                     clip = _expanded(region["rect"], page.rect, margin=0 if region["kind"] == "figure" else 2)
                     if not _valid_region(clip, page.rect):
                         continue
                     scale = min(RENDER_SCALE, 2200 / max(clip.width, clip.height))
                     pix = page.get_pixmap(matrix=pymupdf.Matrix(scale, scale), clip=clip, alpha=False)
+                    raw = pix.tobytes("png")
+                    if looks_like_qr_png(raw):
+                        notices.append(f"Page {index+1}: a QR/navigation code was excluded from source visuals.")
+                        continue
                     context, nearby_caption = _nearby_pdf_text(page, clip)
                     source_caption = str(region.get("caption") or "").strip()
                     caption = source_caption or nearby_caption
                     relative_area = _area(clip) / max(1, _area(page.rect))
-                    store.save(pix.tobytes("png"), {
+                    top = clip.y0 / max(1.0, page.rect.height)
+                    bottom = clip.y1 / max(1.0, page.rect.height)
+                    layout_furniture = (not caption and relative_area < .12 and (top < .24 or bottom > .82))
+                    store.save(raw, {
                         "id_prefix": f"p{index+1}-{occurrence}-{region['kind']}",
                         "kind": region["kind"], "page": index+1,
                         "width": pix.width, "height": pix.height,
@@ -182,8 +205,10 @@ def _save_pdf_visuals(source: Path, output_dir: Path, notices=None):
                         "caption": caption or f"Source {region['kind']} from page {index+1}",
                         "caption_origin": "source" if caption else "label",
                         "bbox": [round(v, 2) for v in clip],
+                        "page_size": [round(page.rect.width, 2), round(page.rect.height, 2)],
                         "origin": region.get("origin", "detected"),
                         "margin_art": relative_area < .035 and (clip.y1 < page.rect.height*.12 or clip.y0 > page.rect.height*.88),
+                        "layout_furniture_candidate": layout_furniture,
                     })
             except VisualLimitReached as exc:
                 notices.append(str(exc))
@@ -192,7 +217,7 @@ def _save_pdf_visuals(source: Path, output_dir: Path, notices=None):
                 page.set_rotation(rotation)
     result = filter_repeated_furniture(store.rows)
     if len(result) != len(store.rows):
-        notices.append(f"Excluded {len(store.rows)-len(result)} repeated small margin pictures; repeated body illustrations were kept.")
+        notices.append(f"Excluded {len(store.rows)-len(result)} repeated page-furniture pictures; repeated body illustrations were kept.")
     return result
 
 
