@@ -5,6 +5,10 @@ module applies a last, textbook-oriented sanity pass before a crop is rendered.
 It is deliberately conservative about regions that resemble page fragments,
 headers, page-number tiles or prose panels while preserving regions that have an
 explicit Figure/Table/Chart/Diagram caption nearby.
+
+A second source-aware fallback handles NCERT-style multipart raster figures and
+borderless text tables. Those candidates still pass through this same sanitizer;
+the fallback never bypasses the page-fragment protections.
 """
 from __future__ import annotations
 
@@ -14,6 +18,7 @@ from .pdf_visual_regions import (
     pdf_regions as _detected_regions,
     source_caption_line,
 )
+from .textbook_visual_fallbacks import textbook_fallback_regions
 
 
 def _text_blocks(page):
@@ -90,6 +95,11 @@ def _reject_region(page, region, blocks, captions):
     if region.get("origin") == "embedded" and ratio >= 0.12 and text_chars >= 180:
         return True
 
+    # Caption-linked raster groups may contain several image pieces, but never
+    # accept a large selectable-text page fragment just because a caption is nearby.
+    if region.get("origin") == "captioned_raster_group" and ratio >= 0.16 and text_chars >= 180:
+        return True
+
     height, width = page.rect.height, page.rect.width
     top = (rect.y0 - page.rect.y0) / max(1.0, height)
     bottom = (rect.y1 - page.rect.y0) / max(1.0, height)
@@ -120,11 +130,17 @@ def _reject_region(page, region, blocks, captions):
 
 
 def pdf_regions(page, page_no):
-    """Return detected regions after the final page-fragment/furniture filter."""
+    """Return detected and fallback regions after one common safety filter."""
     blocks = _text_blocks(page)
     captions = _caption_blocks(blocks)
+    raw = list(_detected_regions(page, page_no))
+    try:
+        raw.extend(textbook_fallback_regions(page, page_no))
+    except Exception:
+        # The primary detector still works if a malformed page defeats a fallback.
+        pass
     regions = []
-    for region in _detected_regions(page, page_no):
+    for region in raw:
         row = dict(region)
         if not _reject_region(page, row, blocks, captions):
             regions.append(row)
