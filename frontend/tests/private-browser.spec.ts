@@ -461,7 +461,7 @@ test('staff conflict recovery preserves the previous draft across refresh',async
 
 test('staff imports a new book offline and synchronizes its source and reviewed lesson after refresh',async({page,context})=>{
  const tokens=await signIn(page,'faculty','/manage/offline-ai');await model(page,'/manage/offline-ai');
- await page.goto('/manage/document/upload');
+ await page.goto('/manage/local-books');
  await page.getByRole('button',{name:'Subject',exact:true}).click();
  await page.getByRole('menuitem',{name:/WEBTEST/}).click();
  await page.getByLabel('Book title',{exact:true}).fill('Device imported textbook');
@@ -621,3 +621,23 @@ for (const role of ['student','faculty']) {
   await expect(page.getByText('Assignments',{exact:true})).toHaveCount(0);
  });
 }
+
+
+test('faculty upload uses content headings and opens the existing outline editor',async({page})=>{
+ await signIn(page,'faculty',`/manage/document/upload?subject=${fixture().subject}`);
+ await expect(page.getByRole('heading',{name:'Let’s add a book.',exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'Review and synchronize book draft',exact:true})).toHaveCount(0);
+ await page.getByLabel('Book title',{exact:true}).fill('Content outline regression');
+ await pick(page,'Choose file',{name:'outline-upload.docx',mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',buffer:fs.readFileSync('test-results/outline-upload.docx')});
+ const uploaded=page.waitForResponse(r=>r.url().endsWith('/api/faculty/documents/')&&r.request().method()==='POST');
+ await page.getByRole('button',{name:'Upload and process',exact:true}).click();
+ const response=await uploaded;expect(response.status(),await response.text()).toBe(201);
+ const document=await response.json();expect(document.outline_strategy).toBe('source');
+ await expect(page).toHaveURL(new RegExp(`/manage/document/${document.id}$`));
+ await expect(page.getByText('Book outline',{exact:true})).toBeVisible({timeout:60000});
+ await expect(page.getByLabel('Module title',{exact:true})).toHaveValue('Energy and living systems');
+ await expect(page.getByLabel('Source text',{exact:true})).toHaveValue(/restored upload regression/);
+ await expect(page.getByText(/Page 1 · Part/)).toHaveCount(0);
+ await page.reload();
+ await expect(page.getByLabel('Module title',{exact:true})).toHaveValue('Energy and living systems');
+});

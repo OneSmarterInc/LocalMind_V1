@@ -32,7 +32,6 @@ export default function Books() {
     <Screen refreshing={q.loading} onRefresh={q.reload}>
       <PageHeading eyebrow="TEACHING CONTENT" title="Books & modules" subtitle="Import a book, prepare lessons and quizzes, then publish for your students."
         right={<Button title="Upload a book" icon="cloud-upload-outline" onPress={() => router.push({ pathname: "/manage/document/upload", params: subject ? { subject } : {} })} />} />
-      <Button title="Continue preparing books" variant="secondary" onPress={()=>router.push("/manage/local-books")} />
       <ErrorBanner message={q.error} onRetry={q.reload} />
       <Card flush>
         <TableToolbar right={<>

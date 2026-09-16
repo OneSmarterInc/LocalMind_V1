@@ -45,6 +45,11 @@ with tempfile.TemporaryDirectory(prefix='localmind-browser-') as folder:
     doc=make_published_document(subject,title='Faculty Biology',modules=(('Leaf science',source),('Open practice',source)))
     out=io.BytesIO();word=Word();word.add_heading('Leaf science',1);word.add_paragraph(source)
     word.add_heading('Open practice',1);word.add_paragraph(source);word.save(out);raw=out.getvalue()
+    outline_word=Word();outline_word.add_heading('Energy and living systems',1)
+    outline_word.add_paragraph(source+' This source belongs to the restored upload regression.')
+    outline_word.add_heading('Light and leaves',1);outline_word.add_paragraph(source)
+    (ROOT/'frontend/test-results').mkdir(exist_ok=True)
+    outline_word.save(ROOT/'frontend/test-results/outline-upload.docx')
     doc.original_name='faculty-biology.docx';doc.file_type='docx';doc.file_size=len(raw);doc.content_hash=hashlib.sha256(raw).hexdigest();doc.uploaded_by=faculty
     doc.file.save(doc.original_name,ContentFile(raw),save=True)
     from learning.models import Module
