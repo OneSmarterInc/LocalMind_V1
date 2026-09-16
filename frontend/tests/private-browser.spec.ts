@@ -276,6 +276,15 @@ for(const release of ['Immediate','Held'])test(`institutional ${release} quiz an
  await expect(page.getByText('Saved on this device',{exact:true})).toHaveCount(0);
  if(release==='Held')await expect(page.getByText('Your faculty will release the results.',{exact:true})).toBeVisible();
  else await expect(page.getByText('Your quiz result',{exact:true})).toBeVisible();
+ // Use in-app navigation: a retained quiz screen must not redirect in the background.
+ await page.getByText('My subjects',{exact:true}).click();
+ await expect(page).toHaveURL(/student\/subjects$/);
+ await page.waitForTimeout(2200);
+ await expect(page).toHaveURL(/student\/subjects$/);
+ await page.getByText('Quizzes',{exact:true}).first().click();
+ await expect(page).toHaveURL(/student\/quizzes$/);
+ await page.waitForTimeout(2200);
+ await expect(page).toHaveURL(/student\/quizzes$/);
 });
 
 

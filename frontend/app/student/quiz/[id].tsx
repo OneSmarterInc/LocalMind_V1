@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useEffect, useRef, useState } from "react";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 import {CourseQuizSubmitted,submittedCourseQuiz} from "@/offline/coursework";
 import { student } from "@/api/endpoints";
@@ -33,7 +33,38 @@ function StudentQuizEditor({ id }: { id: string }) {
   const [reviewing, setReviewing] = useState(false);
   const userId = useAuth().user?.id;
   const start = useAction(async () => { try { const a = await student.startAttempt(id); setAnswers({}); setAttempt(a); setIndex(0); setReviewing(false); } catch(e) { if(e instanceof CourseQuizSubmitted){setFinalized(true);router.replace(`/student/attempt/${e.attemptId}`);return;}throw e;} });
-  useEffect(()=>{let live=true;const check=async()=>{try{const submitted=await submittedCourseQuiz(id);if(live&&submitted){setFinalized(true);setAttempt(null);setAnswers({});router.replace(`/student/attempt/${submitted}`);}if(live){setSubmissionError(null);setCheckingSubmission(false);}}catch(e){if(live){setCheckingSubmission(true);setSubmissionError(e instanceof Error?e.message:"Unable to check your saved submission.");}}};void check();const timer=setInterval(()=>void check(),1000);return()=>{live=false;clearInterval(timer);};},[id,router]);
+  // Navigation stacks may retain this screen after leaving it. Only the focused
+  // quiz may redirect; a background poll must never pull the student back here.
+  useFocusEffect(useCallback(() => {
+    let live = true;
+    let checking = false;
+    let redirected = false;
+    const check = async () => {
+      if (checking || redirected) return;
+      checking = true;
+      try {
+        const submitted = await submittedCourseQuiz(id);
+        if (!live) return;
+        if (submitted) {
+          redirected = true;
+          setFinalized(true);
+          setAttempt(null);
+          setAnswers({});
+          router.replace(`/student/attempt/${submitted}`);
+        }
+        setSubmissionError(null);
+        setCheckingSubmission(false);
+      } catch (e) {
+        if (live) {
+          setCheckingSubmission(true);
+          setSubmissionError(e instanceof Error ? e.message : "Unable to check your saved submission.");
+        }
+      } finally { checking = false; }
+    };
+    void check();
+    const timer = setInterval(() => void check(), 1000);
+    return () => { live = false; clearInterval(timer); };
+  }, [id, router]));
   const answersRef = useRef(answers); answersRef.current = answers;
   // Answers are kept on this device per user and attempt, so a refresh or a resumed attempt restores them.
   const { restored, saving: draftSaving, flush: flushAnswers, discard: discardAnswers, error: draftError } = useLocalDraft([userId, "quiz", attempt?.attempt_id], answers, (saved) => setAnswers(saved));
