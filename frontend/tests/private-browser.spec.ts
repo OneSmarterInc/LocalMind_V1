@@ -253,6 +253,12 @@ for(const release of ['Immediate','Held'])test(`institutional ${release} quiz an
  await expect(page.getByText('Saved on this device',{exact:true})).toBeVisible();
  if(release==='Immediate')await expect(page.getByText('Local result: 100% · Passed',{exact:true})).toBeVisible();
  else {await expect(page.getByText(/Your faculty has withheld results/)).toBeVisible();await expect(page.getByText(/Local result:/)).toHaveCount(0);}
+ // Submitted quizzes disappear from the dashboard's ready list even before sync.
+ await page.goto('/student');
+ const pendingQuizTitle=release==='Immediate'?'Offline immediate quiz':'Offline held quiz';
+ await expect(page.getByText(release==='Immediate'?'Offline held quiz':'Offline immediate quiz',{exact:true}).or(page.getByText('Nothing waiting. Nice work.',{exact:true}))).toBeVisible();
+ await expect(page.getByText(pendingQuizTitle,{exact:true})).toHaveCount(0);
+ await page.goto(url);
  // Reopening through the quiz route must show the immutable submission, including after reload.
  await page.goto(`/student/quiz/${data['quiz'+release]}`);
  await expect(page).toHaveURL(url);

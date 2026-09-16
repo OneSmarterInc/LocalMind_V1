@@ -1,3 +1,4 @@
+import { quizNeedsSubmission } from "@/screens/student/quizStatus";
 import { useRouter } from "expo-router";
 import React from "react";
 import { Text, View } from "react-native";
@@ -17,7 +18,7 @@ export default function StudentOverview() {
   const ov = useAsync(() => student.overview(), []);
   const quizzes = useAsync(() => student.quizzes(), []);
   const first = user?.full_name.split(" ")[0] ?? "there";
-  const toTake = (quizzes.data ?? []).filter((q) => !q.passed && (!q.max_attempts || (q.attempts_used ?? 0) < q.max_attempts));
+  const toTake = (quizzes.data ?? []).filter(quizNeedsSubmission);
   const next = cat.data ? nextModule(cat.data.subjects) : null;
   const d = ov.data;
   const reload = () => { cat.reload(); ov.reload(); quizzes.reload(); };

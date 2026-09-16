@@ -1,3 +1,4 @@
+import { quizNeedsSubmission } from "@/screens/student/quizStatus";
 import { useRouter } from "expo-router";
 import React, { useMemo, useState } from "react";
 import { student } from "@/api/endpoints";
@@ -11,7 +12,7 @@ type RowT = { quiz: Quiz; latest: Attempt | null; code: string; sub: string };
 function statusOf(r: RowT): { label: string; tone: Tone; action: string } {
   const q = r.quiz;
   if(q.offline_pending)return {label:"Saved locally · awaiting sync",tone:"amber" as const,action:"View result"};
-  if (!q.attempts_used) return { label: "Not started", tone: "blue", action: "Start quiz" };
+  if (quizNeedsSubmission(q)) return { label: "Not started", tone: "blue", action: "Start quiz" };
   const held = (q.results_pending ?? 0) > 0 || (r.latest as unknown as { results_released?: boolean } | null)?.results_released === false;
   if (held && q.best_percentage == null) return { label: "Results not released", tone: "amber", action: "View submission" };
   if (r.latest?.status === "pending_evaluation") return { label: "Being marked", tone: "amber", action: "View result" };

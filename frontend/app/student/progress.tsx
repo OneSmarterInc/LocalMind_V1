@@ -1,3 +1,4 @@
+import { quizNeedsSubmission } from "@/screens/student/quizStatus";
 import { useRouter } from "expo-router";
 import React from "react";
 import { Text, View } from "react-native";
@@ -14,7 +15,7 @@ export default function StudentProgress() {
   const scores = useAsync(() => student.scores(), []);
   const quizzes = useAsync(() => student.quizzes(), []);
   const d = ov.data;
-  const toTake = (quizzes.data ?? []).filter((q) => !q.passed && (!q.max_attempts || (q.attempts_used ?? 0) < q.max_attempts)).length;
+  const toTake = (quizzes.data ?? []).filter(quizNeedsSubmission).length;
   const recent = (scores.data ?? []).slice().sort((a, b) => (b.submitted_at ?? "").localeCompare(a.submitted_at ?? "")).slice(0, 6);
   const activity = [
     ...(cat.data?.subjects.flatMap((s) => s.modules).filter((m) => m.last_viewed_at).map((m) => ({ at: m.last_viewed_at!, title: `${m.status === "completed" ? "Completed" : "Read"} ${m.title}`, sub: `${fmtDay(m.last_viewed_at)} · ${m.subject.code}` })) ?? []),

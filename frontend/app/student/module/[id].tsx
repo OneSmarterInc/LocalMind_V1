@@ -1,3 +1,4 @@
+import { quizNeedsSubmission } from "@/screens/student/quizStatus";
 import {useIsFocused} from '@react-navigation/native';
 import {recordCourseWork} from '@/offline/coursework';
 import CourseAsk from "@/private/CourseAsk";
@@ -180,8 +181,8 @@ function ModuleSide({ module, quizzes, onQuiz, onOffline }: { module: ModuleFull
         <CardHead title="Ready to check yourself?" subtitle={q ? "Put your understanding into practice." : "No quiz has been set for this module yet."} />
         {q ? (
           <>
-            <DetailList items={[["Questions", String(q.question_count ?? "—")], ["Pass mark", `${q.pass_percentage}%`], ["Attempts allowed", q.max_attempts ? String(q.max_attempts) : "Unlimited"]]} />
-            <Button title={q.attempts_used ? "Open the quiz" : "Take the quiz"} icon="arrow-forward" full onPress={() => onQuiz(q.id)} />
+            <DetailList items={[["Questions", String(q.question_count ?? "—")], ["Pass mark", `${q.pass_percentage}%`]]} />
+            <Button title={quizNeedsSubmission(q) ? "Take the quiz" : "View submission"} icon="arrow-forward" full onPress={() => onQuiz(q.id)} />
             {quizzes.length > 1 ? quizzes.slice(1).map((x) => <TextLink key={x.id} title={x.title} onPress={() => onQuiz(x.id)} />) : null}
           </>
         ) : null}
