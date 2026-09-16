@@ -53,7 +53,6 @@ export default function ManageLayout() {
       <Tabs.Screen name="local-batch" options={shellScreen({ href: null, title: "Prepare book locally" }, { backTo: "/manage/books", backLabel: "Books & modules" })} />
       <Tabs.Screen name="local-books" options={shellScreen({ href: null, title: "Books on this device" }, { backTo: "/manage/books", backLabel: "Books & modules" })} />
       <Tabs.Screen name="local-authoring/[id]" options={shellScreen({ href: null, title: "Local authoring" }, { backTo: "/manage/books", backLabel: "Books & modules" })} />
-      <Tabs.Screen name="document-visuals/[id]" options={shellScreen({ href: null, title: "Source pictures" }, { backTo: "/manage/books", backLabel: "Books & modules" })} />
       <Tabs.Screen name="document/[id]" options={shellScreen({ href: null, title: "Book" }, { backTo: "/manage/books", backLabel: "Books & modules" })} />
       <Tabs.Screen name="study/[id]" options={shellScreen({ href: null, title: "Books for private study" }, { backTo: "/manage/books", backLabel: "Books & modules" })} />
       <Tabs.Screen name="document/upload" options={shellScreen({ href: null, title: "Upload a book" }, { backTo: "/manage/books", backLabel: "Books & modules" })} />

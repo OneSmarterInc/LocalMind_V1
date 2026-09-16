@@ -1,4 +1,3 @@
-import {lessonVisualIds} from './visualPlacement';
 import {resumeParts, type Checkpoint} from './performance';
 import {generationJobs} from './jobs';
 import { randomUUID } from 'expo-crypto';
@@ -42,23 +41,15 @@ export class Library {
   async import(file: LocalFile, shared?: { id: string; title: string; sha256?: string }, signal?: AbortSignal, progress?: (message: string) => void) {
     cancelled(signal); this.guard(); progress?.("Reading book on this device…");
     const d = await device(), assetSet=randomUUID();let assetPrefix='';let committed=false;
-    const saveVisual=async(visual:SourceVisual)=>{
-      requireThat(visual.kind!=='page'&&!visual.caption.startsWith('Original page'),'This parser returned a full page instead of a cropped figure. Update the offline app files and retry.');
-      // Deduplicate image BYTES, not occurrences: reuse in another module is valid.
-      const assetId=fingerprint(visual.dataUrl),key=`${assetPrefix}asset:${assetId}`;
-      if(await d.get(key)===undefined)await d.put(key,visual.dataUrl);
-      this.guard();cancelled(signal);
-      await d.put(`${assetPrefix}${visual.id}`,{...visual,assetId,dataUrl:''});
-    };
     const resolveId=async(hash:string)=>{
       const original=await d.get<PrivateBook>(this.key(hash));this.guard();
-      return original&&original.importVersion!==5?fingerprint(`${hash}|source-layout-v5`):hash;
+      return original&&original.importVersion!==4?fingerprint(`${hash}|source-layout-v4`):hash;
     };
     try {
       const parsed=await d.parse(file,signal,progress,async(visual,hash)=>{
         this.guard();cancelled(signal);
         if(!assetPrefix)assetPrefix=`${this.work(await resolveId(hash))}visual:${assetSet}:`;
-        await saveVisual(visual);
+        await d.put(`${assetPrefix}${visual.id}`,visual);
         this.guard();cancelled(signal);
       });
       this.guard();cancelled(signal);
@@ -66,10 +57,10 @@ export class Library {
       const id=await resolveId(parsed.hash), upgraded=id!==parsed.hash;
       const existing=await d.get<PrivateBook>(this.key(id));this.guard();
       if(existing)return {book:validateBook(existing),duplicate:true};
-      const book:PrivateBook={importVersion:5,assetSet,id,title:((shared?.title||file.name.replace(/\.[^.]+$/,''))+(upgraded?' · new extraction':'')).slice(0,300),originalName:file.name,importedAt:new Date().toISOString(),origin:shared?'shared':'personal',...(shared?{sourceId:shared.id}:{}),sections:parsed.sections,warnings:[...parsed.warnings,...(upgraded?['The earlier import and its practice history are unchanged. This copy uses the new extraction.']:[])]};
+      const book:PrivateBook={importVersion:4,assetSet,id,title:((shared?.title||file.name.replace(/\.[^.]+$/,''))+(upgraded?' · new extraction':'')).slice(0,300),originalName:file.name,importedAt:new Date().toISOString(),origin:shared?'shared':'personal',...(shared?{sourceId:shared.id}:{}),sections:parsed.sections,warnings:[...parsed.warnings,...(upgraded?['The earlier import and its practice history are unchanged. This copy uses the new extraction.']:[])]};
       // Compatibility for parsers that return images instead of streaming them.
       assetPrefix ||= `${this.work(id)}visual:${assetSet}:`;
-      for(const visual of parsed.visuals||[]){this.guard();cancelled(signal);await saveVisual(visual);}
+      for(const visual of parsed.visuals||[]){this.guard();cancelled(signal);await d.put(`${assetPrefix}${visual.id}`,visual);}
       this.guard();cancelled(signal);await d.put(this.key(id),validateBook(book));committed=true;
       this.guard();return {book,duplicate:false};
     } catch(e) {
@@ -85,12 +76,7 @@ export class Library {
     requireThat(section, 'Choose a module in this book'); const d = await device();
     const rows = await Promise.all((section.visualIds || []).map(id => d.get<SourceVisual>(`${this.work(bookId)}visual:${book.assetSet}:${id}`)));
     this.guard(); requireThat(rows.every(Boolean), 'A source image is missing. Import the book again.');
-    const resolved=await Promise.all((rows as SourceVisual[]).map(async v=>{
-      if(!v.assetId)return v; // older imports keep inline data URLs
-      const dataUrl=await d.get<string>(`${this.work(bookId)}visual:${book.assetSet}:asset:${v.assetId}`);
-      requireThat(dataUrl,'A source picture is missing. Reimport the original book.');return {...v,dataUrl};
-    }));
-    this.guard();return resolved;
+    return rows as SourceVisual[];
   }
   async lessons(bookId: string, sectionId: string) { await this.book(bookId); const rows = await (await device()).list<LessonVersion>(`${this.work(bookId)}lesson:${sectionId}:`); this.guard(); return rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt)); }
   async quizzes(bookId: string, sectionId: string) { await this.book(bookId); const rows = await (await device()).list<QuizVersion>(`${this.work(bookId)}quiz:${sectionId}:`); this.guard(); return rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt)); }
@@ -111,9 +97,6 @@ export class Library {
       }});
     const lesson:Lesson={introduction:parts[0].introduction,sections:parts.flatMap(p=>p.sections),takeaways:parts.flatMap(p=>p.takeaways)};
     this.guard();cancelled(signal);await this.book(bookId);
-    const visuals=await this.visuals(bookId,sectionId);
-    const placements=lessonVisualIds(lesson.sections,visuals);
-    lesson.sections=lesson.sections.map((s,i)=>({...s,visualIds:placements[i]}));
     const version:LessonVersion={id:checkpoint.id,sectionId,createdAt:new Date().toISOString(),lesson};
     await d.put(`${this.work(bookId)}lesson:${sectionId}:${version.id}`,version);this.guard();await d.removePrefix(key);return version;
   }

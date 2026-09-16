@@ -1,36 +1,13 @@
 """Student content API. Only published, enrolled, open content is reachable."""
-import base64
-
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from academics.models import Subject
 from core.permissions import IsStudent
 from core.utils import get_or_404
-from documents.services.visuals import visual_path
 
 from . import services
 from .models import Module, ProgressStatus
-
-
-def _source_visuals(module):
-    """Embed only the cropped source regions that belong to this module."""
-    document = module.chapter.document
-    rows = []
-    for visual in module.source_visuals or []:
-        path = visual_path(document, module, str(visual.get("id") or ""))
-        if path is None or not path.is_file():
-            continue
-        rows.append({
-            "id": visual.get("id"),
-            "kind": visual.get("kind", "figure"),
-            "page": visual.get("page"),
-            "caption": visual.get("caption", "Source visual"),
-            "width": visual.get("width"),
-            "height": visual.get("height"),
-            "data_url": "data:image/png;base64," + base64.b64encode(path.read_bytes()).decode("ascii"),
-        })
-    return rows
 
 
 def _module_payload(module, progress, include_source):
@@ -48,7 +25,6 @@ def _module_payload(module, progress, include_source):
     }
     if include_source:
         data["source_text"] = module.source_text
-        data["source_visuals"] = _source_visuals(module)
     return data
 
 

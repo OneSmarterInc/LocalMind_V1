@@ -9,17 +9,12 @@ class ModuleSerializer(serializers.ModelSerializer):
     lesson_status = serializers.SerializerMethodField()
     quiz_status = serializers.SerializerMethodField()
     auto_quiz_id = serializers.SerializerMethodField()
-    source_visual_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Module
         fields = ["id", "chapter_id", "title", "order", "source_heading_index", "source_text", "source_missing",
                   "start_page", "end_page", "is_user_edited", "availability", "opened_at", "lesson_status",
-                  "quiz_status", "auto_quiz_id", "source_visual_count", "created_at", "updated_at"]
-
-    def get_source_visual_count(self, module) -> int:
-        """How many source pictures this module has, without sending the bytes."""
-        return len([v for v in (module.source_visuals or []) if v.get("id") and v.get("filename")])
+                  "quiz_status", "auto_quiz_id", "created_at", "updated_at"]
 
     def get_lesson_status(self, module) -> str:
         """ready | pending | generating | failed | none (the module has no text)."""

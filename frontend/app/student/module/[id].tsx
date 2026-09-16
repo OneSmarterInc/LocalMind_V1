@@ -5,7 +5,7 @@ import CourseAsk from "@/private/CourseAsk";
 import { SourceContent } from "@/ui/SourceContent";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
-import { AppState, Image, Text, View } from "react-native";
+import { AppState, Text, View } from "react-native";
 import { student } from "@/api/endpoints";
 import type { ModuleFull, Quiz } from "@/api/types";
 import { useAsync } from "@/hooks/useAsync";
@@ -13,7 +13,6 @@ import { Badge, Button, Card, CardHead, DetailList, Empty, ErrorBanner, Eyebrow,
 import { LessonView } from "@/ui/LessonView";
 
 type Tab = "read" | "lesson" | "ask";
-type CourseSourceVisual={id:string;kind?:string;page?:number|null;caption?:string;width?:number|null;height?:number|null;data_url:string};
 const statusLabel = (st?: string) => (st === "completed" ? "Completed" : st === "in_progress" ? "In progress" : st === "needs_review" ? "Needs review" : "Not started");
 
 export default function StudentModule() {
@@ -143,19 +142,6 @@ function LockedHeading({ moduleId }: { moduleId: string }) {
   return <PageHeading eyebrow="YOUR LEARNING PATH" title={f?.title ?? "Locked module"} subtitle={f ? `${f.book} · Module ${f.number}` : null} />;
 }
 
-function ModuleSourceVisuals({module}:{module:ModuleFull}){
-  const visuals=((module as ModuleFull&{source_visuals?:CourseSourceVisual[]}).source_visuals||[]);
-  if(!visuals.length)return null;
-  return <View style={{gap:12,marginTop:4}}>
-    <Text style={{fontSize:16,fontWeight:'600',color:colors.ink}}>Visuals from the source</Text>
-    <Text style={{fontSize:12,lineHeight:19,color:colors.muted}}>Only the original figure, diagram, chart or table region is shown — never the full PDF page.</Text>
-    {visuals.map(v=>{const ratio=v.width&&v.height?v.width/v.height:1.5;return <View key={v.id} style={{gap:7,borderWidth:1,borderColor:colors.border,borderRadius:10,padding:10,backgroundColor:'white'}}>
-      <Image source={{uri:v.data_url}} accessibilityLabel={v.caption||'Source visual'} resizeMode="contain" style={{width:'100%',aspectRatio:Math.max(.35,Math.min(3.5,ratio)),backgroundColor:'white'}}/>
-      <Text style={{fontSize:11,color:colors.muted}}>{v.caption||'Source visual'}{v.page?` · page ${v.page}`:''}</Text>
-    </View>;})}
-  </View>;
-}
-
 function ReadCard({ module, large, onToggleSize, onLesson }: { module: ModuleFull; large: boolean; onToggleSize: () => void; onLesson?: () => void }) {
   return (
     <Card style={{ paddingHorizontal: 20, paddingVertical: 24 }}>
@@ -168,7 +154,6 @@ function ReadCard({ module, large, onToggleSize, onLesson }: { module: ModuleFul
       </View>
       <View style={{ maxWidth: 750, gap: 15, marginTop: 6 }}>
         <SourceContent text={module.source_text} large={large} />
-        <ModuleSourceVisuals module={module}/>
       </View>
       {onLesson ? <FormFooter note="Continue at your own pace."><Button title="Explore the lesson" icon="arrow-forward" onPress={onLesson} /></FormFooter> : null}
     </Card>
@@ -225,3 +210,4 @@ function AskTips() {
     </Card>
   );
 }
+

@@ -93,14 +93,12 @@ class LocalAuthoringView(APIView):
     def get(self, request, module_id):
         module = self.module(request.user, module_id)
         from assessments.models import AutoQuizJob
-        from .services.visual_delivery import module_visuals, enrich_lesson
         lesson = ModuleLesson.objects.filter(module=module, status='ready').first()
         job = AutoQuizJob.objects.filter(module=module).select_related('assessment').first()
         quiz = job.assessment if job else None
         return Response({'module_id': str(module.pk), 'title': module.title, 'source': module.source_text,
                          'revision': revision(module), 'document_id': str(module.chapter.document_id),
-                         'source_visuals': module_visuals(module),
-                         'institution': {'lesson': enrich_lesson(lesson.lesson, module) if lesson and lesson.source_hash == source_hash(module.source_text) else None,
+                         'institution': {'lesson': lesson.lesson if lesson and lesson.source_hash == source_hash(module.source_text) else None,
                                          'quiz': {'id': str(quiz.pk), 'status': quiz.status, 'questions': quiz.questions} if quiz else None}})
 
 

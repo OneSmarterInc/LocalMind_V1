@@ -144,10 +144,9 @@ test('real English OCR and original table/diagram survive offline import, lesson
  await page.getByText('scanned-biology',{exact:true}).click({timeout:60000});
  await expect(page.getByText('Text recognised on this device',{exact:true})).toBeVisible();
  await expect(page.getByText(/12\.5/).first()).toBeVisible();
- await expect(page.getByRole('button',{name:'View original page 1',exact:true})).toHaveCount(0);
- const showOriginal=()=>page.getByRole('button',{name:'Enlarge illustration',exact:true}).first().click();
+ const showOriginal=()=>page.getByRole('button',{name:'View original page 1',exact:true}).click();
  await showOriginal();
- const original=page.getByRole('img',{name:/Source (diagram or chart|table or chart) from page 1 enlarged/});
+ const original=page.getByRole('img',{name:'Original page 1 — tables and diagrams enlarged',exact:true});
  await expect(original).toBeVisible();
  const imageBefore=await original.getAttribute('src');expect(imageBefore).toMatch(/^data:image\/png;base64,/);
  await page.screenshot({path:'test-results/scanned-source-with-visuals.png',fullPage:true});
@@ -334,7 +333,7 @@ test('streamed import rolls back images on storage failure and saves successful 
  await page.evaluate(()=>{
   (window as any).__LM_PARSER__.parse=async(_bytes:any,_name:any,_signal:any,progress:any,save:any)=>{
    progress('Preparing page 1 of 2');
-   await save({id:'v1',dataUrl:'data:image/png;base64,aGVsbG8=',kind:'figure',width:10,height:10,caption:'Source figure',page:1});
+   await save({id:'v1',dataUrl:'data:image/png;base64,aGVsbG8=',kind:'page',width:10,height:10,caption:'Source page',page:1});
    throw new DOMException('Device full','QuotaExceededError');
   };
  });
@@ -349,19 +348,16 @@ test('streamed import rolls back images on storage failure and saves successful 
  expect((await keys()).filter(k=>k.includes('visual:'))).toHaveLength(0);
  await page.evaluate(()=>{
   (window as any).__LM_PARSER__.parse=async(_b:any,_n:any,_s:any,_p:any,save:any)=>{
-   await save({id:'v1',dataUrl:'data:image/png;base64,aGVsbG8=',kind:'figure',width:10,height:10,caption:'Source figure',page:1});
+   await save({id:'v1',dataUrl:'data:image/png;base64,aGVsbG8=',kind:'page',width:10,height:10,caption:'Source page',page:1});
    return {items:[{title:'Source',text:'Photosynthesis occurs in chloroplasts.',visualIds:['v1']}],warnings:[],visuals:[]};
   };
  });
  await pick(page,'Upload my book',book);await expect(page.getByText('Storage test',{exact:true})).toBeVisible();
- expect((await keys()).filter(k=>/visual:.*:v\d+$/.test(k))).toHaveLength(1);
- expect((await keys()).filter(k=>k.includes(':asset:'))).toHaveLength(1);
+ expect((await keys()).filter(k=>k.includes('visual:'))).toHaveLength(1);
  await pick(page,'Upload my book',book);await expect(page.getByText(/This book is already in your library/)).toBeVisible();
- expect((await keys()).filter(k=>/visual:.*:v\d+$/.test(k))).toHaveLength(1);
- expect((await keys()).filter(k=>k.includes(':asset:'))).toHaveLength(1);
+ expect((await keys()).filter(k=>k.includes('visual:'))).toHaveLength(1);
  await page.reload();await expect(page.getByText('Storage test',{exact:true})).toBeVisible();
- expect((await keys()).filter(k=>/visual:.*:v\d+$/.test(k))).toHaveLength(1);
- expect((await keys()).filter(k=>k.includes(':asset:'))).toHaveLength(1);
+ expect((await keys()).filter(k=>k.includes('visual:'))).toHaveLength(1);
 });
 
 
@@ -625,59 +621,3 @@ for (const role of ['student','faculty']) {
   await expect(page.getByText('Assignments',{exact:true})).toHaveCount(0);
  });
 }
-
-
-
-for(const role of ['admin','faculty'])test(`${role} previews DOCX pictures and the source extraction report`,async({page})=>{
- const data=fixture();await signIn(page,role,`/manage/document/${data.visualDocument}?tab=lessons`);
- await page.getByRole('button',{name:'Preview lesson',exact:true}).first().click();
- await expect(page.getByRole('img',{name:'Figure 1: Sunlight and the leaf',exact:true})).toBeVisible();
- await page.getByRole('button',{name:'Enlarge illustration',exact:true}).click();
- await expect(page.getByRole('img',{name:'Figure 1: Sunlight and the leaf enlarged',exact:true})).toBeVisible();
- await page.getByRole('button',{name:'Close image',exact:true}).click();
- await page.getByRole('button',{name:'Source picture report',exact:true}).click();
- await expect(page.getByText('2 source visuals detected; 2 assigned to modules.',{exact:true})).toBeVisible();
-});
-
-test('course DOCX picture remains visible in a downloaded lesson after disconnecting',async({page,context})=>{
- const data=fixture();await signIn(page);await model(page);
- await page.goto('/student/offline');await page.getByRole('button',{name:'Refresh course copy',exact:true}).click();
- await expect(page.getByText('Your course copy is saved.',{exact:true})).toBeVisible();
- await context.setOffline(true);await page.goto(`/student/module/${data.visualModule}?tab=lesson`);
- await expect(page.getByRole('img',{name:'Figure 1: Sunlight and the leaf',exact:true})).toBeVisible();
- await expect(page.getByRole('button',{name:'Source picture report',exact:true})).toHaveCount(0);
- await page.reload();await expect(page.getByRole('img',{name:'Figure 1: Sunlight and the leaf',exact:true})).toBeVisible();
-});
-
-test('private DOCX captions and repeated-image occurrences survive lessons and restart with one stored asset',async({page,context})=>{
- await signIn(page);await model(page);await page.goto('/student/private-library');await context.setOffline(true);
- const chooser=page.waitForEvent('filechooser');await page.getByRole('button',{name:'Upload my book',exact:true}).click();await(await chooser).setFiles('test-results/visual-source.docx');
- await page.getByText('visual-source',{exact:true}).click({timeout:90000});
- await expect(page.getByRole('img',{name:'Figure 1: Sunlight and the leaf',exact:true})).toBeVisible();
- await page.getByRole('button',{name:'Generate a lesson',exact:true}).click();
- await expect(page.getByRole('button',{name:'Saved lesson',exact:true})).toContainText('Version 1');
- await expect(page.getByRole('img',{name:'Figure 1: Sunlight and the leaf',exact:true})).toBeVisible();
- const counts=await page.evaluate(async()=>{
-  const db=await new Promise<IDBDatabase>((resolve,reject)=>{const r=indexedDB.open('localmind-private-library');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
-  const keys=await new Promise<string[]>(resolve=>{const r=db.transaction('records').objectStore('records').getAllKeys();r.onsuccess=()=>resolve(r.result.map(String));});db.close();
-  return {assets:keys.filter(k=>k.includes(':visual:')&&k.includes(':asset:')).length,figures:keys.filter(k=>/visual:.*:v\d+$/.test(k)).length};
- });expect(counts).toEqual({assets:1,figures:2});
- await page.getByRole('button',{name:'Water',exact:true}).click();
- await expect(page.getByRole('img',{name:'Figure 2: Water and the leaf',exact:true})).toBeVisible();
- await page.reload();await expect(page.getByRole('img',{name:'Figure 2: Water and the leaf',exact:true})).toBeVisible();
-});
-
-
-test('faculty authoring keeps source pictures in an offline generated lesson',async({page,context})=>{
- const data=fixture();await signIn(page,'faculty','/manage/offline-ai');await model(page,'/manage/offline-ai');
- await page.goto(`/manage/local-authoring/${data.visualModule}`);
- await expect(page.getByText('Source ready · Changes saved automatically',{exact:true})).toBeVisible();
- await expect(page.getByRole('img',{name:'Figure 1: Sunlight and the leaf',exact:true}).first()).toBeVisible();
- await context.setOffline(true);await page.reload();
- await expect(page.getByRole('img',{name:'Figure 1: Sunlight and the leaf',exact:true}).first()).toBeVisible();
- await page.getByRole('button',{name:/^(Generate|Regenerate) lesson$/,exact:true}).click();
- const review=page.getByRole('heading',{name:'Review lesson',exact:true}).locator('../..');
- await expect(review.getByRole('img',{name:'Figure 1: Sunlight and the leaf',exact:true})).toBeVisible();
- await page.reload();
- await expect(review.getByRole('img',{name:'Figure 1: Sunlight and the leaf',exact:true})).toBeVisible();
-});

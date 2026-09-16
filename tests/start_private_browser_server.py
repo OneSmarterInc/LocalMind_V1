@@ -90,9 +90,7 @@ with tempfile.TemporaryDirectory(prefix='localmind-browser-') as folder:
     bitmap=page.render(scale=2);raster=bitmap.to_pil();raster.save(results/'scan-source.png')
     scan=io.BytesIO();c=Canvas(scan,pagesize=(600,780));c.drawImage(ImageReader(raster),0,0,600,780);c.save()
     (results/'scanned-biology.pdf').write_bytes(scan.getvalue())
-    from documents.tests_visual_reference import picture_bytes
-    illustrated=io.BytesIO();c=Canvas(illustrated,pagesize=(600,780));c.drawImage(ImageReader(io.BytesIO(picture_bytes())),350,150,200,122)
-    c.drawString(350,130,'Figure 1: Sunlight and the leaf')
+    illustrated=io.BytesIO();c=Canvas(illustrated,pagesize=(600,780));c.drawImage(ImageReader(raster),350,30,200,260)
     for line in range(12):c.drawString(30,750-line*20,'Readable textbook content about sunlight, leaves and photosynthesis.')
     c.save();(results/'illustrated-text.pdf').write_bytes(illustrated.getvalue())
     # A small PDF whose expanded PNG pages exceed the former 48 MiB limit.
@@ -102,24 +100,10 @@ with tempfile.TemporaryDirectory(prefix='localmind-browser-') as folder:
     large=io.BytesIO();c=Canvas(large,pagesize=(600,780))
     for n in range(44):
         c.drawImage(ImageReader(noise),30,30,540,540)
-        c.drawString(30,580,'Figure 1: A colour texture study')
         for line in range(8):c.drawString(30,750-line*18,'Readable textbook content about sunlight, leaves and photosynthesis.')
         c.showPage()
     c.save();(results/'large-illustrated.pdf').write_bytes(large.getvalue())
     bitmap.close();page.close();original.close()
-    # Real DOCX source pictures: repeat one image in two authored modules.
-    from documents.tests_visual_reference import reference_docx
-    from documents.services.documents import upload_document, run_processing
-    from django.core.files.uploadedfile import SimpleUploadedFile
-    from documents.models import Document
-    reference_docx(results/'visual-source.docx')
-    visual_doc=upload_document(faculty,subject,SimpleUploadedFile('visual-source.docx',(results/'visual-source.docx').read_bytes()),title='Visual Biology')
-    if not run_processing(visual_doc.pk): raise RuntimeError('Visual fixture processing failed')
-    Document.objects.filter(pk=visual_doc.pk).update(status='published')
-    visual_modules=list(Module.objects.filter(chapter__document=visual_doc).order_by('order'))
-    Module.objects.filter(chapter__document=visual_doc).update(availability='open')
-    for vm in visual_modules:
-        ModuleLesson.objects.update_or_create(module=vm,defaults={'status':'ready','source_hash':source_hash(vm.source_text),'lesson':{'title':vm.title,'learning_objectives':['Understand the source picture'],'sections':[{'heading':vm.title,'explanation':vm.source_text,'source_reference':vm.source_text}],'key_terms':[],'summary':'A source-backed illustrated lesson.'}})
-    (results/'fixture.json').write_text(json.dumps({'visualDocument':str(visual_doc.pk),'visualModule':str(visual_modules[0].pk),'autoModule':str(auto_module.pk),'quizImmediate':str(immediate.pk),'quizHeld':str(held.pk),'module':str(module.id),'document':str(doc.id),'subject':str(subject.id),'source':source,'password':password}))
+    (results/'fixture.json').write_text(json.dumps({'autoModule':str(auto_module.pk),'quizImmediate':str(immediate.pk),'quizHeld':str(held.pk),'module':str(module.id),'document':str(doc.id),'subject':str(subject.id),'source':source,'password':password}))
     # runserver stays in this process so temporary storage settings are retained.
     call_command('runserver','127.0.0.1:8765',use_reloader=False,verbosity=0)

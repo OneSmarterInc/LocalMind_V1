@@ -92,8 +92,6 @@ class Document(TimeStampedUUIDModel):
     content_hash = models.CharField(max_length=64, blank=True, db_index=True)
     status = models.CharField(max_length=30, choices=DocumentStatus.choices, default=DocumentStatus.UPLOADED, db_index=True)
 
-    visual_report = models.JSONField(default=dict, blank=True)
-
     processed_markdown_path = models.CharField(max_length=500, blank=True)
     extracted_headings = models.JSONField(default=list, blank=True)
     outline_strategy = models.CharField(
