@@ -5,6 +5,8 @@ from django.test import SimpleTestCase
 
 from .services import visuals
 from .services import pdf_visual_regions
+from .services import pdf_visual_sanitizer
+from .services import visual_quality
 
 
 class RectStub:
@@ -77,7 +79,6 @@ class VisualRegionPolicyTests(SimpleTestCase):
             pdf_path = Path(tmp) / "chart.pdf"
             doc = pymupdf.open()
             page = doc.new_page(width=600, height=800)
-            # A compact chart-like cluster in the middle of a text page.
             page.draw_rect(pymupdf.Rect(110, 180, 410, 430), width=2)
             for x, height in ((150, 90), (220, 150), (290, 120), (360, 180)):
                 page.draw_rect(pymupdf.Rect(x, 410 - height, x + 32, 410), fill=(0.6, 0.6, 0.6))
@@ -115,6 +116,45 @@ class VisualRegionPolicyTests(SimpleTestCase):
         doc.close()
         self.assertEqual(regions, [])
 
+    def test_why_this_is_happening_callout_is_removed_by_common_sanitizer(self):
+        try:
+            import pymupdf
+        except ImportError:
+            self.skipTest("PyMuPDF is not installed")
+        doc = pymupdf.open()
+        page = doc.new_page(width=600, height=800)
+        panel = pymupdf.Rect(80, 210, 520, 410)
+        page.draw_rect(panel, fill=(0.92, 0.95, 1.0), color=(0.3, 0.4, 0.8))
+        page.insert_text((105, 245), "Why this is happening")
+        page.insert_text((105, 285), "This is explanatory prose rather than a chart or figure.")
+        rows = pdf_visual_sanitizer.pdf_regions(page, 1)
+        doc.close()
+        self.assertFalse(any(r["rect"].intersects(panel) for r in rows))
+
+    def test_qr_like_raster_is_rejected(self):
+        from PIL import Image, ImageDraw
+        image = Image.new("RGB", (210, 210), "white")
+        draw = ImageDraw.Draw(image)
+        def finder(x, y):
+            draw.rectangle((x, y, x+70, y+70), fill="black")
+            draw.rectangle((x+10, y+10, x+60, y+60), fill="white")
+            draw.rectangle((x+20, y+20, x+50, y+50), fill="black")
+        finder(10, 10); finder(130, 10); finder(10, 130)
+        # Add a little QR-like data texture so the black ratio is realistic.
+        for y in range(90, 200, 12):
+            for x in range(90, 200, 12):
+                if (x//12 + y//12) % 2:
+                    draw.rectangle((x, y, x+7, y+7), fill="black")
+        self.assertTrue(visual_quality.looks_like_qr_image(image))
+
+    def test_repeated_position_furniture_is_removed_even_when_bytes_differ(self):
+        rows = []
+        for page in range(1, 6):
+            rows.append({"page": page, "digest": f"different-{page}", "caption_origin": "label",
+                         "bbox": [20, 735, 100, 785], "page_size": [600, 800],
+                         "layout_furniture_candidate": True, "margin_art": False})
+        self.assertEqual(visuals.filter_repeated_furniture(rows), [])
+
 
 class PrivateParserContractTests(SimpleTestCase):
     def test_private_parser_never_saves_original_pdf_page(self):
@@ -128,3 +168,9 @@ class PrivateParserContractTests(SimpleTestCase):
         component = (repo / "frontend" / "src" / "private" / "SourceVisuals.tsx").read_text(encoding="utf-8")
         self.assertNotIn("View original page", component)
         self.assertIn("v.kind!=='page'", component)
+
+    def test_private_parser_uses_same_qr_and_instructional_filters(self):
+        repo = Path(__file__).resolve().parents[2]
+        parser = (repo / "frontend" / "scripts" / "parser-entry.mjs").read_text(encoding="utf-8")
+        self.assertIn("looksLikeQrCanvas", parser)
+        self.assertIn("shouldKeepPdfVisual", parser)
