@@ -259,6 +259,7 @@ class GenerationRulesTests(TestCase):
         with self.assertRaises(QuizGenerationFailed):
             generate_questions([module], num_mcqs=1, previous_questions=[{"question": "What is a process?"}])
 
+    @override_settings(DEVICE_AUTHORING_ONLY=False)
     @patch("assessments.services.evaluation.gateway")
     def test_evaluator_marks_incorrect_when_model_lists_missing_points(self, gw):
         from assessments.services.evaluation import evaluate_subjective

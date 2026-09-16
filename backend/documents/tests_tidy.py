@@ -143,6 +143,7 @@ class NewUploadTests(TestCase):
                 model.assert_not_called()
         return res.data["id"]
 
+    @override_settings(DEVICE_AUTHORING_ONLY=False)
     def test_boxes_are_folded_and_titles_repaired(self):
         doc_id = self.upload(strategy="ai")
         titles = list(Module.objects.filter(chapter__document_id=doc_id).order_by("chapter__order", "order").values_list("title", flat=True))
@@ -161,6 +162,7 @@ class NewUploadTests(TestCase):
         self.assertGreaterEqual(summary["titles_repaired"], 3)
 
     @override_settings(LOCALMIND={**settings.LOCALMIND, "OUTLINE_MERGE_SMALL": False})
+    @override_settings(DEVICE_AUTHORING_ONLY=False)
     def test_switched_off_keeps_every_heading_as_its_own_module(self):
         doc_id = self.upload(strategy="ai")
         self.assertEqual(Module.objects.filter(chapter__document_id=doc_id).count(), 7)

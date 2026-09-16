@@ -7,7 +7,7 @@ These are NOT included in the dependency-free check command.
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from django.test import TestCase, SimpleTestCase
+from django.test import TestCase, SimpleTestCase, override_settings
 
 from core.exceptions import ValidationFailed
 from core.testing import make_subject
@@ -33,6 +33,7 @@ class OutlineIntegrationTests(TestCase):
         self.assertEqual(result['chapters'][0]['title'], 'Original name')
         self.assertEqual(result['chapters'][0]['modules'][-1]['title'], 'Actual module')
 
+    @override_settings(DEVICE_AUTHORING_ONLY=False)
     @patch('documents.services.outline.gateway')
     def test_opt_in_incomplete_ai_plan_falls_back_to_complete_source(self, gw):
         doc = self.document(outline_strategy='ai')

@@ -14,6 +14,7 @@ from django.db import transaction
 from django.db.models import Q
 
 from ai.gateway import gateway
+from core.generation_policy import device_authoring_only
 from core.exceptions import Conflict, ValidationFailed
 from learning.models import Chapter, Module
 from .outline_policy import clean_title, section_lookup, source_hierarchy_outline, _heading_spans, _ai_plan_covers_source
@@ -54,7 +55,7 @@ OUTLINE_SCHEMA = {
 
 def ai_outline(document, headings):
     """Ask the model to group indexed headings. Returns None on any failure."""
-    if not headings:
+    if device_authoring_only() or not headings:
         return None
     heading_text = "\n".join(f'[{h["index"]}] level {h["level"]}: {h["title"]}' for h in headings[:600])
     system = ("You organise a textbook's headings into a course outline of chapters that contain modules. "
@@ -518,7 +519,7 @@ def build_proposed_outline(document, sections, headings):
     Invalid, incomplete or overlapping AI plans fall back to the whole source
     hierarchy. No automatic title/fragment tidy is applied to authored mode.
     """
-    if getattr(document, "outline_strategy", "source") != "ai":
+    if device_authoring_only() or getattr(document, "outline_strategy", "source") != "ai":
         return source_hierarchy_outline(document.original_name, sections), "source_hierarchy"
     outline = ai_outline(document, headings)
     if outline and not _ai_plan_covers_source(outline, sections):
