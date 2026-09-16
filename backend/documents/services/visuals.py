@@ -28,17 +28,18 @@ from .pdf_visual_regions import (
     intersection_ratio as _intersection_ratio,
     valid_region as _valid_region,
     dedupe as _dedupe,
-    pdf_regions,
 )
+from .pdf_visual_sanitizer import pdf_regions
 from .ruled_tables import ruled_table_regions
 
 logger = logging.getLogger("localmind.documents.visuals")
 
 MAX_VISUALS_PER_DOCUMENT = 500
 RENDER_SCALE = 2.0
-# Version 4 adds horizontally-ruled / border-light textbook tables. Bump so
-# books processed with the previous policy are automatically re-extracted.
-EXTRACTOR_VERSION = 4
+# Version 5 adds a final textbook safety pass that rejects page fragments,
+# headers/page-number tiles and text-heavy embedded composites. Bump so books
+# processed with the earlier policy are automatically re-extracted.
+EXTRACTOR_VERSION = 5
 MAX_STORED_BYTES = 128 * 1024 * 1024
 
 
@@ -54,7 +55,7 @@ def _expanded(rect, page_rect, margin=6):
 
 
 def _pdf_regions(page, page_no):
-    """Return the conservative detector plus ruled-text table fallback."""
+    """Return sanitized visual regions plus ruled-text table fallback."""
     regions = list(pdf_regions(page, page_no))
     try:
         regions.extend(ruled_table_regions(page, page_no))
