@@ -21,7 +21,6 @@ const STUDENT_META: PortalMeta = {
     { title: "Overview", section: "Your next steps", path: "/student" },
     { title: "My subjects", section: "Books and modules", path: "/student/subjects" },
     { title: "My quizzes", section: "Quizzes and results", path: "/student/quizzes" },
-    { title: "My assignments", section: "Assignments and feedback", path: "/student/assignments" },
     { title: "My progress", section: "Scores and learning time", path: "/student/progress" },
     { title: "Course sync", section: "Downloads and pending course work", path: "/student/offline" },
     { title: "My profile", section: "Account", path: "/student/profile" },
@@ -46,8 +45,8 @@ export default function StudentLayout() {
         <Tabs.Screen name="private-book/[id]" options={shellScreen({ href: null, title: "Private book" }, { backTo: "/student/private-library", backLabel: "Private library" })} />
         <Tabs.Screen name="offline" options={{ title: "Course sync", tabBarIcon: icon("sync-outline") }} />
         <Tabs.Screen name="subjects" options={{ title: "My subjects", tabBarIcon: icon("library-outline") }} />
-        <Tabs.Screen name="quizzes" options={{ title: "Quizzes", tabBarIcon: icon("help-circle-outline") }} />
-        <Tabs.Screen name="assignments" options={{ title: "Assignments", tabBarIcon: icon("create-outline") }} />
+        <Tabs.Screen name="assignments" options={{ href: null, title: "Quizzes" }} />
+      <Tabs.Screen name="quizzes" options={{ title: "Quizzes", tabBarIcon: icon("help-circle-outline") }} />
         <Tabs.Screen name="progress" options={{ title: "My progress", tabBarIcon: icon("stats-chart-outline") }} />
         <Tabs.Screen name="profile" options={{ title: "My profile", tabBarIcon: icon("person-circle-outline") }} />
         <Tabs.Screen name="subject/[id]" options={shellScreen({ href: null, title: "Subject" }, { backTo: "/student/subjects", backLabel: "My subjects" })} />
@@ -55,7 +54,7 @@ export default function StudentLayout() {
         <Tabs.Screen name="module/[id]" options={shellScreen({ href: null, title: "Module" }, { backTo: "/student/subjects", backLabel: "My subjects" })} />
         <Tabs.Screen name="quiz/[id]" options={shellScreen({ href: null, title: "Quiz" }, { backTo: "/student/quizzes", backLabel: "Quizzes" })} />
         <Tabs.Screen name="attempt/[id]" options={shellScreen({ href: null, title: "Quiz result" }, { backTo: "/student/quizzes", backLabel: "Quizzes" })} />
-        <Tabs.Screen name="assignment/[id]" options={shellScreen({ href: null, title: "Assignment" }, { backTo: "/student/assignments", backLabel: "Assignments" })} />
+        <Tabs.Screen name="assignment/[id]" options={shellScreen({ href: null, title: "Assignment" }, { backTo: "/student/quizzes", backLabel: "Quizzes" })} />
       </Tabs>
     </OfflineNoticeContext.Provider>
   );

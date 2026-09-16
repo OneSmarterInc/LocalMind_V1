@@ -1,6 +1,5 @@
 import React from "react";
-import { AssignmentNewPage } from "@/screens/AssignmentWorkspace";
-
-export default function NewAssignment() {
-  return <AssignmentNewPage />;
+import { RetiredAssignments } from "@/screens/RetiredAssignments";
+export default function LegacyAssignmentRoute() {
+  return <RetiredAssignments role="manage" />;
 }

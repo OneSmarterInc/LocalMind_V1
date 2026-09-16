@@ -15,16 +15,15 @@ export default function FacultyOverview() {
   const ov = useAsync(() => manage.overview(), []);
   const docs = useAsync(() => manage.documents(), []);
   const quizzes = useAsync(() => manage.quizzes(), []);
-  const assignments = useAsync(() => manage.assignments(), []);
   const subjects: any[] = ov.data?.subjects ?? [];
   const students = subjects.reduce((n, s) => n + (s.students_enrolled ?? 0), 0);
   const published = subjects.reduce((n, s) => n + (s.documents?.published ?? 0), 0);
   const review = (docs.data ?? []).filter((d) => d.status === "under_review" || d.status === "ready" || d.status === "error");
   const held = (quizzes.data ?? []).filter((q) => q.held_for_review);
   const releases = (quizzes.data ?? []).filter((q) => ((q as { pending_release_count?: number }).pending_release_count ?? 0) > 0);
-  const toMark = subjects.reduce((n, s) => n + (s.assignments?.awaiting_evaluation ?? 0), 0) + subjects.reduce((n, s) => n + (s.quizzes?.pending_evaluation ?? 0), 0);
+  const toMark = subjects.reduce((n, s) => n + (s.quizzes?.pending_evaluation ?? 0), 0);
   const attention = review.length + held.length + releases.length + (toMark ? 1 : 0);
-  const reload = () => { ov.reload(); docs.reload(); quizzes.reload(); assignments.reload(); };
+  const reload = () => { ov.reload(); docs.reload(); quizzes.reload(); };
   const activity = useAsync(() => manage.teachingActivity(), []);
   const when = (iso: string) => {
     const d = new Date(iso); const today = new Date();
@@ -75,7 +74,7 @@ export default function FacultyOverview() {
                 const n = (q as { pending_release_count?: number }).pending_release_count ?? 0;
                 return <ListRow key={q.id} plain icon="document-lock-outline" tone="blue" title={`Release ${n} student result${n === 1 ? "" : "s"}`} subtitle={`${q.title} · Results currently held`} right={<Badge value={`${n} waiting`} tone="blue" />} onPress={() => router.push({ pathname: "/manage/quiz/[id]", params: { id: q.id, tab: "attempts" } })} />;
               })}
-              {toMark ? <ListRow plain icon="create-outline" tone="amber" title={`Mark ${toMark} submission${toMark === 1 ? "" : "s"}`} subtitle="Assignments and written answers awaiting evaluation" right={<Badge value={`${toMark} to mark`} tone="amber" />} onPress={() => router.push("/manage/assignments")} /> : null}
+              {toMark ? <ListRow plain icon="create-outline" tone="amber" title={`Mark ${toMark} submission${toMark === 1 ? "" : "s"}`} subtitle="Quiz answers awaiting evaluation" right={<Badge value={`${toMark} to mark`} tone="amber" />} onPress={() => router.push("/manage/quizzes")} /> : null}
             </Card>
             <Card>
               <CardHead title="Recent teaching activity" />

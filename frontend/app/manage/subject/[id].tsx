@@ -59,7 +59,6 @@ function OverviewTab({ s, subjectId, onStudents }: { s: any; subjectId: string; 
               <CardHead title="Teaching activities" subtitle="Create a quiz for one module or combine several modules from this subject." />
               <View style={{ flexDirection: "row", gap: 9, flexWrap: "wrap" }}>
                 <Button title="Create quiz" variant="secondary" icon="help-circle-outline" onPress={() => router.push("/manage/quiz/new")} />
-                <Button title="Create assignment" variant="secondary" icon="create-outline" onPress={() => router.push("/manage/assignment/new")} />
               </View>
             </Card>
           </>

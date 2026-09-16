@@ -6,7 +6,6 @@ import { Button, Card, Grid, Notice, PageHeading, Screen, colors } from "@/ui";
 const AREAS = [
   { title: "Books & modules", text: "Review outlines, manage source text, and publish books.", action: "Open books & modules", icon: "book-outline", path: "/manage/books" },
   { title: "Quizzes", text: "Review questions, manage attempts, and release scores.", action: "Open quizzes", icon: "help-circle-outline", path: "/manage/quizzes" },
-  { title: "Assignments", text: "Create tasks and review students’ submissions.", action: "Open assignments", icon: "create-outline", path: "/manage/assignments" },
 ] as const;
 
 export default function AdminContent() {

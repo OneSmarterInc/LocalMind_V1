@@ -600,3 +600,21 @@ test('faculty can release held results from quiz settings',async({page})=>{
  await page.reload();
  await expect(page.getByText('This lesson was prepared by the institution before download.',{exact:true})).toBeVisible();
  });
+
+for (const role of ['student','faculty']) {
+ test(role+' assignment links retire to quizzes without trapping navigation',async({page})=>{
+  const area=role==='student'?'student':'manage';
+  const requests:string[]=[];
+  page.on('request',r=>{if(r.url().includes('/api/')&&r.url().includes('assignments'))requests.push(r.url());});
+  await signIn(page,role,'/'+area);
+  await expect(page.getByText('Assignments',{exact:true})).toHaveCount(0);
+  expect(requests).toEqual([]);
+  for(const path of ['assignments','assignment/00000000-0000-0000-0000-000000000001',...(area==='manage'?['assignment/new','submission/00000000-0000-0000-0000-000000000001']:[])]){
+   await page.goto('/'+area+'/'+path);
+   await expect(page).toHaveURL(new RegExp('/'+area+'/quizzes$'));
+  }
+  await page.getByText('Overview',{exact:true}).first().click();
+  await expect(page).toHaveURL(new RegExp('/'+area+'/?$'));
+  await expect(page.getByText('Assignments',{exact:true})).toHaveCount(0);
+ });
+}
