@@ -377,9 +377,9 @@ test('faculty generates offline and synchronizes a reviewed lesson without serve
  let aiRequests=0;page.on('request',r=>{if(r.method()==='POST'&&/\/(?:lesson|auto-quiz|lessons|auto-quizzes)\/$/.test(r.url()))aiRequests++;});
  await page.goto(`/manage/local-authoring/${fixture().module}`);
  await expect(page.getByText('Source ready · Changes saved automatically',{exact:true})).toBeVisible();
- await expect(page.getByRole('heading',{name:'Source',exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'Show source',exact:true})).toBeVisible();
  await context.setOffline(true);
- await page.getByRole('button',{name:'Generate lesson',exact:true}).click();
+ await page.getByRole('button',{name:/^(Generate|Regenerate) lesson$/,exact:true}).click();
  await expect(page.getByRole('heading',{name:'Review lesson',exact:true})).toBeVisible();
  await page.reload();await expect(page.getByRole('heading',{name:'Review lesson',exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Approve and synchronize lesson',exact:true}).click();
@@ -389,9 +389,14 @@ test('faculty generates offline and synchronizes a reviewed lesson without serve
  await expect(page.getByText('Received by institution',{exact:true})).toBeVisible();
  const result=await page.request.get(`/api/faculty/modules/${fixture().module}/lesson/`,{headers});
  expect(result.ok()).toBeTruthy();const lesson=await result.json();expect(lesson.model).toBe('device-local');expect(lesson.status).toBe('ready');expect(aiRequests).toBe(0);
+ await page.reload();
+ await expect(page.getByRole('heading',{name:'Institution lesson',exact:true})).toBeVisible();
  await context.setOffline(true);
  await page.getByRole('button',{name:'Generate quiz',exact:true}).click();
  await expect(page.getByRole('heading',{name:'Review quiz',exact:true})).toBeVisible();
+ await expect(page.getByText('Question 1 of 6',{exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Next question',exact:true}).click();
+ await expect(page.getByText('Question 2 of 6',{exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Approve and synchronize quiz draft',exact:true}).click();
  await expect(page.getByText('Waiting to synchronize',{exact:true})).toBeVisible();
  await page.reload();await expect(page.getByRole('heading',{name:'Review quiz',exact:true})).toBeVisible();
@@ -406,8 +411,8 @@ test('staff conflict recovery preserves the previous draft across refresh',async
  const headers={Authorization:`Bearer ${tokens.access}`},id=fixture().module;
  await page.goto(`/manage/local-authoring/${id}`);
  await expect(page.getByText('Source ready · Changes saved automatically',{exact:true})).toBeVisible();
- await expect(page.getByRole('heading',{name:'Source',exact:true})).toBeVisible();
- await page.getByRole('button',{name:'Generate lesson',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Show source',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:/^(Generate|Regenerate) lesson$/,exact:true}).click();
  await expect(page.getByRole('heading',{name:'Review lesson',exact:true})).toBeVisible();
  const changed=fixture().source+' The faculty added a new source sentence.';
  const update=await page.request.patch(`/api/faculty/modules/${id}/`,{headers,data:{source_text:changed}});expect(update.ok(),await update.text()).toBeTruthy();
@@ -425,6 +430,7 @@ test('staff conflict recovery preserves the previous draft across refresh',async
  await expect(page.getByRole('heading',{name:'Review lesson',exact:true})).toHaveCount(0);
  await expect(page.getByRole('heading',{name:'Previous local drafts',exact:true})).toBeVisible();
  await context.setOffline(true);await page.reload();
+ await page.getByRole('button',{name:'Show source',exact:true}).click();
  await expect(page.getByText(changed,{exact:true})).toBeVisible();
  await page.getByRole('button',{name:'View previous draft',exact:true}).click();
  await expect(page.getByRole('heading',{name:'Previous lesson',exact:true})).toBeVisible();
@@ -441,8 +447,9 @@ test('staff imports a new book offline and synchronizes its source and reviewed 
  await pick(page,'Choose book',{name:'local-book.pdf',mimeType:'application/pdf',buffer:fs.readFileSync('test-results/private-fixture.pdf')});
  await expect(page.getByRole('heading',{name:'Device imported textbook',exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Open module',exact:true}).first().click();
+ await page.getByRole('button',{name:'Show source',exact:true}).click();
  await expect(page.getByText('Photosynthesis happens in the chloroplasts of green leaves.',{exact:true}).first()).toBeVisible();
- await page.getByRole('button',{name:'Generate lesson',exact:true}).click();
+ await page.getByRole('button',{name:/^(Generate|Regenerate) lesson$/,exact:true}).click();
  await expect(page.getByRole('heading',{name:'Review lesson',exact:true})).toBeVisible({timeout:30000});
  await page.getByRole('button',{name:'Approve and synchronize lesson',exact:true}).click();
  await expect(page.getByText('Waiting to synchronize',{exact:true})).toBeVisible();
@@ -511,7 +518,7 @@ test('staff source saves automatically and missing model blocks generation befor
  await signIn(page,'faculty',`/manage/local-authoring/${fixture().module}`);
  await expect(page.getByText('Source ready · Changes saved automatically',{exact:true})).toBeVisible();
  await expect(page.getByRole('button',{name:'Save module on this device',exact:true})).toHaveCount(0);
- await expect(page.getByRole('button',{name:'Generate lesson',exact:true})).toBeDisabled();
+ await expect(page.getByRole('button',{name:/^(Generate|Regenerate) lesson$/,exact:true})).toBeDisabled();
  await expect(page.getByText('Set up AI before generating',{exact:true})).toBeVisible();
  await page.reload();
  await expect(page.getByText('Source ready · Changes saved automatically',{exact:true})).toBeVisible();

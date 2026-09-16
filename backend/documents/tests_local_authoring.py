@@ -26,6 +26,14 @@ class LocalAuthoringTests(TestCase):
         return data
     def post(self, data):
         return self.client.post(self.url, data, format='json')
+    def test_snapshot_includes_ready_lesson_without_regeneration(self):
+        self.assertEqual(self.post(self.event()).status_code,200)
+        response=self.client.get(self.url)
+        self.assertEqual(response.data['institution']['lesson']['summary'],'Understand processes.')
+        self.module.source_text+=' Changed source.'
+        self.module.save()
+        self.assertIsNone(self.client.get(self.url).data['institution']['lesson'])
+
     def test_lesson_replay_and_changed_operation(self):
         data = self.event()
         with patch('ai.gateway.gateway.complete', side_effect=AssertionError('No server inference'), create=True):

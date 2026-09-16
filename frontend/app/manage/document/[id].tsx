@@ -1,5 +1,5 @@
 import {useAuth} from "@/auth/AuthContext";
-import {LocalAuthoring} from "@/authoring/local";
+import {LocalAuthoring,type Draft} from "@/authoring/local";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -306,26 +306,26 @@ type Preview = { id: string; title: string; quizStatus: string; quizId: string |
 
 function ReadinessTab({ doc, onQueueLessons, lessonsBusy, onQueueQuizzes, quizzesBusy, error, onPreview }: { doc: Document; onQueueLessons: () => void; lessonsBusy: boolean; onQueueQuizzes: () => void; quizzesBusy: boolean; error: string | null; onPreview: (p: Preview) => void }) {
   const router = useRouter();
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [rowError, setRowError] = useState<string | null>(null);
+  const {user}=useAuth(),owner=user?.id;
+  const service=useMemo(()=>owner?new LocalAuthoring(owner):null,[owner]);
+  const [drafts,setDrafts]=useState<Draft[]>([]);
+  useEffect(()=>{let live=true;const read=()=>service?.drafts().then(rows=>{if(live)setDrafts(rows);}).catch(()=>{});void read();const timer=setInterval(read,1500);return()=>{live=false;clearInterval(timer);};},[service]);
+  const local=(id:string)=>drafts.find(d=>d.snapshot.remote_id===id)||drafts.find(d=>d.snapshot.module_id===id);
   let n = 0;
   const modules: ModuleRow[] = (doc.chapters ?? []).flatMap((c) => c.modules.map((m) => ({ ...m, chapter: c.title, number: ++n }))).filter((m) => m.id);
   const l = doc.lessons; const a = doc.auto_quizzes;
-  const regenerate = async (m: ModuleRow) => {
-    setBusyId(m.id!); setRowError(null);
-    try { router.push(`/manage/local-authoring/${m.id}`); } catch (e) { setRowError(e instanceof Error ? e.message : String(e)); } finally { setBusyId(null); }
-  };
   const columns: Column<ModuleRow>[] = [
     { key: "m", label: "Module", flex: 2.2, render: (m) => <CellText title={m.title} sub={`Module ${m.number}`} /> },
-    { key: "l", label: "Lesson", flex: 0.8, render: (m) => <Badge value={LESSON_TEXT[m.lesson_status ?? "none"] ?? String(m.lesson_status)} tone={LESSON_TONE[m.lesson_status ?? "none"] ?? "neutral"} /> },
-    { key: "q", label: "Automatic quiz", flex: 1, render: (m) => <Badge value={QUIZ_TEXT[m.quiz_status ?? "none"] ?? String(m.quiz_status)} tone={QUIZ_TONE[m.quiz_status ?? "none"] ?? "neutral"} /> },
+    { key: "l", label: "Institution lesson", flex: 0.8, render: (m) => <Badge value={LESSON_TEXT[m.lesson_status ?? "none"] ?? String(m.lesson_status)} tone={LESSON_TONE[m.lesson_status ?? "none"] ?? "neutral"} /> },
+    { key: "q", label: "Institution quiz", flex: 1, render: (m) => <Badge value={QUIZ_TEXT[m.quiz_status ?? "none"] ?? String(m.quiz_status)} tone={QUIZ_TONE[m.quiz_status ?? "none"] ?? "neutral"} /> },
+    { key: "draft", label: "Saved work", flex: 1.1, render: (m) => {const d=local(m.id!);return <CellText title={d?.lesson?"Lesson draft saved":"No lesson draft"} sub={d?.questions?`${d.questions.length} quiz questions saved`:"No quiz draft"}/>;} },
     { key: "x", label: "", flex: 1.7, render: (m) => (
       <View style={{ flexDirection: "row", gap: 6 }}>
-        <Button title="Edit lessons & quizzes" small variant="secondary" onPress={()=>router.push(`/manage/local-authoring/${m.id}`)}/>
+        <Button title="Open module" small variant="secondary" onPress={()=>router.push(`/manage/local-authoring/${local(m.id!)?.snapshot.module_id||m.id}`)}/>
         <Button title="Preview lesson" small variant="secondary" disabled={m.lesson_status === "none"} onPress={() => onPreview({ id: m.id!, title: m.title, quizStatus: m.quiz_status ?? "off", quizId: m.auto_quiz_id ?? null })} />
         {m.quiz_status === "held" && m.auto_quiz_id
           ? <Button title="Review quiz" small variant="secondary" onPress={() => router.push(`/manage/quiz/${m.auto_quiz_id}`)} />
-          : <Button title="Regenerate" small variant="secondary" icon="refresh" disabled={m.source_missing} busy={busyId === m.id} onPress={() => regenerate(m)} />}
+          : null}
       </View>
     ) },
   ];
@@ -333,9 +333,9 @@ function ReadinessTab({ doc, onQueueLessons, lessonsBusy, onQueueQuizzes, quizze
   return (
     <>
       <Notice tone={heldCount || (l && l.ready < l.total) ? "warning" : "success"}
-        title={`${l ? `${l.ready} of ${l.total} lessons are ready.` : "Lesson status is not available."}${heldCount ? ` ${heldCount === 1 ? "One quiz needs" : `${heldCount} quizzes need`} your review.` : ""}`}
-        message="Source reading can be published before every lesson is ready. A held automatic quiz stays hidden until reviewed." />
-      <ErrorBanner message={error ?? rowError} />
+        title={`${l ? `${l.ready} of ${l.total} institution lessons are ready.` : "Lesson status is not available."}${heldCount ? ` ${heldCount === 1 ? "One quiz needs" : `${heldCount} quizzes need`} your review.` : ""}`}
+        message="Institution columns describe shared content. Saved work describes your local drafts. Open a module to review either version; generation is only needed for new or replacement content." />
+      <ErrorBanner message={error} />
       <Card flush>
         <Table noun="module" columns={columns} rows={modules} keyOf={(m) => m.id!} minWidth={860} empty={<Empty icon="school-outline" text="This book has no modules yet." />} />
       </Card>
@@ -884,7 +884,7 @@ function ModuleLessonPanel({ moduleId, textEdited }: { moduleId: string; textEdi
   else if (d?.status === "none") line = "No generated lesson is available. Save the source and prepare a local draft.";
   return (
     <View style={{ gap: 16 }}>
-      <Button title="Edit lessons & quizzes" variant="secondary" disabled={textEdited} onPress={()=>router.push(`/manage/local-authoring/${moduleId}`)}/>
+      <Button title="Open module" variant="secondary" disabled={textEdited} onPress={()=>router.push(`/manage/local-authoring/${moduleId}`)}/>
       <ErrorBanner message={q.error ?? again.error} onRetry={q.error ? q.reload : undefined} />
       {q.loading && !d ? <Loading /> : null}
       {d ? (

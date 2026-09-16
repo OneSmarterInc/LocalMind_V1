@@ -1,3 +1,4 @@
+import type {Lesson as CourseLesson,Question} from '@/api/types';
 import {activeBookTransfers} from './locks';
 import {randomUUID} from 'expo-crypto';
 import {api,ApiError} from '@/api/client';
@@ -5,9 +6,9 @@ import {Library,fingerprint} from '@/private/library';
 import {device} from '@/private/device';
 import {generationJobs} from '@/private/jobs';
 import {makeSections,requireThat,type Lesson,type MCQ} from '@/private/core';
-export type Snapshot={module_id:string;document_id:string;title:string;source:string;revision:string;remote_id?:string};
+export type Snapshot={module_id:string;document_id:string;title:string;source:string;revision:string;remote_id?:string;institution?:{lesson:CourseLesson|null;quiz:{id:string;status:string;questions:Question[]}|null}};
 type Operation={id:string;revision:string;kind:'lesson'|'quiz';reviewed:true;lesson?:Lesson;questions?:MCQ[]};
-export type Draft={snapshot:Snapshot;localBook?:string;sourceBook?:string;sourceSection?:string;lesson?:Lesson;questions?:MCQ[];run?:{kind:'lesson'|'quiz';book:string;done:number;lessonParts:Lesson[];questions:MCQ[]};operation?:Operation;state?:'pending'|'synced'|'conflict';error?:string;quiz_id?:string;shared?:Partial<Record<'lesson'|'quiz',string>>};
+export type Draft={snapshot:Snapshot;localBook?:string;sourceBook?:string;sourceSection?:string;lesson?:Lesson;questions?:MCQ[];run?:{kind:'lesson'|'quiz';book:string;done:number;quizCount?:number;lessonParts:Lesson[];questions:MCQ[]};operation?:Operation;state?:'pending'|'synced'|'conflict';error?:string;quiz_id?:string;shared?:Partial<Record<'lesson'|'quiz',string>>};
 export type ArchivedDraft={id:string;archivedAt:string;draft:Draft};
 const draftOperations=new Set<string>();
 const preparing=new Map<string,Promise<Draft>>();
@@ -48,6 +49,11 @@ export class LocalAuthoring {
   if(old&&(old.lesson||old.questions||old.run)&&old.snapshot.revision!==snapshot.revision)throw Error('The institutional source or lesson changed. Your local work is retained; resolve this draft before downloading a replacement.');
   const next={...old,snapshot};await this.save(id,next);return next;
  }
+ async loadInstitution(id:string){
+  const old=await this.read(id);if(!old||old.localBook&&!old.snapshot.remote_id)return old;
+  const remote=await api<Snapshot>(`/faculty/modules/${old.snapshot.remote_id||id}/local-authoring/`);
+  return this.exclusive(id,async()=>{const current=await this.read(id);requireThat(current,'Module unavailable.');current.snapshot.institution=remote.institution;await this.save(id,current);return current;});
+ }
  async history(id:string){
   this.library.guard();const rows=await(await device()).list<ArchivedDraft>(this.library.prefix+'history:'+id+':');this.library.guard();
   return rows.sort((a,b)=>b.archivedAt.localeCompare(a.archivedAt));
@@ -68,10 +74,11 @@ export class LocalAuthoring {
   await(await device()).put(this.library.prefix+'history:'+id+':'+archived.id,archived);this.library.guard();
   const fresh:Draft={snapshot,localBook:old.localBook,sourceBook:old.sourceBook,sourceSection:old.sourceSection};await this.save(id,fresh);return fresh;
  }
- async generate(id:string,kind:'lesson'|'quiz',signal:AbortSignal,progress:(message:string)=>void){
-  return this.exclusive(id,()=>this.generateDraft(id,kind,signal,progress));
+ async generate(id:string,kind:'lesson'|'quiz',signal:AbortSignal,progress:(message:string)=>void,quizCount=6){
+  return this.exclusive(id,()=>this.generateDraft(id,kind,signal,progress,quizCount));
  }
- private async generateDraft(id:string,kind:'lesson'|'quiz',signal:AbortSignal,progress:(message:string)=>void){
+ private async generateDraft(id:string,kind:'lesson'|'quiz',signal:AbortSignal,progress:(message:string)=>void,quizCount:number){
+  if(kind==='quiz')requireThat(Number.isInteger(quizCount)&&quizCount>=1&&quizCount<=6,'Choose 1–6 questions.');
   const draft=await this.read(id);requireThat(draft,'Save this module on the device first.');
   requireThat(!draft.localBook||!activeBookTransfers.has(this.library.prefix+'import:'+draft.localBook),'A book transfer is in progress. Try generation when it finishes.');
   requireThat(!draft.operation||draft.state==='synced','Finish synchronizing the reviewed draft before generating another version.');
@@ -80,13 +87,13 @@ export class LocalAuthoring {
   if(!draft.run){
    const book=fingerprint(id+'|'+randomUUID());
    await this.library.seed({id:book,title:draft.snapshot.title,originalName:draft.snapshot.title,origin:'personal',importedAt:new Date().toISOString(),warnings:[],sections:makeSections([{title:draft.snapshot.title,text:draft.snapshot.source}])});
-   draft.run={kind,book,done:0,lessonParts:[],questions:[]};draft.operation=undefined;draft.state=undefined;await this.save(id,draft);
+   draft.run={kind,book,done:0,quizCount:kind==='quiz'?quizCount:undefined,lessonParts:[],questions:[]};draft.operation=undefined;draft.state=undefined;await this.save(id,draft);
   }
   const run=draft.run,book=await this.library.book(run.book);
-  for(let index=run.done;index<book.sections.length;index++){
+  for(let index=run.done;index<(kind==='quiz'?Math.min(book.sections.length,run.quizCount||6):book.sections.length);index++){
    const section=book.sections[index];progress(`Module part ${index+1} of ${book.sections.length}`);
    if(kind==='lesson'){const result=await this.library.generateLesson(book.id,section.id,signal,progress);run.lessonParts.push(result.lesson);}
-   else {const result=await this.library.generateQuiz(book.id,section.id,1,signal,done=>progress(`${done} questions saved`),progress);run.questions.push(...result.questions);}
+   else {const used=Math.min(book.sections.length,run.quizCount||6);const count=run.quizCount?Math.floor(run.quizCount/used)+(index<run.quizCount%used?1:0):1;const result=await this.library.generateQuiz(book.id,section.id,count,signal,done=>progress(`${done} questions saved`),progress);run.questions.push(...result.questions);}
    run.done=index+1;await this.save(id,draft);
    if(kind==='quiz'&&run.questions.length>=6)break;
   }
