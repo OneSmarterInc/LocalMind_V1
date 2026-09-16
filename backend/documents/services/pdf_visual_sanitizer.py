@@ -1,16 +1,13 @@
 """Final safety filter for PDF visual regions.
 
-The low-level detector intentionally collects several kinds of PDF evidence. This
-module applies a last, textbook-oriented sanity pass before a crop is rendered.
-It is deliberately conservative about regions that resemble page fragments,
-headers, page-number tiles or prose panels while preserving regions that have an
-explicit Figure/Table/Chart/Diagram caption nearby.
-
-A second source-aware fallback handles NCERT-style multipart raster figures and
-borderless text tables. Those candidates still pass through this same sanitizer;
-the fallback never bypasses the page-fragment protections.
+Every PDF detector feeds this module before anything is rendered.  Candidate
+regions are kept when they have positive instructional evidence (caption, table
+structure, or substantial diagram geometry) and rejected when they look like page
+furniture, page fragments, prose callouts, or navigation art.
 """
 from __future__ import annotations
+
+import re
 
 from .pdf_visual_regions import (
     area,
@@ -19,15 +16,26 @@ from .pdf_visual_regions import (
     source_caption_line,
 )
 from .textbook_visual_fallbacks import textbook_fallback_regions
+from .ruled_tables import ruled_table_regions
+
+_CALLOUT_RE = re.compile(
+    r"^(?:why\s+this\s+is\s+happening|activity(?:\s*[\d.]+)?|questions?|"
+    r"examples?(?:\s*[\d.]+)?|more\s+to\s+know!?|do\s+you\s+know\??|"
+    r"did\s+you\s+know\??|points?\s+to\s+ponder|summary|exercises?|"
+    r"think\s+it\s+over\??|try\s+this|fact\s+file)\b",
+    re.I,
+)
+_TABLE_ORIGINS = {"table", "ruled_text_table", "borderless_text_table"}
 
 
 def _text_blocks(page):
     return [b for b in page.get_text("blocks") if len(b) >= 7 and b[6] == 0]
 
 
-def _text_chars_inside(blocks, rect):
+def _text_inside(blocks, rect):
     import pymupdf
 
+    rows = []
     total = 0
     for block in blocks:
         text = str(block[4] or "").strip()
@@ -39,8 +47,10 @@ def _text_chars_inside(blocks, rect):
             continue
         fraction = area(overlap) / max(1.0, area(box))
         if fraction > 0.12:
-            total += int(len(text) * min(1.0, fraction))
-    return total
+            chars = int(len(text) * min(1.0, fraction))
+            total += chars
+            rows.append(text)
+    return total, rows
 
 
 def _caption_blocks(blocks):
@@ -66,7 +76,6 @@ def _nearby_caption(rect, captions):
         vertical = max(rect.y0 - box.y1, box.y0 - rect.y1, 0.0)
         horizontal = max(rect.x0 - box.x1, box.x0 - rect.x1, 0.0)
         overlap = _axis_overlap(rect.x0, rect.x1, box.x0, box.x1)
-        # Textbook captions are normally immediately above/below the figure.
         if vertical <= 115 and (overlap >= 0.18 or horizontal <= 90):
             distance = vertical + horizontal * 0.35
             if best is None or distance < best[0]:
@@ -74,54 +83,65 @@ def _nearby_caption(rect, captions):
     return best[1] if best else ""
 
 
+def _has_callout_text(lines):
+    for block in lines:
+        for raw in str(block).splitlines():
+            text = " ".join(raw.strip().split())
+            if text and _CALLOUT_RE.match(text):
+                return True
+    return False
+
+
 def _reject_region(page, region, blocks, captions):
     rect = region["rect"]
     page_area = max(1.0, area(page.rect))
     ratio = area(rect) / page_area
-    text_chars = _text_chars_inside(blocks, rect)
+    text_chars, text_lines = _text_inside(blocks, rect)
     caption = str(region.get("caption") or "").strip() or _nearby_caption(rect, captions)
+    origin = str(region.get("origin") or "")
+    is_table = origin in _TABLE_ORIGINS or region.get("kind") == "table"
 
-    # A crop containing hundreds of characters and a quarter of the page is a
-    # page/article fragment, not an instructional visual. This is the failure
-    # mode that produced near-page screenshots in the faculty picture report.
-    if ratio >= 0.24 and text_chars >= 300:
-        return True
-    if ratio >= 0.16 and text_chars >= 650:
+    # Large selectable-text regions are page/article fragments, not visual
+    # crops.  Tables are exempt because their content is intentionally text-rich.
+    if not is_table:
+        if ratio >= 0.24 and text_chars >= 260:
+            return True
+        if ratio >= 0.14 and text_chars >= 520:
+            return True
+
+    # Coloured Example / Activity / Questions / explanatory callouts are a
+    # recurring NCERT false positive.  Keep a separately detected, captioned
+    # figure inside the panel; reject the panel itself.
+    if not is_table and not caption and _has_callout_text(text_lines):
         return True
 
-    # Embedded images can be page composites or large textbook panels. Real
-    # raster figures may contain labels, but they should not contain paragraphs
-    # of the selectable page text.
-    if region.get("origin") == "embedded" and ratio >= 0.12 and text_chars >= 180:
+    # Embedded images can be composite screenshots of a large part of a page.
+    if origin == "embedded" and not caption and ratio >= 0.10 and text_chars >= 140:
         return True
-
-    # Caption-linked raster groups may contain several image pieces, but never
-    # accept a large selectable-text page fragment just because a caption is nearby.
-    if region.get("origin") == "captioned_raster_group" and ratio >= 0.16 and text_chars >= 180:
+    if origin == "captioned_raster_group" and ratio >= 0.16 and text_chars >= 180:
         return True
 
     height, width = page.rect.height, page.rect.width
     top = (rect.y0 - page.rect.y0) / max(1.0, height)
     bottom = (rect.y1 - page.rect.y0) / max(1.0, height)
 
-    # Chapter banners, running heads and wide decorative strips. Preserve a
-    # genuine top-of-page figure only when the source explicitly captions it.
-    if not caption and top < 0.18 and rect.width > width * 0.42:
+    # Running heads, chapter banners and decorative strips.
+    if not caption and top < 0.17 and rect.width > width * 0.38:
+        return True
+    if not caption and bottom > 0.90 and rect.width > width * 0.30:
         return True
 
-    # Page-number/section-number tiles such as the isolated blue "2" reported
-    # in the Physics book. Small, uncaptured regions near either margin are not
-    # useful lesson visuals.
-    if not caption and ratio < 0.09 and text_chars <= 6:
-        if top < 0.28 or bottom > 0.82:
+    # Small uncaptained tiles near top/bottom are overwhelmingly page numbers,
+    # chapter markers, icons or publisher furniture.
+    if not caption and not is_table and ratio < 0.10:
+        if top < 0.24 or bottom > 0.82:
             return True
-        if region.get("origin") == "vector" and ratio < 0.045:
+        if origin == "vector" and ratio < 0.05 and text_chars < 16:
             return True
 
-    # Generic vectors with no caption need enough substance to justify being a
-    # teaching visual. A tiny box/number/decoration should not survive merely
-    # because it is technically vector artwork.
-    if region.get("origin") == "vector" and not caption and ratio < 0.065 and text_chars < 12:
+    # Generic vector fragments need enough substance when no source caption
+    # anchors them to the lesson.
+    if origin == "vector" and not caption and ratio < 0.07 and text_chars < 16:
         return True
 
     if caption and not region.get("caption"):
@@ -130,15 +150,19 @@ def _reject_region(page, region, blocks, captions):
 
 
 def pdf_regions(page, page_no):
-    """Return detected and fallback regions after one common safety filter."""
+    """Return all PDF candidate types after one common safety policy."""
     blocks = _text_blocks(page)
     captions = _caption_blocks(blocks)
     raw = list(_detected_regions(page, page_no))
     try:
         raw.extend(textbook_fallback_regions(page, page_no))
     except Exception:
-        # The primary detector still works if a malformed page defeats a fallback.
         pass
+    try:
+        raw.extend(ruled_table_regions(page, page_no))
+    except Exception:
+        pass
+
     regions = []
     for region in raw:
         row = dict(region)
