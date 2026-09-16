@@ -18,6 +18,7 @@ import logging
 from pathlib import Path
 
 from django.conf import settings
+from core.generation_policy import device_authoring_only
 
 from ai import gateway as ai_gateway
 from ai.gateway import AIGateway, AIResult
@@ -94,6 +95,8 @@ def judge_model_label() -> str:
 
 def judge_available() -> tuple[bool, str]:
     """Cheap readiness check for the health screen; never loads a model."""
+    if device_authoring_only():
+        return False, "Device-first mode: deterministic checks and faculty review are active; server AI judging is disabled."
     if not _ai("ENABLED", False):
         return False, "AI is disabled; the judge cannot run (validators still do)."
     if not _cfg("JUDGE_ENABLED", True):
@@ -175,6 +178,8 @@ def normalise(data: dict) -> dict:
 
 def run(*, kind: str, prompt: str, response: str, evidence_text: str, validator_lines: list[str], metadata: dict) -> AIResult:
     """One judge call. The result's ``data`` is normalised when ok."""
+    if device_authoring_only():
+        return AIResult(ok=False, error_code="LOCAL_AUTHORING_REQUIRED", error="Server AI judging is disabled in device-first mode.")
     model = None
     if _ai("PROVIDER", "llamacpp") == "ollama" and _cfg("OLLAMA_MODEL"):
         model = _cfg("OLLAMA_MODEL")

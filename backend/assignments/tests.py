@@ -1,6 +1,7 @@
 from datetime import timedelta
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
+from unittest.mock import patch
 from django.utils import timezone
 
 from audit.models import AuditLog
@@ -38,6 +39,7 @@ class AssignmentTests(TestCase):
                                                         "rubric": [{"criterion": "A", "points": 3}]}, format="json")
         self.assertEqual(res.status_code, 400)
 
+    @override_settings(DEVICE_AUTHORING_ONLY=False)
     def test_generation_falls_back_without_ai(self):
         res = self.fc.post("/api/faculty/assignments/generate/", {"module_id": str(self.module.id), "max_score": 20}, format="json")
         self.assertEqual(res.status_code, 201, res.content)
@@ -157,3 +159,16 @@ class AssignmentSelectionAndReleaseTests(AssignmentTests):
         mine = self.sc.get("/api/student/assignment-submissions/")
         self.assertEqual(mine.data["results"][0]["score"], 8.0)
         self.assertEqual(mine.data["results"][0]["feedback"], "Good")
+
+@override_settings(DEVICE_AUTHORING_ONLY=True)
+class DeviceOnlyAssignmentTests(TestCase):
+    setUp = AssignmentTests.setUp
+
+    def test_server_generation_is_rejected_without_calling_model(self):
+        with patch("assignments.services.gateway") as gateway:
+            response = self.fc.post("/api/faculty/assignments/generate/",
+                                    {"module_id": str(self.module.id), "max_score": 20}, format="json")
+        self.assertEqual(response.status_code, 409, response.content)
+        self.assertIn("LOCAL_AUTHORING_REQUIRED", response.content.decode())
+        gateway.assert_not_called()
+        self.assertFalse(Assignment.objects.exists())

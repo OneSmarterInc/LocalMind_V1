@@ -7,6 +7,7 @@ from academics.models import Subject, faculty_manages_subject
 from ai.gateway import gateway, trim_source
 from audit import services as audit
 from core.exceptions import Conflict, Forbidden, NotFound, ValidationFailed
+from core.generation_policy import require_server_authoring
 from learning import services as learning
 from learning.models import Chapter, Module
 
@@ -123,6 +124,7 @@ def create(actor, *, subject_id=None, module_id=None, chapter_id=None, module_id
 def generate(actor, *, module_id=None, chapter_id=None, module_ids=None, focus="", request=None, **fields):
     """The model call runs outside any transaction (see tutor.teach); only the
     final insert is atomic."""
+    require_server_authoring()
     subject, chapter, module, source, name, modules = _target(actor, None, module_id, chapter_id, module_ids)
     _require_manage(actor, subject)
     if not source.strip():

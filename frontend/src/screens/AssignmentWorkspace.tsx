@@ -55,7 +55,7 @@ export function AssignmentListPage() {
         </TableToolbar>
         {list.error && !list.data ? <RequestFailed onRetry={list.reload} /> : list.loading && !list.data ? <Loading lines={2} /> : (
           <Table noun="assignment" columns={columns} rows={rows} keyOf={(a) => a.id} onRowPress={open} minWidth={900}
-            empty={<Empty icon="create-outline" title={list.data?.length ? "No matching records" : "No assignments yet"} text={list.data?.length ? "Try a different search." : "Create an assignment from one or more modules; the task and rubric can be drafted for you."}
+            empty={<Empty icon="create-outline" title={list.data?.length ? "No matching records" : "No assignments yet"} text={list.data?.length ? "Try a different search." : "Create an assignment from one or more modules and write its task and rubric."}
               action={!list.data?.length ? <Button title="Create assignment" icon="add" onPress={() => router.push("/manage/assignment/new")} /> : undefined} />} />
         )}
       </Card>
@@ -72,15 +72,12 @@ export function AssignmentNewPage() {
   const [title, setTitle] = useState("");
   const [subjectId, setSubjectId] = useState("");
   const [modules, setModules] = useState<string[]>([]);
-  const [how, setHow] = useState<"generate" | "manual">("generate");
   const [maxScore, setMaxScore] = useState("10");
   const [due, setDue] = useState("");
   const go = useAction(async () => {
     const score = Number(maxScore) || 10;
     const common = { module_ids: modules, max_score: score, due_at: due || undefined, allow_late: true };
-    const a = how === "generate"
-      ? await manage.generateAssignment({ ...common, title: title.trim() || undefined })
-      : await manage.createAssignment({ ...common, title: title.trim() || "Untitled assignment", rubric: [{ criterion: "Accuracy against the source", points: Math.ceil(score / 2) }, { criterion: "Clarity and structure", points: Math.floor(score / 2) }] });
+    const a = await manage.createAssignment({ ...common, title: title.trim() || "Untitled assignment", rubric: [{ criterion: "Accuracy against the source", points: Math.ceil(score / 2) }, { criterion: "Clarity and structure", points: Math.floor(score / 2) }] });
     router.replace(`/manage/assignment/${a.id}`);
   });
   return (
@@ -91,13 +88,8 @@ export function AssignmentNewPage() {
         main={
           <Card>
             <CardHead title="Assignment basics" />
-            <Input label="Assignment title" required value={title} onChangeText={setTitle} placeholder="For example, A personal security checklist" hint="Leave blank to name it after the modules when generating." />
+            <Input label="Assignment title" required value={title} onChangeText={setTitle} placeholder="For example, A personal security checklist" />
             <SourceModuleChooser subjectId={subjectId} onSubject={setSubjectId} value={modules} onChange={setModules} />
-            <Text style={{ fontSize: 15, fontWeight: "600", color: colors.ink, marginTop: 6 }}>Create the task</Text>
-            <View style={{ gap: 8 }}>
-              <OptionCard title="Generate a task and rubric with local AI" text="Drafted only from the selected modules; you edit it before publishing." selected={how === "generate"} onPress={() => setHow("generate")} />
-              <OptionCard title="Write the task myself" text="Start from an empty task with a simple two-criterion rubric." selected={how === "manual"} onPress={() => setHow("manual")} />
-            </View>
             <Grid min={200} gap={16}>
               <Input label="Maximum score" value={maxScore} onChangeText={setMaxScore} keyboardType="number-pad" />
               <DateTimeField label="Due date" value={due || null} onChange={(v) => setDue(v ?? "")} />
