@@ -479,3 +479,30 @@ test('staff imports a new book offline and synchronizes its source and reviewed 
  await context.setOffline(true);await page.reload();
  await expect(page.getByRole('heading',{name:'Review lesson',exact:true})).toBeVisible();
 });
+
+test('staff batch generates offline, survives navigation and skips completed drafts on restart',async({page,context})=>{
+ await signIn(page,'faculty','/manage/offline-ai');await model(page,'/manage/offline-ai');
+ const serverGeneration:string[]=[];
+ page.on('request',request=>{if(request.method()==='POST'&&/\/api\/faculty\/.*(lessons|auto-quizzes|generate)/.test(request.url()))serverGeneration.push(request.url());});
+ await page.goto(`/manage/local-batch?document=${fixture().document}`);
+ await page.getByRole('button',{name:'Save book sources on this device',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Review local draft',exact:true})).toHaveCount(2);
+ await context.setOffline(true);
+ await page.getByRole('button',{name:'Generate missing lessons locally',exact:true}).click();
+ await page.getByRole('button',{name:'Review local draft',exact:true}).first().click();
+ await expect(page).toHaveURL(/manage\/local-authoring/);
+ await page.getByRole('button',{name:'Prepare book locally',exact:true}).click();
+ await expect(page).toHaveURL(/manage\/local-batch/);
+ await expect(page.getByText(/Lesson saved · Quiz missing/)).toHaveCount(2,{timeout:30000});
+ await page.reload();
+ await expect(page.getByText(/Lesson saved · Quiz missing/)).toHaveCount(2);
+ await page.evaluate(()=>{(window as any).__LM_TEST_FAIL_ONCE__=true;});
+ // No inference should be made for a batch whose drafts are already complete.
+ await page.getByRole('button',{name:'Generate missing lessons locally',exact:true}).click();
+ await expect(page.getByText('Saved on this device',{exact:true})).toBeVisible();
+ expect(await page.evaluate(()=>(window as any).__LM_TEST_FAIL_ONCE__)).toBe(true);
+ await page.evaluate(()=>{(window as any).__LM_TEST_FAIL_ONCE__=false;});
+ await page.getByRole('button',{name:'Generate missing quizzes locally',exact:true}).click();
+ await expect(page.getByText(/Lesson saved · Quiz saved/)).toHaveCount(2,{timeout:30000});
+ expect(serverGeneration).toEqual([]);
+});

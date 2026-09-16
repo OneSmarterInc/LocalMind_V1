@@ -9,6 +9,7 @@ export type Snapshot={module_id:string;document_id:string;title:string;source:st
 type Operation={id:string;revision:string;kind:'lesson'|'quiz';reviewed:true;lesson?:Lesson;questions?:MCQ[]};
 export type Draft={snapshot:Snapshot;localBook?:string;sourceBook?:string;sourceSection?:string;lesson?:Lesson;questions?:MCQ[];run?:{kind:'lesson'|'quiz';book:string;done:number;lessonParts:Lesson[];questions:MCQ[]};operation?:Operation;state?:'pending'|'synced'|'conflict';error?:string;quiz_id?:string;shared?:Partial<Record<'lesson'|'quiz',string>>};
 export type ArchivedDraft={id:string;archivedAt:string;draft:Draft};
+const draftOperations=new Set<string>();
 const syncing=new Map<string,Promise<Draft|undefined>>();
 export class LocalAuthoring {
  readonly library:Library;
@@ -18,15 +19,21 @@ export class LocalAuthoring {
  async flushAll(){const rows=await this.drafts();for(const row of rows)if(row.state==='pending')await this.flush(row.snapshot.module_id);}
  async read(id:string){this.library.guard();const value=await(await device()).get<Draft>(this.key(id));this.library.guard();return value;}
  private async save(id:string,draft:Draft){this.library.guard();await(await device()).put(this.key(id),draft);this.library.guard();}
+ private async exclusive<T>(id:string,run:()=>Promise<T>):Promise<T>{
+  const key=this.key(id);requireThat(!draftOperations.has(key),'This module already has an operation in progress on this device.');draftOperations.add(key);
+  try{return await run();}finally{draftOperations.delete(key);}
+ }
  async seedLocal(id:string,draft:Draft){if(!await this.read(id))await this.save(id,draft);}
- async linkLocal(id:string,documentId:string,remoteId:string,revision:string){
+ async linkLocal(id:string,documentId:string,remoteId:string,revision:string){return this.exclusive(id,()=>this.linkLocalDraft(id,documentId,remoteId,revision));}
+ private async linkLocalDraft(id:string,documentId:string,remoteId:string,revision:string){
   const draft=await this.read(id);requireThat(draft,'Local draft is missing.');
   if(draft.snapshot.remote_id)return; // replay must not roll a newer lesson revision back
   draft.snapshot={...draft.snapshot,document_id:documentId,remote_id:remoteId,revision};
   if(draft.operation)draft.operation.revision=revision;
   await this.save(id,draft);
  }
- async download(id:string){
+ async download(id:string){return this.exclusive(id,()=>this.downloadDraft(id));}
+ private async downloadDraft(id:string){
   const old=await this.read(id);
   requireThat(!old?.localBook||old.snapshot.remote_id,"Synchronize the book draft first.");
   const snapshot=await api<Snapshot>(`/faculty/modules/${old?.snapshot.remote_id||id}/local-authoring/`);this.library.guard();
@@ -39,7 +46,8 @@ export class LocalAuthoring {
   this.library.guard();const rows=await(await device()).list<ArchivedDraft>(this.library.prefix+'history:'+id+':');this.library.guard();
   return rows.sort((a,b)=>b.archivedAt.localeCompare(a.archivedAt));
  }
- async refreshSource(id:string){
+ async refreshSource(id:string){return this.exclusive(id,()=>this.refreshSourceDraft(id));}
+ private async refreshSourceDraft(id:string){
   const inflight=syncing.get(this.key(id));if(inflight)await inflight;
   const old=await this.read(id);requireThat(old,'Save the module first.');
   requireThat(old.state!=='pending','A reviewed draft is still waiting to synchronize. Retry it before refreshing the source.');
@@ -55,6 +63,9 @@ export class LocalAuthoring {
   const fresh:Draft={snapshot,localBook:old.localBook,sourceBook:old.sourceBook,sourceSection:old.sourceSection};await this.save(id,fresh);return fresh;
  }
  async generate(id:string,kind:'lesson'|'quiz',signal:AbortSignal,progress:(message:string)=>void){
+  return this.exclusive(id,()=>this.generateDraft(id,kind,signal,progress));
+ }
+ private async generateDraft(id:string,kind:'lesson'|'quiz',signal:AbortSignal,progress:(message:string)=>void){
   const draft=await this.read(id);requireThat(draft,'Save this module on the device first.');
   requireThat(!draft.localBook||!activeBookTransfers.has(this.library.prefix+'import:'+draft.localBook),'A book transfer is in progress. Try generation when it finishes.');
   requireThat(!draft.operation||draft.state==='synced','Finish synchronizing the reviewed draft before generating another version.');
@@ -77,7 +88,8 @@ export class LocalAuthoring {
   else draft.questions=run.questions;
   draft.run=undefined;await this.save(id,draft);return draft;
  }
- async share(id:string,kind:'lesson'|'quiz'){
+ async share(id:string,kind:'lesson'|'quiz'){return this.exclusive(id,()=>this.shareDraft(id,kind));}
+ private async shareDraft(id:string,kind:'lesson'|'quiz'){
   const draft=await this.read(id);requireThat(draft,'No local draft.');requireThat(!draft.run,'Finish generation before sharing.');
   requireThat(!draft.localBook||!activeBookTransfers.has(this.library.prefix+'import:'+draft.localBook),'A book transfer is in progress. Try approval when it finishes.');
   requireThat(kind==='lesson'?draft.lesson:draft.questions?.length,'Generate and review the content first.');

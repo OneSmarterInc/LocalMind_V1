@@ -23,6 +23,7 @@ function Authoring(){
  <Card><Row><Button title="Save module on this device" disabled={busy||!!draft?.localBook} busy={task.busy} onPress={()=>task.run(async()=>{setDraft(await service.download(id));})}/><Button title="Books & modules" variant="secondary" onPress={()=>router.push('/manage/books')}/></Row>
  <P muted>Save the authorized source while connected. Generation then works offline. Reviewed lessons are synchronized to the course; quizzes are synchronized as drafts for the existing publication workflow.</P></Card>
  {draft?<><Card><H2>Source</H2><P>{draft.snapshot.source}</P>{draft.sourceBook&&draft.sourceSection?<SourceVisuals bookId={draft.sourceBook} sectionId={draft.sourceSection} sourceLibrary={service.library}/>:null}</Card>
+ {!draft.localBook||draft.snapshot.remote_id?<Button title="Prepare book locally" variant="secondary" onPress={()=>router.push(`/manage/local-batch?document=${draft.snapshot.document_id}`)}/>:null}
  {draft.localBook?<Button title="Open local book synchronization" variant="secondary" onPress={()=>router.push('/manage/local-books')}/>:null}
  <Card><Row><Button title="Generate local lesson" disabled={busy||task.busy} onPress={()=>generate('lesson')}/><Button title="Generate local quiz" disabled={busy||task.busy} onPress={()=>generate('quiz')}/></Row>
  {draft.run?<P muted>Saved through part {draft.run.done}. Select the same generation again after an interruption to resume.</P>:null}

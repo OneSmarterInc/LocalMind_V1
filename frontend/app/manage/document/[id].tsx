@@ -49,8 +49,8 @@ export default function DocumentScreen() {
   }, [d?.chapters]);
   const retryJob = useAction(async () => { if (!d?.background_job) return; await api(`/jobs/${d.background_job.id}/`, { method: "POST" }); await doc.reload(); });
   const jobNotice = d?.background_job && d.background_job.status !== "done" ? <Notice tone={d.background_job.status === "failed" ? "warning" : "info"} title={`Saved processing job: ${d.background_job.status}`} message={d.background_job.error || "Parsing is saved in the job queue. Restarting the local launcher resumes eligible jobs."} action={d.background_job.status === "failed" ? <Button title="Retry saved job" busy={retryJob.busy} onPress={()=>retryJob.run()}/> : undefined}/> : null;
-  const queueLessons = useAction(async () => { await manage.generateLessons(id); setDoc(await manage.document(id)); });
-  const queueQuizzes = useAction(async () => { await manage.generateAutoQuizzes(id); setDoc(await manage.document(id)); });
+  const queueLessons = useAction(async () => { router.push({pathname:"/manage/local-batch",params:{document:id}}); });
+  const queueQuizzes = useAction(async () => { router.push({pathname:"/manage/local-batch",params:{document:id}}); });
   // The outline editor keeps edits locally until Save; a transition offers to save them first.
   const [pending, setPending] = useState<{ dirty: boolean; save: () => Promise<boolean> } | null>(null);
   // Leaving the Outline tab unmounts the editor, so unsaved edits are saved first or the switch is cancelled.
@@ -302,7 +302,7 @@ function ReadinessTab({ doc, onQueueLessons, lessonsBusy, onQueueQuizzes, quizze
   const l = doc.lessons; const a = doc.auto_quizzes;
   const regenerate = async (m: ModuleRow) => {
     setBusyId(m.id!); setRowError(null);
-    try { await manage.regenerateLesson(m.id!); } catch (e) { setRowError(e instanceof Error ? e.message : String(e)); } finally { setBusyId(null); }
+    try { router.push(`/manage/local-authoring/${m.id}`); } catch (e) { setRowError(e instanceof Error ? e.message : String(e)); } finally { setBusyId(null); }
   };
   const columns: Column<ModuleRow>[] = [
     { key: "m", label: "Module", flex: 2.2, render: (m) => <CellText title={m.title} sub={`Module ${m.number}`} /> },
@@ -314,7 +314,7 @@ function ReadinessTab({ doc, onQueueLessons, lessonsBusy, onQueueQuizzes, quizze
         <Button title="Preview lesson" small variant="secondary" disabled={m.lesson_status === "none"} onPress={() => onPreview({ id: m.id!, title: m.title, quizStatus: m.quiz_status ?? "off", quizId: m.auto_quiz_id ?? null })} />
         {m.quiz_status === "held" && m.auto_quiz_id
           ? <Button title="Review quiz" small variant="secondary" onPress={() => router.push(`/manage/quiz/${m.auto_quiz_id}`)} />
-          : <Button title="Regenerate" small variant="secondary" icon="refresh" disabled={m.lesson_status === "none" || m.lesson_status === "pending" || m.lesson_status === "generating"} busy={busyId === m.id} onPress={() => regenerate(m)} />}
+          : <Button title="Regenerate" small variant="secondary" icon="refresh" disabled={m.source_missing} busy={busyId === m.id} onPress={() => regenerate(m)} />}
       </View>
     ) },
   ];
@@ -329,8 +329,8 @@ function ReadinessTab({ doc, onQueueLessons, lessonsBusy, onQueueQuizzes, quizze
         <Table noun="module" columns={columns} rows={modules} keyOf={(m) => m.id!} minWidth={860} empty={<Empty icon="school-outline" text="This book has no modules yet." />} />
       </Card>
       <View style={{ flexDirection: "row", gap: 9, flexWrap: "wrap" }}>
-        <Button title="Generate missing lessons" variant="secondary" icon="sparkles-outline" onPress={onQueueLessons} busy={lessonsBusy} disabled={!l || l.ready === l.total} />
-        {a?.enabled ? <Button title="Retry missing quizzes" variant="secondary" icon="refresh" onPress={onQueueQuizzes} busy={quizzesBusy} disabled={!a.failed} /> : null}
+        <Button title="Prepare lessons on this device" variant="secondary" icon="sparkles-outline" onPress={onQueueLessons} busy={lessonsBusy} disabled={!modules.length} />
+        <Button title="Prepare quizzes on this device" variant="secondary" icon="refresh" onPress={onQueueQuizzes} busy={quizzesBusy} disabled={!modules.length} />
       </View>
     </>
   );
@@ -863,14 +863,14 @@ function ModuleLessonPanel({ moduleId, textEdited }: { moduleId: string; textEdi
     const timer = setTimeout(async () => { try { setData(await manage.moduleLesson(moduleId)); } catch { /* retried on next open */ } }, 6000);
     return () => clearTimeout(timer);
   }, [d, moduleId, setData]);
-  const again = useAction(async () => { setData(await manage.regenerateLesson(moduleId)); });
+  const again = useAction(async () => { router.push(`/manage/local-authoring/${moduleId}`); });
   const when = d?.generated_at ? new Date(d.generated_at).toLocaleString() : "";
   let line = "";
   if (d?.status === "ready") line = `Generated ${when}${d.model ? ` by ${d.model}` : ""}.`;
   else if (d?.status === "generating") line = "The tutor is writing this lesson now.";
   else if (d?.status === "pending") line = d.queue_position ? `Queued: ${d.queue_position === 1 ? "next in line" : `number ${d.queue_position} in line`}.` : "Queued.";
   else if (d?.status === "failed") line = `Could not be generated (${d.last_error || "unknown error"}).${d.next_attempt_at ? ` Trying again at ${new Date(d.next_attempt_at).toLocaleTimeString()}.` : " It will not be retried until you ask."} Students see the module text meanwhile.`;
-  else if (d?.status === "none") line = "This module has no text, so there is no lesson.";
+  else if (d?.status === "none") line = "No generated lesson is available. Save the source and prepare a local draft.";
   return (
     <View style={{ gap: 16 }}>
       <Button title="Generate on this device" variant="secondary" disabled={textEdited} onPress={()=>router.push(`/manage/local-authoring/${moduleId}`)}/>
@@ -882,7 +882,7 @@ function ModuleLessonPanel({ moduleId, textEdited }: { moduleId: string; textEdi
           message={`${line} Regenerating requests a replacement based on the current source text. It does not edit the original source.`}
           action={d.status !== "none" && d.status !== "pending" && d.status !== "generating" ? <Button title={d.status === "failed" ? "Try again" : "Regenerate"} icon="refresh" small variant="secondary" onPress={() => again.run()} busy={again.busy} /> : undefined} />
       ) : null}
-      {textEdited ? <Notice message="You have edited this module's text. Save the outline and a new lesson is generated for it; the one below is for the saved text." /> : null}
+      {textEdited ? <Notice message="You have edited this module's text. Save the outline before opening local authoring; the lesson below belongs to the previously saved text." /> : null}
       {d?.lesson ? <LessonView lesson={d.lesson} badge={d.status === "ready" ? "Saved AI lesson" : null} /> : null}
     </View>
   );
@@ -891,11 +891,10 @@ function ModuleLessonPanel({ moduleId, textEdited }: { moduleId: string; textEdi
 /** The module's automatic quiz: open it, or have it written again. */
 function AutoQuizControls({ moduleId, status, quizId }: { moduleId: string; status: string; quizId: string | null }) {
   const router = useRouter();
-  const [local, setLocal] = useState<string | null>(null);
-  const shown = local ?? status;
-  const again = useAction(async () => { const r = await manage.regenerateAutoQuiz(moduleId); setLocal(r.quiz_status); });
+  const shown = status;
+  const again = useAction(async () => { router.push(`/manage/local-authoring/${moduleId}`); });
   const busy = shown === "pending" || shown === "generating" || shown === "checking";
-  if (shown === "short") return <Text style={ws.hint}>This module is too short for an automatic quiz. Add one by hand in Quizzes if it needs one.</Text>;
+
   const label = shown === "dismissed" ? "Write the quiz again" : shown === "none" ? "Write a quiz" : shown === "failed" ? "Try again" : "Write it again";
   return (
     <View style={{ gap: 4 }}>
