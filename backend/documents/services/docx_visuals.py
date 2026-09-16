@@ -14,6 +14,7 @@ from zipfile import ZipFile
 
 from PIL import Image, ImageOps
 from .visual_context import CAPTION_RE
+from .visual_quality import looks_like_qr_image
 
 log = logging.getLogger("localmind.documents.visuals")
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
@@ -50,6 +51,8 @@ def normalized_picture(data, crop=None):
     # Normalize to RGB on white; no metadata or active image content is retained.
     background = Image.new("RGB", image.size, "white")
     background.paste(image, mask=image.getchannel("A"))
+    if looks_like_qr_image(background):
+        raise ValueError("QR/navigation code excluded by instructional-visual policy")
     out = io.BytesIO(); background.save(out, format="PNG")
     return out.getvalue(), background.width, background.height
 
