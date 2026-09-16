@@ -37,7 +37,6 @@ from assessments.models import Assessment
 from audit import services as audit
 from core.exceptions import NotFound, ValidationFailed
 from core.utils import get_or_404
-from core.generation_policy import device_authoring_only
 from documents.services import retrieval
 from documents.services.chunking import ensure_chunks
 from tutor.models import Message
@@ -282,7 +281,7 @@ def decide(checks: list[Check], judge_data: dict | None, judge_failed: bool) -> 
                 "reason": "Validators could not decide and the judge was unavailable.", "recommended_action": RecommendedAction.NO_ACTION, "source": "validators"}
     if undecided:
         return {"verdict": Verdict.ABSTAIN, "issue_type": IssueType.NONE, "severity": Severity.LOW, "confidence": 0.0,
-                "reason": "Deterministic checks could not verify all claims; faculty review is needed.", "recommended_action": RecommendedAction.NO_ACTION, "source": "validators"}
+                "reason": "No reference material to verify against.", "recommended_action": RecommendedAction.NO_ACTION, "source": "validators"}
     return {"verdict": Verdict.PASS, "issue_type": IssueType.NONE, "severity": Severity.LOW, "confidence": 0.9,
             "reason": "Every deterministic check passed.", "recommended_action": RecommendedAction.NO_ACTION, "source": "validators"}
 
@@ -339,7 +338,7 @@ def _run(*, kind: str, interaction_id, prompt: str, response_text: str, checks: 
     evidence_text = "\n\n".join(f"[{p.get('ref', '')}] {p.get('text', '')}" for p in bounded)
     reason = _judge_reason(checks, interaction_id, force_judge)
     judge_data, judge_failed, judge_model, judge_latency, judge_error, judge_raw, invoked = None, False, "", None, "", {}, False
-    if reason and not device_authoring_only() and _cfg("JUDGE_ENABLED", True) and settings.AI.get("ENABLED", False):
+    if reason and _cfg("JUDGE_ENABLED", True) and settings.AI.get("ENABLED", False):
         invoked = True
         lines = [f"{c.name}: {'pass' if c.passed else 'FAIL' if c.passed is False else 'undecided'} - {c.detail}" for c in checks]
         result = judge.run(kind=kind, prompt=prompt, response=response_text, evidence_text=evidence_text, validator_lines=lines, metadata=metadata)
@@ -349,7 +348,7 @@ def _run(*, kind: str, interaction_id, prompt: str, response_text: str, checks: 
         else:
             judge_failed, judge_error = True, f"{result.error_code}: {result.error}"[:300]
             logger.warning("Monitor judge failed for %s %s: %s", kind, interaction_id, judge_error)
-    elif reason and not device_authoring_only():
+    elif reason:
         judge_failed, judge_error = True, "judge disabled"
     decision = decide(checks, judge_data, judge_failed)
 
@@ -698,8 +697,8 @@ def user_impact(user, days: int = 30) -> list[dict]:
 
 def status() -> dict:
     ok, detail = judge.judge_available()
-    return {"enabled": enabled(), "mode": _cfg("MODE", "async"), "judge_enabled": bool(_cfg("JUDGE_ENABLED", True)) and not device_authoring_only(),
-            "judge_ready": ok, "judge_detail": detail, "judge_model": "" if device_authoring_only() else judge.judge_model_label(), "sample_percent": int(_cfg("SAMPLE_PERCENT", 10)),
+    return {"enabled": enabled(), "mode": _cfg("MODE", "async"), "judge_enabled": bool(_cfg("JUDGE_ENABLED", True)),
+            "judge_ready": ok, "judge_detail": detail, "judge_model": judge.judge_model_label(), "sample_percent": int(_cfg("SAMPLE_PERCENT", 10)),
             "evaluator_version": evaluator_version(), "queue_depth": queue_depth(), "retention_days": int(_cfg("RETENTION_DAYS", 180)),
             "pending_backlog": backlog_count()}
 

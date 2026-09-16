@@ -211,7 +211,7 @@ class PipelineTests(PipelineBase):
         self.assertIn("boom", ev.error)
         self.assertEqual(ev.verdict, Verdict.ABSTAIN)
 
-    @override_settings(DEVICE_AUTHORING_ONLY=False)
+    @override_settings(DEVICE_AUTHORING_ONLY=True)
     def test_judge_is_called_for_suspicious_answer_and_can_clear_it(self):
         # Paraphrase with low lexical overlap: validators are unsure, judge says fine.
         msg = self.ask("What is a process?", "Think of it as a running program that the operating system is currently executing and managing on the processor.")
@@ -226,7 +226,7 @@ class PipelineTests(PipelineBase):
         self.assertEqual(ev.judge_model, "judge-fake")
         self.assertEqual(ev.judge_json["confidence"], 0.8)
 
-    @override_settings(DEVICE_AUTHORING_ONLY=False)
+    @override_settings(DEVICE_AUTHORING_ONLY=True)
     def test_judge_issue_creates_incident(self):
         msg = self.ask("What is a process?", "Think of it as a running program that the operating system is currently executing and managing on the processor.")
         with override_settings(AI_MONITOR={**services.settings.AI_MONITOR, "JUDGE_ENABLED": True}), \
@@ -236,7 +236,7 @@ class PipelineTests(PipelineBase):
         self.assertEqual((ev.verdict, ev.issue_type), (Verdict.ISSUE, IssueType.HALLUCINATION))
         self.assertTrue(Incident.objects.filter(evaluation=ev, severity=Severity.HIGH).exists())
 
-    @override_settings(DEVICE_AUTHORING_ONLY=False)
+    @override_settings(DEVICE_AUTHORING_ONLY=True)
     def test_judge_outage_falls_back_to_validators(self):
         msg = self.ask("What is a process?", "Think of it as a running program that the operating system is currently executing and managing on the processor.")
         with override_settings(AI_MONITOR={**services.settings.AI_MONITOR, "JUDGE_ENABLED": True}), \
@@ -423,7 +423,7 @@ class ApiTests(PipelineBase):
         self.assertEqual(r.status_code, 201)
         self.assertEqual(self.c.get(f"/api/admin/monitor/evaluations/{self.good.id}/").data["feedback"][0]["label"], "correct")
 
-    @override_settings(DEVICE_AUTHORING_ONLY=False)
+    @override_settings(DEVICE_AUTHORING_ONLY=True)
     def test_reevaluate_forces_judge(self):
         with patch("ai_monitor.judge.run", return_value=judge_ok(confidence=0.9)) as run, \
              override_settings(AI_MONITOR={**services.settings.AI_MONITOR, "JUDGE_ENABLED": True}), \
@@ -487,27 +487,21 @@ class ApiTests(PipelineBase):
         self.assertIn("ai_monitor", names)
 
 @override_settings(DEVICE_AUTHORING_ONLY=True, AI={"ENABLED": True},
-                   AI_MONITOR={"ENABLED": True, "MODE": "sync", "JUDGE_ENABLED": True, "SAMPLE_PERCENT": 100})
-class DeviceOnlyMonitorTests(PipelineBase):
-    def test_forced_review_keeps_validators_without_server_inference(self):
-        msg = self.ask("What does the scheduler do?", "The scheduler picks the next process to run on the CPU.")
-        with patch("ai_monitor.judge.run") as run:
-            ev = services.evaluate_message(msg, force_judge=True)
-        run.assert_not_called()
-        self.assertFalse(ev.judge_invoked)
-        self.assertEqual(ev.stage, "done")
-        self.assertTrue(ev.validators_json)
-        self.assertEqual(ev.judge_error, "")
-
-    def test_direct_judge_and_health_never_load_or_contact_model(self):
+                   AI_MONITOR={"ENABLED": True, "MODE": "sync", "JUDGE_ENABLED": True})
+class CentralJudgeWithDeviceAuthoringTests(PipelineBase):
+    def test_judge_adapter_uses_central_gateway(self):
         from . import judge
-        with patch("ai_monitor.judge._gateway") as gateway, patch("ai_monitor.judge.ai_gateway.health") as health:
-            result = judge.run(kind="quiz", prompt="", response="", evidence_text="", validator_lines=[], metadata={})
+        with patch("ai_monitor.judge._gateway") as gateway:
+            gateway.return_value.generate.return_value = judge_ok()
+            result = judge.run(kind="quiz", prompt="", response="", evidence_text=SOURCE,
+                               validator_lines=[], metadata={})
+        gateway.return_value.generate.assert_called_once()
+        self.assertTrue(result.ok)
+
+    def test_status_preserves_central_judge(self):
+        with patch("ai_monitor.judge.judge_available", return_value=(True, "ready")), \
+             patch("ai_monitor.judge.judge_model_label", return_value="central-judge"):
             state = services.status()
-        gateway.assert_not_called()
-        health.assert_not_called()
-        self.assertFalse(result.ok)
-        self.assertEqual(result.error_code, "LOCAL_AUTHORING_REQUIRED")
-        self.assertFalse(state["judge_enabled"])
-        self.assertFalse(state["judge_ready"])
-        self.assertIn("Device-first", state["judge_detail"])
+        self.assertTrue(state["judge_enabled"])
+        self.assertTrue(state["judge_ready"])
+        self.assertEqual(state["judge_model"], "central-judge")

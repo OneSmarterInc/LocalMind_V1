@@ -1,3 +1,5 @@
+> Superseded for monitoring by 2026-09-16-restore-central-judge.md. Central AI judging remains enabled independently of device authoring. Assignment changes below remain applicable.
+
 # Device-first monitoring and legacy assignment generation
 
 DEVICE_AUTHORING_ONLY=true now prevents both monitoring judge inference and
