@@ -10,6 +10,7 @@ type Operation={id:string;revision:string;kind:'lesson'|'quiz';reviewed:true;les
 export type Draft={snapshot:Snapshot;localBook?:string;sourceBook?:string;sourceSection?:string;lesson?:Lesson;questions?:MCQ[];run?:{kind:'lesson'|'quiz';book:string;done:number;lessonParts:Lesson[];questions:MCQ[]};operation?:Operation;state?:'pending'|'synced'|'conflict';error?:string;quiz_id?:string;shared?:Partial<Record<'lesson'|'quiz',string>>};
 export type ArchivedDraft={id:string;archivedAt:string;draft:Draft};
 const draftOperations=new Set<string>();
+const preparing=new Map<string,Promise<Draft>>();
 const syncing=new Map<string,Promise<Draft|undefined>>();
 export class LocalAuthoring {
  readonly library:Library;
@@ -31,6 +32,11 @@ export class LocalAuthoring {
   draft.snapshot={...draft.snapshot,document_id:documentId,remote_id:remoteId,revision};
   if(draft.operation)draft.operation.revision=revision;
   await this.save(id,draft);
+ }
+ ensure(id:string):Promise<Draft>{
+  const key=this.key(id),active=preparing.get(key);if(active)return active;
+  const task=(async()=>{const saved=await this.read(id);return saved||await this.download(id);})().finally(()=>preparing.delete(key));
+  preparing.set(key,task);return task;
  }
  async download(id:string){return this.exclusive(id,()=>this.downloadDraft(id));}
  private async downloadDraft(id:string){

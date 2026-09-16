@@ -1,3 +1,5 @@
+import {useAuth} from "@/auth/AuthContext";
+import {LocalAuthoring} from "@/authoring/local";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -22,12 +24,21 @@ type DocTab = "outline" | "lessons" | "publish" | "live";
 export default function DocumentScreen() {
   const { id, tab: tabParam, module: moduleParam } = useLocalSearchParams<{ id: string; tab?: DocTab; module?: string }>();
   const router = useRouter();
+  const {user}=useAuth();
+  const owner=user?.id;
+  const authoring=useMemo(()=>owner?new LocalAuthoring(owner):null,[owner]);
+  const [prepareError,setPrepareError]=useState("");
   const { height } = useWindowDimensions();
   const [tabChoice, setTabChoice] = useState<DocTab | null>(tabParam ?? null);
   const [preview, setPreview] = useState<{ id: string; title: string; quizStatus: string; quizId: string | null } | null>(null);
   const doc = useAsync(() => manage.document(id), [id]);
   const subjects = useAsync(() => manage.subjects(), []);
   const d = doc.data;
+  const sourceChapters=d?.chapters;
+  useEffect(()=>{let live=true;if(!authoring||!sourceChapters)return;
+    void (async()=>{const saved=await authoring.drafts();for(const chapter of sourceChapters)for(const module of chapter.modules){if(!live)return;if(module.id&&module.source_text?.trim())await authoring.ensure(saved.find(s=>s.snapshot.remote_id===module.id)?.snapshot.module_id||module.id);}})().catch(e=>{if(live)setPrepareError(errorMessage(e));});
+    return()=>{live=false;};
+  },[authoring,sourceChapters]);
   useEffect(() => { if (d?.status !== "processing" && !["pending", "retry", "running"].includes(d?.background_job?.status || "")) return; const t = setInterval(doc.reload, 3000); return () => clearInterval(t); }, [d?.status, d?.background_job?.status, doc.reload]);
   const lessonsBusy = (!!d?.lessons && d.lessons.pending + d.lessons.generating > 0)
     || (!!d?.auto_quizzes && d.auto_quizzes.pending + d.auto_quizzes.generating > 0);
@@ -114,7 +125,7 @@ export default function DocumentScreen() {
   if (!editable) {
     return (
       <Screen refreshing={doc.loading} onRefresh={doc.reload}>
-        {jobNotice}<ErrorBanner message={retryJob.error}/>
+        {prepareError?<Notice tone="warning" title="Source preparation needs attention" message={prepareError}/>:null}{jobNotice}<ErrorBanner message={retryJob.error}/>
         <ErrorBanner message={doc.error} onRetry={doc.reload} />
         {doc.loading && !d ? <Loading /> : null}
         {d ? (
@@ -310,7 +321,7 @@ function ReadinessTab({ doc, onQueueLessons, lessonsBusy, onQueueQuizzes, quizze
     { key: "q", label: "Automatic quiz", flex: 1, render: (m) => <Badge value={QUIZ_TEXT[m.quiz_status ?? "none"] ?? String(m.quiz_status)} tone={QUIZ_TONE[m.quiz_status ?? "none"] ?? "neutral"} /> },
     { key: "x", label: "", flex: 1.7, render: (m) => (
       <View style={{ flexDirection: "row", gap: 6 }}>
-        <Button title="Generate on this device" small variant="secondary" onPress={()=>router.push(`/manage/local-authoring/${m.id}`)}/>
+        <Button title="Edit lessons & quizzes" small variant="secondary" onPress={()=>router.push(`/manage/local-authoring/${m.id}`)}/>
         <Button title="Preview lesson" small variant="secondary" disabled={m.lesson_status === "none"} onPress={() => onPreview({ id: m.id!, title: m.title, quizStatus: m.quiz_status ?? "off", quizId: m.auto_quiz_id ?? null })} />
         {m.quiz_status === "held" && m.auto_quiz_id
           ? <Button title="Review quiz" small variant="secondary" onPress={() => router.push(`/manage/quiz/${m.auto_quiz_id}`)} />
@@ -329,8 +340,8 @@ function ReadinessTab({ doc, onQueueLessons, lessonsBusy, onQueueQuizzes, quizze
         <Table noun="module" columns={columns} rows={modules} keyOf={(m) => m.id!} minWidth={860} empty={<Empty icon="school-outline" text="This book has no modules yet." />} />
       </Card>
       <View style={{ flexDirection: "row", gap: 9, flexWrap: "wrap" }}>
-        <Button title="Prepare lessons on this device" variant="secondary" icon="sparkles-outline" onPress={onQueueLessons} busy={lessonsBusy} disabled={!modules.length} />
-        <Button title="Prepare quizzes on this device" variant="secondary" icon="refresh" onPress={onQueueQuizzes} busy={quizzesBusy} disabled={!modules.length} />
+        <Button title="Prepare lessons" variant="secondary" icon="sparkles-outline" onPress={onQueueLessons} busy={lessonsBusy} disabled={!modules.length} />
+        <Button title="Prepare quizzes" variant="secondary" icon="refresh" onPress={onQueueQuizzes} busy={quizzesBusy} disabled={!modules.length} />
       </View>
     </>
   );
@@ -873,7 +884,7 @@ function ModuleLessonPanel({ moduleId, textEdited }: { moduleId: string; textEdi
   else if (d?.status === "none") line = "No generated lesson is available. Save the source and prepare a local draft.";
   return (
     <View style={{ gap: 16 }}>
-      <Button title="Generate on this device" variant="secondary" disabled={textEdited} onPress={()=>router.push(`/manage/local-authoring/${moduleId}`)}/>
+      <Button title="Edit lessons & quizzes" variant="secondary" disabled={textEdited} onPress={()=>router.push(`/manage/local-authoring/${moduleId}`)}/>
       <ErrorBanner message={q.error ?? again.error} onRetry={q.error ? q.reload : undefined} />
       {q.loading && !d ? <Loading /> : null}
       {d ? (

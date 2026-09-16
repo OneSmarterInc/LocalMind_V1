@@ -6,6 +6,7 @@ import {useLibrary} from '@/private/useLibrary';
 import {generationJobs} from '@/private/jobs';
 import {jobScope,useGenerationJobs} from '@/private/useGenerationJobs';
 import {SourceVisuals} from '@/private/SourceVisuals';
+import {device} from '@/private/device';
 import {useTask} from '@/private/useTask';
 import {Screen,PageHeading,Card,H2,P,Button,Row,Notice,ErrorBanner,Badge,confirmAsync} from '@/ui';
 export default function LocalAuthoringPage(){const {user}=useAuth();return user?<Authoring key={user.id}/>:null;}
@@ -13,19 +14,20 @@ function Authoring(){
  const {id}=useLocalSearchParams<{id:string}>(),{user}=useAuth(),router=useRouter(),library=useLibrary(),task=useTask();
  const owner=user!.id;
  const service=useMemo(()=>new LocalAuthoring(owner),[owner]);
+ const [modelReady,setModelReady]=useState(false);
  const [draft,setDraft]=useState<Draft>(),[error,setError]=useState(''),[history,setHistory]=useState<ArchivedDraft[]>([]),[opened,setOpened]=useState('');
  const jobs=useGenerationJobs(library?.prefix||'').filter(j=>j.bookId===id);
  const busy=jobs.some(j=>['queued','running'].includes(j.state));
- useEffect(()=>{let live=true;void service.history(id).then(h=>{if(live)setHistory(h);}).catch(e=>{if(live)setError(String(e));});const read=()=>service.read(id).then(v=>{if(live)setDraft(v);}).catch(e=>{if(live)setError(String(e));});void read();const timer=setInterval(read,1000);return()=>{live=false;clearInterval(timer);};},[service,id]);
+ useEffect(()=>{let live=true;void service.history(id).then(h=>{if(live)setHistory(h);}).catch(e=>{if(live)setError(String(e));});const read=()=>service.read(id).then(v=>{if(live)setDraft(v);}).catch(e=>{if(live)setError(String(e));});void service.ensure(id).then(v=>{if(live)setDraft(v);}).catch(e=>{if(live)setError(String(e));});void device().then(d=>d.status()).then(s=>{if(live)setModelReady(s.installed);}).catch(()=>{});void read();const timer=setInterval(()=>{void read();void device().then(d=>d.status()).then(s=>{if(live)setModelReady(s.installed);}).catch(()=>{});},1000);return()=>{live=false;clearInterval(timer);};},[service,id]);
  const generate=(kind:'lesson'|'quiz')=>{try{setError('');generationJobs.enqueue({scope:jobScope(library!.prefix),bookId:id,sectionId:id,kind:'staff-'+kind,label:`${draft?.snapshot.title||'Module'} · ${kind}`},(signal,progress)=>service.generate(id,kind,signal,progress));}catch(e){setError(String(e));}};
- return <Screen><PageHeading title={draft?.snapshot.title||'Local authoring'} subtitle="Generate on this device. Review and share with your institution." right={<Button title="Offline AI" variant="secondary" onPress={()=>router.push('/manage/offline-ai')}/>}/>
+ return <Screen><PageHeading title={draft?.snapshot.title||'Local authoring'} subtitle="Your work saves automatically. Review it before publishing to students." right={<Button title="Offline AI" variant="secondary" onPress={()=>router.push('/manage/offline-ai')}/>}/>
  <ErrorBanner message={error||task.error}/>
- <Card><Row><Button title="Save module on this device" disabled={busy||!!draft?.localBook} busy={task.busy} onPress={()=>task.run(async()=>{setDraft(await service.download(id));})}/><Button title="Books & modules" variant="secondary" onPress={()=>router.push('/manage/books')}/></Row>
- <P muted>Save the authorized source while connected. Generation then works offline. Reviewed lessons are synchronized to the course; quizzes are synchronized as drafts for the existing publication workflow.</P></Card>
+ <Card><P muted>{draft?'Source ready · Changes saved automatically':'Preparing source…'}</P><Button title="Books & modules" variant="secondary" onPress={()=>router.push('/manage/books')}/></Card>
+ {!modelReady?<Notice title="Set up AI before generating" message="Download or import a model in Offline AI once on this device. Your books and saved work remain available without it."/>:null}
  {draft?<><Card><H2>Source</H2><P>{draft.snapshot.source}</P>{draft.sourceBook&&draft.sourceSection?<SourceVisuals bookId={draft.sourceBook} sectionId={draft.sourceSection} sourceLibrary={service.library}/>:null}</Card>
- {!draft.localBook||draft.snapshot.remote_id?<Button title="Prepare book locally" variant="secondary" onPress={()=>router.push(`/manage/local-batch?document=${draft.snapshot.document_id}`)}/>:null}
+ {!draft.localBook||draft.snapshot.remote_id?<Button title="Prepare book" variant="secondary" onPress={()=>router.push(`/manage/local-batch?document=${draft.snapshot.document_id}`)}/>:null}
  {draft.localBook?<Button title="Open local book synchronization" variant="secondary" onPress={()=>router.push('/manage/local-books')}/>:null}
- <Card><Row><Button title="Generate local lesson" disabled={busy||task.busy} onPress={()=>generate('lesson')}/><Button title="Generate local quiz" disabled={busy||task.busy} onPress={()=>generate('quiz')}/></Row>
+ <Card><Row><Button title="Generate lesson" disabled={busy||task.busy||!modelReady} onPress={()=>generate('lesson')}/><Button title="Generate quiz" disabled={busy||task.busy||!modelReady} onPress={()=>generate('quiz')}/></Row>
  {draft.run?<P muted>Saved through part {draft.run.done}. Select the same generation again after an interruption to resume.</P>:null}
  {jobs.map(j=><Row key={j.id}><Badge value={j.state}/><P>{j.error||j.note}</P>{['queued','running'].includes(j.state)?<Button title="Cancel generation" small variant="secondary" onPress={()=>generationJobs.cancel(j.id)}/>:null}</Row>)}
  </Card>

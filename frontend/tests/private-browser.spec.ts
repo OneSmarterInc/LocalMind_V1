@@ -376,10 +376,10 @@ test('faculty generates offline and synchronizes a reviewed lesson without serve
  const headers={Authorization:`Bearer ${tokens.access}`};
  let aiRequests=0;page.on('request',r=>{if(r.method()==='POST'&&/\/(?:lesson|auto-quiz|lessons|auto-quizzes)\/$/.test(r.url()))aiRequests++;});
  await page.goto(`/manage/local-authoring/${fixture().module}`);
- await page.getByRole('button',{name:'Save module on this device',exact:true}).click();
+ await expect(page.getByText('Source ready · Changes saved automatically',{exact:true})).toBeVisible();
  await expect(page.getByRole('heading',{name:'Source',exact:true})).toBeVisible();
  await context.setOffline(true);
- await page.getByRole('button',{name:'Generate local lesson',exact:true}).click();
+ await page.getByRole('button',{name:'Generate lesson',exact:true}).click();
  await expect(page.getByRole('heading',{name:'Review lesson',exact:true})).toBeVisible();
  await page.reload();await expect(page.getByRole('heading',{name:'Review lesson',exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Approve and synchronize lesson',exact:true}).click();
@@ -390,7 +390,7 @@ test('faculty generates offline and synchronizes a reviewed lesson without serve
  const result=await page.request.get(`/api/faculty/modules/${fixture().module}/lesson/`,{headers});
  expect(result.ok()).toBeTruthy();const lesson=await result.json();expect(lesson.model).toBe('device-local');expect(lesson.status).toBe('ready');expect(aiRequests).toBe(0);
  await context.setOffline(true);
- await page.getByRole('button',{name:'Generate local quiz',exact:true}).click();
+ await page.getByRole('button',{name:'Generate quiz',exact:true}).click();
  await expect(page.getByRole('heading',{name:'Review quiz',exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Approve and synchronize quiz draft',exact:true}).click();
  await expect(page.getByText('Waiting to synchronize',{exact:true})).toBeVisible();
@@ -405,9 +405,9 @@ test('staff conflict recovery preserves the previous draft across refresh',async
  const tokens=await signIn(page,'faculty','/manage/offline-ai');await model(page,'/manage/offline-ai');
  const headers={Authorization:`Bearer ${tokens.access}`},id=fixture().module;
  await page.goto(`/manage/local-authoring/${id}`);
- await page.getByRole('button',{name:'Save module on this device',exact:true}).click();
+ await expect(page.getByText('Source ready · Changes saved automatically',{exact:true})).toBeVisible();
  await expect(page.getByRole('heading',{name:'Source',exact:true})).toBeVisible();
- await page.getByRole('button',{name:'Generate local lesson',exact:true}).click();
+ await page.getByRole('button',{name:'Generate lesson',exact:true}).click();
  await expect(page.getByRole('heading',{name:'Review lesson',exact:true})).toBeVisible();
  const changed=fixture().source+' The faculty added a new source sentence.';
  const update=await page.request.patch(`/api/faculty/modules/${id}/`,{headers,data:{source_text:changed}});expect(update.ok(),await update.text()).toBeTruthy();
@@ -433,16 +433,16 @@ test('staff conflict recovery preserves the previous draft across refresh',async
 
 test('staff imports a new book offline and synchronizes its source and reviewed lesson after refresh',async({page,context})=>{
  const tokens=await signIn(page,'faculty','/manage/offline-ai');await model(page,'/manage/offline-ai');
- await page.goto('/manage/local-books');
+ await page.goto('/manage/document/upload');
  await page.getByRole('button',{name:'Subject',exact:true}).click();
  await page.getByRole('menuitem',{name:/WEBTEST/}).click();
  await page.getByLabel('Book title',{exact:true}).fill('Device imported textbook');
  await context.setOffline(true);
- await pick(page,'Import on this device',{name:'local-book.pdf',mimeType:'application/pdf',buffer:fs.readFileSync('test-results/private-fixture.pdf')});
+ await pick(page,'Choose book',{name:'local-book.pdf',mimeType:'application/pdf',buffer:fs.readFileSync('test-results/private-fixture.pdf')});
  await expect(page.getByRole('heading',{name:'Device imported textbook',exact:true})).toBeVisible();
- await page.getByRole('button',{name:'Open local module',exact:true}).first().click();
+ await page.getByRole('button',{name:'Open module',exact:true}).first().click();
  await expect(page.getByText('Photosynthesis happens in the chloroplasts of green leaves.',{exact:true}).first()).toBeVisible();
- await page.getByRole('button',{name:'Generate local lesson',exact:true}).click();
+ await page.getByRole('button',{name:'Generate lesson',exact:true}).click();
  await expect(page.getByRole('heading',{name:'Review lesson',exact:true})).toBeVisible({timeout:30000});
  await page.getByRole('button',{name:'Approve and synchronize lesson',exact:true}).click();
  await expect(page.getByText('Waiting to synchronize',{exact:true})).toBeVisible();
@@ -474,7 +474,7 @@ test('staff imports a new book offline and synchronizes its source and reviewed 
  const documents=await page.request.get('/api/faculty/documents/',{headers});const payload=await documents.json();
  const rows=Array.isArray(payload)?payload:payload.results;
  const matching=rows.filter((d:any)=>d.title==='Device imported textbook');expect(matching).toHaveLength(1);expect(matching[0].status).toBe('under_review');
- await page.getByRole('button',{name:'Open local module',exact:true}).first().click();
+ await page.getByRole('button',{name:'Open module',exact:true}).first().click();
  await expect(page.getByText('Received by institution',{exact:true})).toBeVisible({timeout:25000});
  await context.setOffline(true);await page.reload();
  await expect(page.getByRole('heading',{name:'Review lesson',exact:true})).toBeVisible();
@@ -485,24 +485,44 @@ test('staff batch generates offline, survives navigation and skips completed dra
  const serverGeneration:string[]=[];
  page.on('request',request=>{if(request.method()==='POST'&&/\/api\/faculty\/.*(lessons|auto-quizzes|generate)/.test(request.url()))serverGeneration.push(request.url());});
  await page.goto(`/manage/local-batch?document=${fixture().document}`);
- await page.getByRole('button',{name:'Save book sources on this device',exact:true}).click();
- await expect(page.getByRole('button',{name:'Review local draft',exact:true})).toHaveCount(2);
+ await expect(page.getByRole('button',{name:'Review draft',exact:true})).toHaveCount(2);
  await context.setOffline(true);
- await page.getByRole('button',{name:'Generate missing lessons locally',exact:true}).click();
- await page.getByRole('button',{name:'Review local draft',exact:true}).first().click();
+ await page.getByRole('button',{name:'Generate missing lessons',exact:true}).click();
+ await page.getByRole('button',{name:'Review draft',exact:true}).first().click();
  await expect(page).toHaveURL(/manage\/local-authoring/);
- await page.getByRole('button',{name:'Prepare book locally',exact:true}).click();
+ await page.getByRole('button',{name:'Prepare book',exact:true}).click();
  await expect(page).toHaveURL(/manage\/local-batch/);
  await expect(page.getByText(/Lesson saved · Quiz missing/)).toHaveCount(2,{timeout:30000});
  await page.reload();
  await expect(page.getByText(/Lesson saved · Quiz missing/)).toHaveCount(2);
  await page.evaluate(()=>{(window as any).__LM_TEST_FAIL_ONCE__=true;});
  // No inference should be made for a batch whose drafts are already complete.
- await page.getByRole('button',{name:'Generate missing lessons locally',exact:true}).click();
+ await page.getByRole('button',{name:'Generate missing lessons',exact:true}).click();
  await expect(page.getByText('Saved on this device',{exact:true})).toBeVisible();
  expect(await page.evaluate(()=>(window as any).__LM_TEST_FAIL_ONCE__)).toBe(true);
  await page.evaluate(()=>{(window as any).__LM_TEST_FAIL_ONCE__=false;});
- await page.getByRole('button',{name:'Generate missing quizzes locally',exact:true}).click();
+ await page.getByRole('button',{name:'Generate missing quizzes',exact:true}).click();
  await expect(page.getByText(/Lesson saved · Quiz saved/)).toHaveCount(2,{timeout:30000});
  expect(serverGeneration).toEqual([]);
+});
+
+
+test('staff source saves automatically and missing model blocks generation before a job starts',async({page})=>{
+ await signIn(page,'faculty',`/manage/local-authoring/${fixture().module}`);
+ await expect(page.getByText('Source ready · Changes saved automatically',{exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'Save module on this device',exact:true})).toHaveCount(0);
+ await expect(page.getByRole('button',{name:'Generate lesson',exact:true})).toBeDisabled();
+ await expect(page.getByText('Set up AI before generating',{exact:true})).toBeVisible();
+ await page.reload();
+ await expect(page.getByText('Source ready · Changes saved automatically',{exact:true})).toBeVisible();
+ await expect(page.getByText('Failed',{exact:true})).toHaveCount(0);
+});
+
+
+test('opening the institutional book automatically prepares its modules',async({page})=>{
+ const source=page.waitForResponse(r=>r.url().includes(`/modules/${fixture().module}/local-authoring/`)&&r.ok());
+ await signIn(page,'faculty',`/manage/document/${fixture().document}`);
+ await source;
+ await page.goto(`/manage/local-authoring/${fixture().module}`);
+ await expect(page.getByText('Source ready · Changes saved automatically',{exact:true})).toBeVisible();
 });

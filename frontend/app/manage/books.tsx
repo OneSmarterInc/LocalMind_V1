@@ -31,9 +31,9 @@ export default function Books() {
   ];
   return (
     <Screen refreshing={q.loading} onRefresh={q.reload}>
-      <PageHeading eyebrow="TEACHING CONTENT" title="Books & modules" subtitle="Upload once. Organize into modules. Publish for your students."
+      <PageHeading eyebrow="TEACHING CONTENT" title="Books & modules" subtitle="Import a book, prepare lessons and quizzes, then publish for your students."
         right={<Button title="Upload a book" icon="cloud-upload-outline" onPress={() => router.push({ pathname: "/manage/document/upload", params: subject ? { subject } : {} })} />} />
-      <Button title="Import and prepare books on this device" variant="secondary" onPress={()=>router.push("/manage/local-books")} />
+      <Button title="Continue preparing books" variant="secondary" onPress={()=>router.push("/manage/local-books")} />
       <SavedModules />
       <ErrorBanner message={q.error} onRetry={q.reload} />
       <Card flush>
