@@ -32,6 +32,18 @@ class CourseSyncTests(TestCase):
         response=self.send(self.event());self.assertEqual(response.status_code,200,response.data)
         self.assertFalse(response.data['attempt']['results_released']);self.assertIsNone(response.data['attempt']['score'])
         self.assertEqual(AssessmentAttempt.objects.get().score,1)
+    def test_held_quiz_access_conflict_can_retry_without_losing_submission(self):
+        self.quiz.results_release='held';self.quiz.save();e=self.event()
+        self.module.availability='locked';self.module.save()
+        response=self.send(e)
+        self.assertEqual(response.status_code,409)
+        self.assertEqual(response.data['error']['code'],'OFFLINE_QUIZ_UNAVAILABLE')
+        self.assertFalse(AssessmentAttempt.objects.exists())
+        self.module.availability='open';self.module.save()
+        response=self.send(e)
+        self.assertEqual(response.status_code,200,response.data)
+        self.assertFalse(response.data['attempt']['results_released'])
+        self.assertEqual(AssessmentAttempt.objects.count(),1)
     def test_other_student_cannot_use_grant(self):
         e=self.event();other=make_student(email='other-course@example.com');enroll(other,self.subject);self.client=client_for(other)
         self.assertEqual(self.send(e).status_code,403);self.assertEqual(AssessmentAttempt.objects.count(),0)

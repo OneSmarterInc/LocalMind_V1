@@ -578,3 +578,13 @@ test('Create Quiz uses device inference and syncs a reviewed multi-module draft 
  expect(rows.filter((q:any)=>q.title==='Device selection quiz')).toHaveLength(1);
  expect(serverCalls).toEqual([]);
 });
+
+test('faculty can release held results from quiz settings',async({page})=>{
+ await signIn(page,'faculty',`/manage/quiz/${fixture().quizHeld}?tab=settings`);
+ await expect(page.getByRole('button',{name:'Release results now',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Release results now',exact:true}).click();
+ await page.getByRole('button',{name:'Release results',exact:true}).click();
+ await expect(page.getByText('Results have been released. Students receive them when connected and synchronized.',{exact:true})).toBeVisible();
+ await page.reload();
+ await expect(page.getByRole('button',{name:'Release results now',exact:true})).toHaveCount(0);
+});

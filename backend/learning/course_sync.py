@@ -13,7 +13,7 @@ from django.contrib.auth import get_user_model
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from core.permissions import IsStudent
-from core.exceptions import Conflict, Forbidden, ValidationFailed
+from core.exceptions import Conflict, Forbidden, ValidationFailed, NotFound
 from assessments.services import assessments as quizzes
 from assessments.serializers import AssessmentStudentSerializer, AttemptSerializer
 from assessments.models import AssessmentAttempt, AttemptStatus
@@ -126,7 +126,10 @@ class CourseSyncView(APIView):
                 raise Forbidden('Invalid downloaded quiz authorization.')
             if grant.get('student') != str(request.user.pk):
                 raise Forbidden('This quiz download belongs to another student.')
-            quiz = quizzes._accessible_for_student(request.user, grant.get('quiz'))
+            try:
+                quiz = quizzes._accessible_for_student(request.user, grant.get('quiz'))
+            except NotFound:
+                raise Conflict('Your submitted answers are saved on this device, but the quiz is not currently available to your account. Ask faculty to check quiz publication, module access and enrollment, then retry synchronization. Withheld results do not cause this error.', code='OFFLINE_QUIZ_UNAVAILABLE')
             if revision(quiz) != grant.get('revision'):
                 raise Conflict('The downloaded quiz or its rules changed. Answers remain on your device for review.', code='OFFLINE_VERSION_CHANGED')
             answers = data.get('answers')

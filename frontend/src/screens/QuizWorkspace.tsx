@@ -279,7 +279,7 @@ export function QuizDetailPage({ id, initialTab, note }: { id: string; initialTa
   });
   const release = useAction(async (attemptId?: string) => {
     const d = q.data; if (!d) return;
-    if (!attemptId && !(await confirmAsync("Release results to everyone?", `${d.pending_release_count ?? 0} attempt${(d.pending_release_count ?? 0) === 1 ? "" : "s"} will become visible to the students who made them. Releasing cannot be undone.`, "Release results", "Not yet"))) return;
+    if (!attemptId && !(await confirmAsync("Release results to everyone?", `Release scores and feedback for this quiz, including valid offline submissions that synchronize later. ${d.pending_release_count ?? 0} results are currently waiting on the server. Releasing cannot be undone.`, "Release results", "Not yet"))) return;
     await manage.releaseQuizResults(id, attemptId); await q.reload();
   });
   const remove = useAction(async () => {
@@ -394,6 +394,11 @@ export function QuizDetailPage({ id, initialTab, note }: { id: string; initialTa
                 <Notice title="Holding results does not delay evaluation." message="Students see that their answers were submitted, but not the score, correct answers, or remediation." />
                 <Card>
                   <CardHead title="Keep previous attempts intact" subtitle="Editing questions after attempts exist creates a new quiz version. Existing attempts keep their original questions." />
+                </Card>
+                <Card>
+                  <CardHead title="Release results" subtitle={d.results_released_at ? "Results have been released. Students receive them when connected and synchronized." : "Saving a release setting does not release held results. Offline attempts must synchronize before their results reach students."} />
+                  {d.results_release !== "immediate" && !d.results_released_at ? <Button title="Release results now" icon="checkmark" onPress={() => release.run()} busy={release.busy} disabled={dirty} /> : <Notice message="Results are available after evaluation and synchronization." />}
+                  {dirty ? <Notice message="Save your settings before releasing results." /> : null}
                 </Card>
                 <DangerZone title="Quiz lifecycle" text="Closing prevents new attempts. Deleting permanently removes the quiz and its attempts.">
                   {d.status === "published" ? <Button title="Close quiz" variant="secondary" onPress={() => setStatus.run("closed")} busy={setStatus.busy} disabled={dirty} /> : null}

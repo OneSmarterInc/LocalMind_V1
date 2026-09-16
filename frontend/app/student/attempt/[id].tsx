@@ -1,6 +1,7 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
+import {retryCourseEvent} from "@/offline/coursework";
 import { student } from "@/api/endpoints";
 import type { DetailedResult } from "@/api/types";
 import { useAction, useAsync } from "@/hooks/useAsync";
@@ -12,6 +13,7 @@ export default function StudentAttempt() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const q = useAsync(() => student.attempt(id), [id]);
+  const retrySync = useAction(async () => { await retryCourseEvent(id); await q.reload(); });
   const quizzes = useAsync(() => student.quizzes(), []);
   const [rem, setRem] = useState<Remediation | null>(null);
   const remediate = useAction(async () => { setRem(await student.remediation(id)); });
@@ -31,7 +33,7 @@ export default function StudentAttempt() {
   if (!a) return <Screen><ErrorBanner message={q.error} onRetry={q.reload} /></Screen>;
 
   if (a.sync_status && a.sync_status !== 'synced') {
-    return <Screen><PageHeading title={a.sync_status==='conflict'?'Synchronization needs review':'Saved on this device'} subtitle={title}/><Notice tone={a.sync_status==='conflict'?'warning':'info'} message={a.sync_error||'Your institution has not yet confirmed this attempt. Answers are retained locally and will synchronize when the server is reachable.'}/>{a.results_released?<Card><CardHead title={`Local result: ${a.percentage}% · ${a.passed?'Passed':'Needs review'}`}/>{a.detailed_results.map(r=><Text key={r.question_id}>{r.question}: {r.is_correct?'Correct':'Incorrect'} — {r.explanation}</Text>)}</Card>:<Notice message="Your faculty has withheld results. No score or answer key is shown on this device."/>}<Button title="Check synchronization" onPress={q.reload}/><Button title="Course sync status" onPress={()=>router.push('/student/offline')}/><Button title="Back to quizzes" onPress={()=>router.push('/student/quizzes')}/></Screen>;
+    return <Screen><PageHeading title={a.sync_status==='conflict'?'Synchronization needs review':'Saved on this device'} subtitle={title}/><Notice tone={a.sync_status==='conflict'?'warning':'info'} message={(a.sync_error==='Quiz not found.'?'Your submitted answers are saved, but the quiz is not currently available to your account. Ask faculty to check publication, module access and enrollment, then retry synchronization.':a.sync_error)||'Your institution has not yet confirmed this attempt. Answers are retained locally and will synchronize when the server is reachable.'}/>{a.results_released?<Card><CardHead title={`Local result: ${a.percentage}% · ${a.passed?'Passed':'Needs review'}`}/>{a.detailed_results.map(r=><Text key={r.question_id}>{r.question}: {r.is_correct?'Correct':'Incorrect'} — {r.explanation}</Text>)}</Card>:<Notice message="Your faculty has withheld results. No score or answer key is shown on this device."/>}<ErrorBanner message={retrySync.error}/><Button title="Retry synchronization" onPress={()=>retrySync.run()} busy={retrySync.busy}/><Button title="Check synchronization" onPress={q.reload}/><Button title="Course sync status" onPress={()=>router.push('/student/offline')}/><Button title="Back to quizzes" onPress={()=>router.push('/student/quizzes')}/></Screen>;
   }
   if (a.status === "submitted" && !held) {
     return <Screen><PageHeading title="Your answers are saved" subtitle={title}/><Notice title="Evaluation is pending" message="Your response is safely stored. The local evaluation worker will process it, and faculty release rules still apply. No zero or pass has been assigned. If this remains pending, ask faculty to check the saved job."/><Button title="Check evaluation status" onPress={q.reload}/><Button title="Back to quizzes" variant="secondary" onPress={()=>router.push("/student/quizzes")}/></Screen>;
