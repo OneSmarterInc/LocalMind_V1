@@ -116,3 +116,43 @@ class VisualCourseIntegrationTests(TestCase):
         with patch('documents.signals.extract_source_visuals',side_effect=change):
             self.assertIsNone(sync_document_visuals(document.pk))
         modules[0].refresh_from_db();self.assertEqual(modules[0].source_visuals,old)
+
+
+class StaffSourcePictureVisibilityTests(VisualCourseIntegrationTests):
+    """Faculty and administrators must see the extracted pictures of their own
+    books before any lesson exists, and never another subject's."""
+
+    def test_staff_module_visuals_endpoint_returns_the_cropped_pictures(self):
+        document, modules = self.upload(self.faculty)
+        for actor in (self.admin, self.faculty):
+            response = client_for(actor).get(f'/api/faculty/modules/{modules[0].pk}/visuals/')
+            self.assertEqual(response.status_code, 200, response.data)
+            visuals = response.data['visuals']
+            self.assertEqual(len(visuals), 1)
+            self.assertTrue(visuals[0]['data_url'].startswith('data:image/png;base64,'))
+
+    def test_another_facultys_module_pictures_are_not_reachable(self):
+        document, modules = self.upload(self.faculty)
+        response = client_for(self.other).get(f'/api/faculty/modules/{modules[0].pk}/visuals/')
+        self.assertEqual(response.status_code, 404)
+
+    def test_students_cannot_reach_the_staff_picture_endpoint(self):
+        document, modules = self.upload(self.faculty)
+        self.assertIn(client_for(self.student).get(f'/api/faculty/modules/{modules[0].pk}/visuals/').status_code, (403, 404))
+
+    def test_outline_reports_a_picture_count_without_sending_the_bytes(self):
+        document, modules = self.upload(self.faculty)
+        response = client_for(self.faculty).get(f'/api/faculty/documents/{document.pk}/outline/')
+        self.assertEqual(response.status_code, 200)
+        module = response.data['chapters'][0]['modules'][0]
+        self.assertEqual(module['source_visual_count'], 1)
+        self.assertNotIn('data:image/png', str(response.data))
+
+    def test_picture_report_carries_thumbnails_for_review(self):
+        document, modules = self.upload(self.faculty)
+        response = client_for(self.admin).get(f'/api/faculty/documents/{document.pk}/visuals/')
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data['thumbnails'])
+        first = response.data['thumbnails'][0]
+        self.assertTrue(first['data_url'].startswith('data:image/png;base64,'))
+        self.assertEqual(first['module_title'], modules[0].title)

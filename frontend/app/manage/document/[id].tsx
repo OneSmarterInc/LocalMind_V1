@@ -13,6 +13,7 @@ import { Badge, Button, Card, CardHead, choiceAsync, CellText, Column, DangerZon
 import { HeadingPicker, type Heading } from "@/ui/HeadingPicker";
 import type { IconName } from "@/ui/Shell";
 import { LessonView } from "@/ui/LessonView";
+import { SourceFigures } from "@/ui/SourceFigures";
 
 /** Which node of the outline the right-hand pane is editing. */
 type Selection = { ci: number; mi: number | null };
@@ -791,6 +792,7 @@ function ModulePane({ number, module: m, index, count, onChange, onMove, onRemov
         style={{ minHeight: 285, lineHeight: 24, backgroundColor: "#FDFEFC" }}
         hint={textEdited ? "Saving queues a new lesson and an unattempted automatic quiz for the edited text." : "Edit the source, not a generated summary. Text changes queue new lessons and an unattempted automatic quiz."} />
       {empty ? <Notice tone="warning" message="This module has no text. Add its source text or explicitly remove the module before saving." /> : null}
+      {m.id ? <ModuleSourceVisualsPanel moduleId={m.id} /> : null}
       <Row style={{ justifyContent: "space-between" }}>
         <Text style={{ fontSize: 11, color: colors.muted }}>{pages} · {heading ? `Mapped to “${heading.title}”` : "Manually editable"}</Text>
         <Button title="Source mapping" small variant="secondary" icon="git-branch-outline" onPress={() => setMapping((v) => !v)} />
@@ -848,6 +850,30 @@ function SaveReport({ report, onDismiss }: { report: OutlineReport; onDismiss: (
       <View style={{ flex: 1 }}><Notice tone="warning" message={parts.join(" ")} /></View>
       <Button title="Dismiss" small variant="ghost" onPress={onDismiss} />
     </Row>
+  );
+}
+
+/** The cropped figures, charts and tables extracted from this module's pages.
+ * Faculty and administrators see exactly what students will see, before any
+ * lesson has been written. */
+function ModuleSourceVisualsPanel({ moduleId }: { moduleId: string }) {
+  const [open, setOpen] = useState(false);
+  const q = useAsync(async () => (open ? await manage.moduleVisuals(moduleId) : null), [moduleId, open]);
+  const visuals = q.data?.visuals ?? [];
+  return (
+    <View style={{ gap: 10 }}>
+      <Row style={{ justifyContent: "space-between" }}>
+        <Text style={{ fontSize: 11, color: colors.muted }}>Source pictures · cropped figures, charts and tables from this module's pages</Text>
+        <Button title={open ? "Hide pictures" : "Show pictures"} small variant="secondary" icon="image-outline" onPress={() => setOpen((v) => !v)} />
+      </Row>
+      {open ? <>
+        <ErrorBanner message={q.error} onRetry={q.reload} />
+        {q.loading ? <Loading /> : null}
+        {!q.loading && !q.error && !visuals.length
+          ? <Notice message="No source picture was extracted for this module. Page banners, watermarks, QR codes and blocks of equations are excluded on purpose; the source picture report lists what was skipped." />
+          : <SourceFigures visuals={visuals} />}
+      </> : null}
+    </View>
   );
 }
 

@@ -2,7 +2,7 @@ import {pdfPictureContext, wordPictureContext, usefulPicture, looksLikeQrCanvas,
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { WorkerMessageHandler } from 'pdfjs-dist/legacy/build/pdf.worker.mjs';
 import { unzipSync } from 'fflate';
-import { readablePdfText, imageRectangles, visualRectangles } from './pdf-layout.mjs';
+import { readablePdfText, imageRectangles, visualRegions, visualRectangles } from './pdf-layout.mjs';
 import { OCR_WORKER } from './generated-ocr.mjs';
 globalThis.pdfjsWorker={WorkerMessageHandler};
 const LIMIT=2_000_000;
@@ -29,6 +29,9 @@ async function recognizer(signal){
 
 const overlap=(a,b)=>{const x0=Math.max(a[0],b[0]),y0=Math.max(a[1],b[1]),x1=Math.min(a[2],b[2]),y1=Math.min(a[3],b[3]);if(x1<=x0||y1<=y0)return 0;const inter=(x1-x0)*(y1-y0),aa=(a[2]-a[0])*(a[3]-a[1]),bb=(b[2]-b[0])*(b[3]-b[1]);return inter/Math.max(1,Math.min(aa,bb));};
 
+// Never save the rendered page itself. Every visual this parser emits is a crop
+// of a region that was identified as a figure, chart, diagram or table; the page
+// canvas exists only to cut those crops from.
 let running=false;
 async function parse(bytes,name,signal,progress=()=>{},saveVisual){
  assert(!running,'A book is already being imported. Wait for it to finish.');running=true;
@@ -67,7 +70,10 @@ async function parse(bytes,name,signal,progress=()=>{},saveVisual){
       if(width<40||height<40||width*height>canvas.width*canvas.height*0.65||left>=canvas.width||top>=canvas.height||left+width<=0||top+height<=0)continue;
       const x=Math.max(0,Math.floor(left)),y=Math.max(0,Math.floor(top));
       const crop=document.createElement('canvas');crop.width=Math.min(canvas.width-x,Math.ceil(width));crop.height=Math.min(canvas.height-y,Math.ceil(height));
-      if(!usefulPicture(crop.width,crop.height)||crop.width*crop.height>canvas.width*canvas.height*0.65)continue;
+      // Below roughly a twentieth of the page a raster is an icon, a bullet or
+      // a fragment of a formula, not an illustration worth keeping.
+      const smallest=Math.max(40,Math.round(Math.max(canvas.width,canvas.height)*0.045));
+      if(!usefulPicture(crop.width,crop.height)||Math.min(crop.width,crop.height)<smallest||crop.width*crop.height>canvas.width*canvas.height*0.65)continue;
       crop.getContext('2d').drawImage(canvas,x,y,crop.width,crop.height,0,0,crop.width,crop.height);
       const bounds=[x,y,x+crop.width,y+crop.height],metadata=pdfPictureContext(c.items,view,bounds);
       if(looksLikeQrCanvas(crop)||!shouldKeepPdfVisual(metadata,bounds,canvas.width,canvas.height)){crop.width=0;crop.height=0;continue;}
@@ -86,14 +92,24 @@ async function parse(bytes,name,signal,progress=()=>{},saveVisual){
       text=text.trim()?(extra?`${text.trim()}\n\n[Additional text recognised from the page image]\n${extra}`:text):read.text;
       if(read.confidence<65)warnings.push(`Page ${p}: OCR confidence is low. Compare recognised text with the source file before relying on it.`);
      }
-     for(const rect of (needsOCR&&!ocrBoxes.length?[]:visualRectangles(canvas,c.items,view,ocrBoxes))){
+     // A page with drawing operators is read from those operators; only a true
+     // scan falls back to finding ink in the raster, and only once its own OCR
+     // has told us where the words are.
+     const drawn=needsOCR?[]:visualRegions({ops,OPS:pdfjs.OPS,transform:pdfjs.Util.transform,items:c.items,view,width:canvas.width,height:canvas.height});
+     const regions=drawn.length||!needsOCR?drawn
+      :(ocrBoxes.length?visualRectangles(canvas,c.items,view,ocrBoxes).map(rect=>({rect,kind:'figure',caption:''})):[]);
+     for(const region of regions){
+      const rect=region.rect;
       if(captured.some(old=>overlap(rect,old)>=0.65))continue;
       const x=Math.max(0,Math.floor(rect[0])),y=Math.max(0,Math.floor(rect[1])),w=Math.min(canvas.width-x,Math.ceil(rect[2]-rect[0])),h=Math.min(canvas.height-y,Math.ceil(rect[3]-rect[1]));
       if(w<40||h<40||w*h>canvas.width*canvas.height*0.65)continue;
       const crop=document.createElement('canvas');crop.width=w;crop.height=h;crop.getContext('2d').drawImage(canvas,x,y,w,h,0,0,w,h);
-      const bounds=[x,y,x+w,y+h],metadata=pdfPictureContext(c.items,view,bounds),tableLike=/^(?:table|chart|graph)\b/i.test(metadata.caption||'');
+      const bounds=[x,y,x+w,y+h];
+      const metadata={...pdfPictureContext(c.items,view,bounds),...(region.caption?{caption:region.caption,captionOrigin:'source'}:{})};
+      const tableLike=region.kind==='table'||/^(?:table|chart|graph)\b/i.test(metadata.caption||'');
       if(looksLikeQrCanvas(crop)||!shouldKeepPdfVisual(metadata,bounds,canvas.width,canvas.height,{tableLike})){crop.width=0;crop.height=0;continue;}
-      visualIds.push(await capture(crop,`Source diagram, chart or table from page ${p}`,p,'figure',metadata));captured.push(bounds);crop.width=0;crop.height=0;
+      const label=tableLike?`Source table or chart from page ${p}`:`Source diagram or chart from page ${p}`;
+      visualIds.push(await capture(crop,label,p,tableLike?'table':'figure',metadata));captured.push(bounds);crop.width=0;crop.height=0;
      }
      total+=text.length;assert(total<=LIMIT,'Import a chapter at a time; this book has too much text.');
      if(!text.trim()&&visualIds.length)warnings.push(`Page ${p}: no usable text was recognised. Cropped visual regions are retained, but the text tutor cannot interpret image-only content.`);
@@ -102,7 +118,7 @@ async function parse(bytes,name,signal,progress=()=>{},saveVisual){
     }finally{canvas.width=0;canvas.height=0;page.cleanup();}
    }
   } finally {signal?.removeEventListener('abort',abort);if(doc)await doc.destroy();else await task.destroy();}
-  warnings.unshift('Only instructional source visual regions are retained. QR/navigation codes, page furniture, prose callouts and full PDF pages are excluded; embedded figures, diagrams/charts and table-like line art remain eligible. OCR runs locally in English; check numbers, formulas and table reading order against the source file.');
+  warnings.unshift('Only instructional source visual regions are retained: embedded figures, captioned diagrams and charts, and tables. QR/navigation codes, watermark stencils, page banners, running heads, page numbers, prose callouts, blocks of equations and full PDF pages are excluded. OCR runs locally in English; check numbers, formulas and table reading order against the source file.');
  } else if(ext==='docx') {
   let size=0,count=0;
   const entries=unzipSync(bytes,{filter:f=>{size+=f.originalSize;count++;assert(size<=100*1024*1024&&count<=3000,'DOCX expanded content is too large.');return /^(word\/(document\.xml|_rels\/document.xml.rels|media\/[^/]+)|\[Content_Types\]\.xml)$/.test(f.name);}});

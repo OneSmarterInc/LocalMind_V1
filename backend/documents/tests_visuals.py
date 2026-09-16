@@ -174,3 +174,35 @@ class PrivateParserContractTests(SimpleTestCase):
         parser = (repo / "frontend" / "scripts" / "parser-entry.mjs").read_text(encoding="utf-8")
         self.assertIn("looksLikeQrCanvas", parser)
         self.assertIn("shouldKeepPdfVisual", parser)
+
+
+class PrivateVectorDetectionContractTests(SimpleTestCase):
+    """The private parser must read drawing operators, not page pixels.
+
+    Pixel clustering cannot tell a publisher's watermark stencil or a pale
+    banner from line art, which is how page furniture reached the reader.
+    """
+
+    def layout(self):
+        return (Path(__file__).resolve().parents[2] / "frontend" / "scripts" / "pdf-layout.mjs").read_text(encoding="utf-8")
+
+    def test_layout_module_exposes_the_drawing_operator_detector(self):
+        source = self.layout()
+        for symbol in ("export function drawingRectangles", "export function visualRegions", "export function captionLines"):
+            self.assertIn(symbol, source)
+
+    def test_parser_prefers_vector_regions_and_keeps_raster_only_for_scans(self):
+        parser = (Path(__file__).resolve().parents[2] / "frontend" / "scripts" / "parser-entry.mjs").read_text(encoding="utf-8")
+        self.assertIn("visualRegions({ops", parser)
+        self.assertIn("needsOCR?[]:visualRegions", parser)
+
+    def test_raster_fallback_measures_luminance_so_pale_tints_are_not_ink(self):
+        source = self.layout()
+        self.assertIn("0.299+", source.replace(" ", ""))
+        self.assertNotIn("<720", source.replace(" ", ""))
+
+    def test_policy_rejects_a_text_heavy_crop_even_when_captioned(self):
+        policy = (Path(__file__).resolve().parents[2] / "frontend" / "scripts" / "picture-context.mjs").read_text(encoding="utf-8")
+        compact = policy.replace(" ", "").replace("\n", "")
+        self.assertIn("if(!tableLike&&ratio>=.24&&chars>=260)returnfalse;", compact)
+        self.assertIn("if(!tableLike&&ratio>=.14&&chars>=520)returnfalse;", compact)

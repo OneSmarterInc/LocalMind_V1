@@ -87,6 +87,7 @@ jobs:
         continue-on-error: true
         run: |
           node tests/picture-context.test.mjs >verification/picture-context.log 2>&1 || { cat verification/picture-context.log; exit 1; }
+          node --test tests/pdf-layout.test.mjs >verification/pdf-layout.log 2>&1 || { cat verification/pdf-layout.log; exit 1; }
           node tests/private-contracts.mjs >verification/private-contracts.log 2>&1 || { cat verification/private-contracts.log; exit 1; }
           python scripts/check_md_alignment.py >verification/md-contracts.log 2>&1 || { tail -80 verification/md-contracts.log; exit 1; }
           python scripts/check_offline_study.py >verification/foundation-contracts.log 2>&1 || { tail -80 verification/foundation-contracts.log; exit 1; }

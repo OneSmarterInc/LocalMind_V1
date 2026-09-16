@@ -53,8 +53,13 @@ export function pdfPictureContext(items,view,rect){
 
 export function shouldKeepPdfVisual(metadata,rect,pageWidth,pageHeight,{tableLike=false}={}){
  const [x0,y0,x1,y1]=rect,w=Math.max(1,x1-x0),h=Math.max(1,y1-y0),ratio=w*h/Math.max(1,pageWidth*pageHeight),top=y0/Math.max(1,pageHeight),bottom=y1/Math.max(1,pageHeight),caption=metadata?.captionOrigin==='source';
- if(!caption&&!tableLike&&metadata?.calloutText)return false;
  const chars=String(metadata?.insideText||'').replace(/\s/g,'').length;
+ // A crop that is mostly running text is a slice of the page, whatever caption
+ // happens to sit inside it. Publisher watermark stencils are the usual source:
+ // they cover half a page, so the caption test alone would let them through.
+ if(!tableLike&&ratio>=.24&&chars>=260)return false;
+ if(!tableLike&&ratio>=.14&&chars>=520)return false;
+ if(!caption&&!tableLike&&metadata?.calloutText)return false;
  if(!tableLike&&!caption&&ratio>=.10&&chars>=140)return false;
  if(!caption&&top<.17&&w>pageWidth*.38)return false;
  if(!caption&&bottom>.90&&w>pageWidth*.30)return false;

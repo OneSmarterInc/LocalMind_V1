@@ -19,5 +19,6 @@ urlpatterns = [
     path("modules/<uuid:module_id>/", views.ModuleEditView.as_view(), name="modules-edit"),
     path("modules/<uuid:module_id>/availability/", views.ModuleAvailabilityView.as_view(), name="modules-availability"),
     path("modules/<uuid:module_id>/lesson/", lesson_views.ModuleLessonView.as_view(), name="modules-lesson"),
+    path("modules/<uuid:module_id>/visuals/", lesson_views.ModuleVisualsView.as_view(), name="modules-visuals"),
     path("modules/<uuid:module_id>/auto-quiz/", views.ModuleAutoQuizView.as_view(), name="modules-auto-quiz"),
 ]

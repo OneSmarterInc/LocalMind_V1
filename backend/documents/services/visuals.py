@@ -29,10 +29,11 @@ logger = logging.getLogger("localmind.documents.visuals")
 
 MAX_VISUALS_PER_DOCUMENT = 500
 RENDER_SCALE = 2.0
-# Version 7 unifies every PDF detector under the same safety policy, adds
-# rendered QR rejection, and removes repeated layout furniture by position as
-# well as by identical bytes.
-EXTRACTOR_VERSION = 7
+# Version 8 keeps version 7's shared safety policy, rendered QR rejection and
+# positional furniture removal, and adds: a table has to look tabular even when
+# a caption sits beside it, and a publisher's page-sized 1-bit watermark
+# stencil is no longer reported as an unsaved page scan.
+EXTRACTOR_VERSION = 8
 MAX_STORED_BYTES = 128 * 1024 * 1024
 
 
@@ -174,7 +175,11 @@ def _save_pdf_visuals(source: Path, output_dir: Path, notices=None):
             page.set_rotation(0)
             try:
                 regions = _pdf_regions(page, index + 1)
+                # A page-sized 1-bit stencil is the publisher's watermark, not a
+                # scan of the page, so it must not raise a scan notice on every
+                # page of an otherwise ordinary typeset book.
                 if not regions and any(_area(pymupdf.Rect(i["bbox"])) / max(1, _area(page.rect)) > .72
+                                       and int(i.get("bpc") or 8) > 1
                                        for i in page.get_image_info() if i.get("bbox")):
                     notices.append(f"Page {index+1}: a page-sized scan was not saved as a figure. Separate visual regions were not detected.")
                 for occurrence, region in enumerate(regions, 1):

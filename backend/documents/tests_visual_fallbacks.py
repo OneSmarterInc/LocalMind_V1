@@ -78,3 +78,35 @@ class TextbookVisualFallbackTests(SimpleTestCase):
         self.assertTrue(tables, "Expected a borderless aligned-text table")
         self.assertTrue(any(r.get("caption", "").startswith("Table 4.2") for r in tables))
         doc.close()
+
+
+class ProseIsNotATableTests(SimpleTestCase):
+    """Text-strategy table inference will happily carve running prose into
+    cells. A caption beside it used to be treated as permission to keep it,
+    which is how a column of body text arrived as a "table" crop of the page."""
+
+    def test_a_prose_column_beside_a_figure_caption_is_not_a_table(self):
+        import pymupdf
+
+        doc = pymupdf.open()
+        page = doc.new_page(width=600, height=800)
+        page.insert_text((70, 120), "FIGURE 2.1 Rods repel and attract", fontsize=10)
+        sentences = [
+            "Charges acquired after rubbing are lost when the",
+            "charged bodies are brought into contact again, which",
+            "tells us that unlike charges neutralise each other.",
+            "Therefore the charges were named positive and",
+            "negative by the American scientist Benjamin Franklin,",
+            "and by convention the charge on a glass rod is",
+            "called positive while that on a plastic rod is termed",
+            "negative. An object that possesses an electric charge",
+            "is said to be electrified; with no charge it is neutral.",
+        ]
+        y = 150
+        for index in range(4):
+            for line in sentences:
+                page.insert_text((70, y), line, fontsize=9)
+                y += 15
+        regions = textbook_fallback_regions(page, 1)
+        self.assertEqual([r for r in regions if r["origin"] == "borderless_text_table"], [])
+        doc.close()

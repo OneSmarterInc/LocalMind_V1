@@ -7,9 +7,13 @@ recover those visuals without falling back to page screenshots or coloured activ
 """
 from __future__ import annotations
 
+import collections
 import re
 import statistics
 
+# Relations and operators mark a derivation. A ratio such as "90 / 100" is
+# ordinary table content, so a solidus alone is not evidence of algebra.
+_MATH_RE = re.compile("[=\u222b\u221a\u2248\u2264\u2265\u00b1\u00d7\u00f7\u2211]")
 _CAPTION_RE = re.compile(
     r"^(?P<kind>fig(?:ure)?\.?|table|chart|graph|diagram|plate|map)\s*(?P<num>\d+(?:\.\d+)*(?:[A-Za-z])?)\b",
     re.I,
@@ -181,9 +185,21 @@ def _table_quality(table, captioned):
     occupancy = len(cells) / max(1, table.row_count * table.col_count)
     lengths = [len(text) for _, _, text in cells]
     median = statistics.median(lengths)
-    if occupancy < 0.18 or median > 44:
+    if occupancy < 0.18 or median > 26 or max(lengths) > 220:
         return None
-    if not captioned and (rows < 3 or cols < 3 or occupancy < 0.36):
+    # A caption says a picture is nearby; it does not say the picture is a
+    # table.  Two columns of running prose beside a figure caption satisfied
+    # the old relaxed test and arrived as a "table" crop of the page body.
+    if rows < 3 or cols < 3:
+        return None
+    if not captioned and occupancy < 0.36:
+        return None
+    shapes = collections.Counter(len([1 for r, _, _ in cells if r == row]) for row in {r for r, _, _ in cells})
+    commonest = shapes.most_common(1)[0][1] if shapes else 0
+    if commonest < 3 or commonest < rows * 0.6:
+        return None
+    maths = sum(1 for _, _, text in cells if _MATH_RE.search(text))
+    if maths > len(cells) * 0.20:
         return None
     if max(lengths) > 300 and median > 20:
         return None
@@ -227,6 +243,11 @@ def borderless_table_regions(page, page_no):
         for table in tables:
             rect = pymupdf.Rect(table.bbox)
             if rect.width < 95 or rect.height < 34:
+                continue
+            # Tables are laid out across the measure.  A tall, narrow candidate
+            # is a column of running prose that text-strategy inference has
+            # chopped into cells.
+            if rect.height > rect.width * 1.25:
                 continue
             ratio = _area(rect) / max(1.0, _area(page.rect))
             if ratio > 0.42:

@@ -1,3 +1,10 @@
+/** One cropped figure, chart, diagram or table taken from the uploaded source. */
+export type SourceVisual = {
+  id: string; kind?: string; page?: number | null; caption?: string;
+  width?: number | null; height?: number | null; data_url: string;
+  module_id?: string; module_title?: string;
+};
+
 export type Role = "admin" | "faculty" | "student";
 
 export interface Profile {
