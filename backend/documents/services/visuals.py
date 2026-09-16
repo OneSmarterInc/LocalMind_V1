@@ -1,13 +1,14 @@
 """Extract source visuals without ever saving a full page screenshot.
 
-PDF visuals are cropped from three layout signals:
+PDF visuals are cropped from conservative source evidence:
 * embedded raster image rectangles;
-* vector drawing clusters (charts / diagrams / line art);
-* table bounding boxes.
+* caption-linked vector diagrams/charts;
+* table regions that pass tabular-quality checks.
 
-The output is intentionally presentation-only metadata. Lesson generation stays
-text-grounded; the original source visual is shown beside the generated lesson
-rather than asking the local text model to invent an interpretation of pixels.
+Page furniture, large prose panels, page masks and near-full-page regions are
+rejected before rendering. Lesson generation stays text-grounded; the original
+source visual is shown beside the generated lesson rather than asking the local
+text model to invent an interpretation of pixels.
 """
 from __future__ import annotations
 
@@ -19,39 +20,24 @@ import logging
 from pathlib import Path
 
 from .visual_context import CAPTION_RE
+from .pdf_visual_regions import (
+    MAX_REGION_PAGE_RATIO,
+    MIN_REGION_POINTS,
+    area as _area,
+    intersection_ratio as _intersection_ratio,
+    valid_region as _valid_region,
+    dedupe as _dedupe,
+    pdf_regions,
+)
 
 logger = logging.getLogger("localmind.documents.visuals")
 
 MAX_VISUALS_PER_DOCUMENT = 500
-MAX_REGION_PAGE_RATIO = 0.72  # never persist a near-full-page crop
-MIN_REGION_POINTS = 42
 RENDER_SCALE = 2.0
-EXTRACTOR_VERSION = 2
+# Version 3 replaces broad drawing clustering with conservative textbook-aware
+# region detection. Bump so existing visual manifests are automatically rebuilt.
+EXTRACTOR_VERSION = 3
 MAX_STORED_BYTES = 128 * 1024 * 1024
-
-
-def _area(rect) -> float:
-    return max(0.0, float(rect.x1 - rect.x0)) * max(0.0, float(rect.y1 - rect.y0))
-
-
-def _intersection_ratio(a, b) -> float:
-    x0, y0 = max(a.x0, b.x0), max(a.y0, b.y0)
-    x1, y1 = min(a.x1, b.x1), min(a.y1, b.y1)
-    if x1 <= x0 or y1 <= y0:
-        return 0.0
-    overlap = (x1 - x0) * (y1 - y0)
-    return overlap / max(1.0, min(_area(a), _area(b)))
-
-
-def _valid_region(rect, page_rect) -> bool:
-    if rect.width < MIN_REGION_POINTS or rect.height < MIN_REGION_POINTS:
-        return False
-    area = _area(rect)
-    page_area = _area(page_rect)
-    if not area or not page_area or area / page_area > MAX_REGION_PAGE_RATIO:
-        return False
-    # Headers, rules and tiny decorative marks should never become lesson art.
-    return area >= 2500 and max(rect.width, rect.height) / min(rect.width, rect.height) <= 12
 
 
 def _expanded(rect, page_rect, margin=6):
@@ -65,65 +51,9 @@ def _expanded(rect, page_rect, margin=6):
     )
 
 
-def _dedupe(regions):
-    # Priority matters: a table rectangle is more informative than the line-art
-    # cluster that made the same table detectable. Embedded figures beat an
-    # overlapping generic vector cluster as well.
-    priority = {"table": 3, "figure": 2, "diagram": 1}
-    kept = []
-    for candidate in sorted(regions, key=lambda r: (priority[r["kind"]], _area(r["rect"])), reverse=True):
-        if any(_intersection_ratio(candidate["rect"], old["rect"]) >= 0.72 for old in kept):
-            continue
-        kept.append(candidate)
-    return sorted(kept, key=lambda r: (r["page"], r["rect"].y0, r["rect"].x0))
-
-
 def _pdf_regions(page, page_no):
-    regions = []
-    page_rect = page.rect
-
-    # Raster figures / photographs / screenshots.
-    try:
-        for info in page.get_image_info(xrefs=True):
-            bbox = info.get("bbox")
-            if not bbox:
-                continue
-            import pymupdf
-            rect = pymupdf.Rect(bbox)
-            if _valid_region(rect, page_rect):
-                regions.append({"kind": "figure", "page": page_no, "rect": rect})
-    except Exception as exc:
-        logger.debug("Image rectangle detection failed on page %s: %s", page_no, exc)
-
-    drawings = None
-    try:
-        drawings = page.get_drawings()
-    except Exception as exc:
-        logger.debug("Vector drawing detection failed on page %s: %s", page_no, exc)
-
-    # Tables have explicit bounding boxes; capture the source table itself, not
-    # the whole page containing it.
-    try:
-        finder = page.find_tables(paths=drawings) if drawings is not None else page.find_tables()
-        for table in finder.tables:
-            import pymupdf
-            rect = pymupdf.Rect(table.bbox)
-            if _valid_region(rect, page_rect):
-                regions.append({"kind": "table", "page": page_no, "rect": rect})
-    except Exception as exc:
-        logger.debug("Table detection failed on page %s: %s", page_no, exc)
-
-    # Vector clusters catch bar charts, pie charts, flow diagrams and other
-    # line-art that does not exist as an embedded bitmap.
-    if drawings:
-        try:
-            for rect in page.cluster_drawings(drawings=drawings):
-                if _valid_region(rect, page_rect):
-                    regions.append({"kind": "diagram", "page": page_no, "rect": rect})
-        except Exception as exc:
-            logger.debug("Vector clustering failed on page %s: %s", page_no, exc)
-
-    return _dedupe(regions)
+    """Compatibility wrapper retained for tests and callers."""
+    return pdf_regions(page, page_no)
 
 
 def _atomic_json(path, value):
@@ -218,19 +148,23 @@ def _save_pdf_visuals(source: Path, output_dir: Path, notices=None):
             try:
                 regions = _pdf_regions(page, index + 1)
                 if not regions and any(_area(pymupdf.Rect(i["bbox"])) / max(1, _area(page.rect)) > .72
-                                       for i in page.get_image_info()):
+                                       for i in page.get_image_info() if i.get("bbox")):
                     notices.append(f"Page {index+1}: a page-sized scan was not saved as a figure. Separate visual regions were not detected.")
                 for occurrence, region in enumerate(regions, 1):
                     if len(store.rows) >= MAX_VISUALS_PER_DOCUMENT:
                         notices.append("The 500-visual limit was reached; remaining pictures were not imported.")
                         return filter_repeated_furniture(store.rows)
-                    # No surrounding paragraph padding for embedded pictures.
+                    # Embedded pictures keep their exact rectangle. Vector/table
+                    # crops receive only two points of breathing room, never the
+                    # surrounding prose or whole page.
                     clip = _expanded(region["rect"], page.rect, margin=0 if region["kind"] == "figure" else 2)
                     if not _valid_region(clip, page.rect):
                         continue
                     scale = min(RENDER_SCALE, 2200 / max(clip.width, clip.height))
                     pix = page.get_pixmap(matrix=pymupdf.Matrix(scale, scale), clip=clip, alpha=False)
-                    context, caption = _nearby_pdf_text(page, clip)
+                    context, nearby_caption = _nearby_pdf_text(page, clip)
+                    source_caption = str(region.get("caption") or "").strip()
+                    caption = source_caption or nearby_caption
                     relative_area = _area(clip) / max(1, _area(page.rect))
                     store.save(pix.tobytes("png"), {
                         "id_prefix": f"p{index+1}-{occurrence}-{region['kind']}",
@@ -240,6 +174,7 @@ def _save_pdf_visuals(source: Path, output_dir: Path, notices=None):
                         "caption": caption or f"Source {region['kind']} from page {index+1}",
                         "caption_origin": "source" if caption else "label",
                         "bbox": [round(v, 2) for v in clip],
+                        "origin": region.get("origin", "detected"),
                         "margin_art": relative_area < .035 and (clip.y1 < page.rect.height*.12 or clip.y0 > page.rect.height*.88),
                     })
             except VisualLimitReached as exc:
