@@ -526,3 +526,30 @@ test('opening the institutional book automatically prepares its modules',async({
  await page.goto(`/manage/local-authoring/${fixture().module}`);
  await expect(page.getByText('Source ready · Changes saved automatically',{exact:true})).toBeVisible();
 });
+
+test('Create Quiz uses device inference and syncs a reviewed multi-module draft after an offline refresh',async({page,context})=>{
+ const tokens=await signIn(page,'faculty','/manage/offline-ai');await model(page,'/manage/offline-ai');
+ const serverCalls:string[]=[];page.on('request',r=>{if(r.method()==='POST'&&r.url().includes('/quizzes/generate/'))serverCalls.push(r.url());});
+ await page.goto('/manage/quiz/new');
+ await page.getByLabel('Quiz title',{exact:true}).fill('Device selection quiz');
+ await page.getByRole('checkbox',{name:'Leaf science',exact:true}).click();
+ await page.getByRole('checkbox',{name:'Open practice',exact:true}).click();
+ await page.getByLabel('Multiple-choice questions',{exact:true}).fill('2');
+ await page.evaluate(()=>{(window as any).__LM_TEST_DELAY__=700;});
+ await page.getByRole('button',{name:'Continue to questions',exact:true}).click();
+ await expect(page).toHaveURL(/manage\/local-quizzes\?id=/);
+ await context.setOffline(true);
+ await expect(page.getByText('2 of 2 questions saved · 2 source modules',{exact:true})).toBeVisible();
+ await page.reload();
+ await expect(page.getByText('2 of 2 questions saved · 2 source modules',{exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Approve and synchronize quiz',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Retry synchronization',exact:true})).toBeVisible();
+ await page.reload();
+ await context.setOffline(false);
+ await page.getByRole('button',{name:'Retry synchronization',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Open quiz settings and publish',exact:true})).toBeVisible();
+ const response=await page.request.get('/api/faculty/quizzes/',{headers:{Authorization:`Bearer ${tokens.access}`}});expect(response.ok()).toBeTruthy();
+ const body=await response.json(),rows=Array.isArray(body)?body:body.results;
+ expect(rows.filter((q:any)=>q.title==='Device selection quiz')).toHaveLength(1);
+ expect(serverCalls).toEqual([]);
+});

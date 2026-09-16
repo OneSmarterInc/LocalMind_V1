@@ -1,3 +1,9 @@
+import {generationJobs} from '@/private/jobs';
+import {jobScope} from '@/private/useGenerationJobs';
+import {useLibrary} from '@/private/useLibrary';
+import {device} from '@/private/device';
+import {useAuth} from '@/auth/AuthContext';
+import {LocalQuizzes} from '@/authoring/quizzes';
 import { confirmLeave } from "@/hooks/unsavedGuard";
 import { carryEditableFields } from "@/hooks/draftPersistence";
 import { useRouter } from "expo-router";
@@ -127,18 +133,21 @@ function OptionCardLike({ checked, onPress, children, label }: { checked: boolea
 /* ------------------------------------------------------------------ */
 
 export function QuizNewPage() {
+  const {user}=useAuth(),library=useLibrary();
   const router = useRouter();
   const [title, setTitle] = useState("");
   const [subjectId, setSubjectId] = useState("");
   const [modules, setModules] = useState<string[]>([]);
   const [how, setHow] = useState<"generate" | "manual">("generate");
   const [mcqs, setMcqs] = useState("5");
-  const [written, setWritten] = useState("0");
+
   const created = (id: string, note?: string | null) => router.replace({ pathname: "/manage/quiz/[id]", params: note ? { id, note } : { id } });
   const go = useAction(async () => {
     if (how === "generate") {
-      const quiz = await manage.generateQuiz({ module_ids: modules, title: title.trim() || undefined, num_mcqs: Number(mcqs) || 0, num_subjective: Number(written) || 0 });
-      created(quiz.id, quiz.generation_warning);
+      const service=new LocalQuizzes(user!.id);
+      const quiz = await service.create(modules,title,Number(mcqs));
+      if((await(await device()).status()).installed)generationJobs.enqueue({scope:jobScope(library!.prefix),bookId:quiz.id,sectionId:quiz.id,kind:"staff-quiz-selection",label:quiz.title},(signal,progress)=>service.generate(quiz.id,signal,progress));
+      router.push({pathname:"/manage/local-quizzes",params:{id:quiz.id}});
     } else {
       const quiz = await manage.createQuiz({
         module_ids: modules, title: title.trim() || "Untitled quiz",
@@ -151,6 +160,7 @@ export function QuizNewPage() {
     <Screen>
       <PageHeading eyebrow="QUIZZES" title="Create a quiz" subtitle="Choose the source first. Then generate questions or write your own."
         right={<Button title="Back to quizzes" variant="secondary" icon="arrow-back" onPress={() => router.push("/manage/quizzes")} />} />
+      <Button title="Saved quiz drafts" variant="secondary" onPress={()=>router.push("/manage/local-quizzes")}/>
       <Split
         main={
           <Card>
@@ -165,7 +175,7 @@ export function QuizNewPage() {
             {how === "generate" ? (
               <Grid min={200} gap={16}>
                 <Input label="Multiple-choice questions" value={mcqs} onChangeText={setMcqs} keyboardType="number-pad" />
-                <Input label="Written-answer questions" value={written} onChangeText={setWritten} keyboardType="number-pad" hint="Marked by the tutor model against a rubric." />
+                <Notice message="Choose at least one question per selected module, up to six per module and 30 total. Questions generate on your device and save automatically." />
               </Grid>
             ) : null}
             <ErrorBanner message={go.error} />

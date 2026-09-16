@@ -80,3 +80,42 @@ class LocalAuthoringTests(TestCase):
             response = client_for(actor).post(self.url, self.event(), format='json')
             self.assertIn(response.status_code, [403, 404])
         self.assertEqual(client_for(make_admin()).get(self.url).status_code, 200)
+
+class LocalSelectionQuizTests(TestCase):
+    setUp = LocalAuthoringTests.setUp
+    event = LocalAuthoringTests.event
+    def selection(self):
+        data = self.event('quiz')
+        return {'id':data['id'], 'title':'Device selection', 'reviewed':True,
+                'sources':[{'module_id':str(self.module.pk),'revision':self.base}],
+                'questions':[{**q,'module_id':str(self.module.pk)} for q in data['questions']]}
+    def test_selection_replay_and_stale_source(self):
+        data=self.selection()
+        with patch('assessments.services.assessments.generate',side_effect=AssertionError('Server AI must not run')):
+            result=self.client.post('/api/faculty/local-quizzes/',data,format='json')
+            self.assertEqual(result.status_code,200,result.data)
+            self.assertEqual(self.client.post('/api/faculty/local-quizzes/',data,format='json').data,result.data)
+        self.assertEqual(Assessment.objects.count(),1)
+        self.assertEqual(result.data['status'],'draft')
+        data['id']=str(uuid4());data['sources'][0]['revision']='stale'
+        self.assertEqual(self.client.post('/api/faculty/local-quizzes/',data,format='json').status_code,409)
+        self.assertEqual(Assessment.objects.count(),1)
+    def test_selection_invalid_quote_and_unselected_source(self):
+        data=self.selection();data['questions'][0]['quote']='This sentence is not in the source.'
+        self.assertEqual(self.client.post('/api/faculty/local-quizzes/',data,format='json').status_code,400)
+        data=self.selection();data['questions'][0]['module_id']=str(uuid4())
+        self.assertEqual(self.client.post('/api/faculty/local-quizzes/',data,format='json').status_code,400)
+        self.assertEqual(Assessment.objects.count(),0)
+    def test_selection_denies_unassigned_faculty(self):
+        other=client_for(make_faculty())
+        self.assertEqual(other.post('/api/faculty/local-quizzes/',self.selection(),format='json').status_code,404)
+    def test_selection_retains_multiple_module_relationships(self):
+        other_doc=make_published_document(self.doc.subject,modules=(('Second source','Threads share a process address space.'),))
+        second=other_doc.chapters.first().modules.first()
+        rev=self.client.get(f'/api/faculty/modules/{second.pk}/local-authoring/').data['revision']
+        data=self.selection();data['sources'].append({'module_id':str(second.pk),'revision':rev})
+        data['questions'].append({**data['questions'][0],'module_id':str(second.pk),'question':'What do threads share?','quote':'Threads share a process address space.'})
+        response=self.client.post('/api/faculty/local-quizzes/',data,format='json')
+        self.assertEqual(response.status_code,200,response.data)
+        quiz=Assessment.objects.get(pk=response.data['quiz_id'])
+        self.assertEqual(quiz.source_modules.count(),2)

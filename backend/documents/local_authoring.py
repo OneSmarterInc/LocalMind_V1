@@ -62,6 +62,27 @@ def checked_lesson(raw, module):
             'sections': out, 'key_terms': [], 'summary': string(raw.get('introduction'), 1200, 'introduction')}
 
 
+def checked_questions(raw, module):
+    if not isinstance(raw, list) or not 1 <= len(raw) <= 30:
+        raise ValidationFailed('Provide 1–30 complete questions.')
+    questions = []
+    for q in raw:
+        if not isinstance(q, dict):
+            raise ValidationFailed('Invalid question.')
+        options = q.get('options')
+        if not isinstance(options, list) or len(options) != 4 or type(q.get('answer')) is not int or not 0 <= q['answer'] <= 3:
+            raise ValidationFailed('Invalid choices or answer key.')
+        options = [string(o, 350, 'choice') for o in options]
+        if len({o.casefold() for o in options}) != 4:
+            raise ValidationFailed('Repeated choices are not valid.')
+        questions.append({'type': 'mcq', 'question': string(q.get('question'), 600, 'question'),
+                          'options': [{'key': chr(65+i), 'text': o} for i, o in enumerate(options)],
+                          'correct_answer': chr(65+q['answer']),
+                          'explanation': string(q.get('explanation'), 1000, 'explanation'),
+                          'source_reference': quotation(q.get('quote'), module.source_text)})
+    return questions
+
+
 class LocalAuthoringView(APIView):
     permission_classes = [IsAdminOrFaculty]
 
@@ -118,24 +139,7 @@ class LocalAuthoringView(APIView):
         elif kind == 'quiz':
             from assessments.services.assessments import create_manual
             from assessments.models import Generator
-            raw = data.get('questions')
-            if not isinstance(raw, list) or not 1 <= len(raw) <= 30:
-                raise ValidationFailed('Provide 1–30 complete questions.')
-            questions = []
-            for q in raw:
-                if not isinstance(q, dict):
-                    raise ValidationFailed('Invalid question.')
-                options = q.get('options')
-                if not isinstance(options, list) or len(options) != 4 or type(q.get('answer')) is not int or not 0 <= q['answer'] <= 3:
-                    raise ValidationFailed('Invalid choices or answer key.')
-                options = [string(o, 350, 'choice') for o in options]
-                if len({o.casefold() for o in options}) != 4:
-                    raise ValidationFailed('Repeated choices are not valid.')
-                questions.append({'type': 'mcq', 'question': string(q.get('question'), 600, 'question'),
-                                  'options': [{'key': chr(65+i), 'text': o} for i, o in enumerate(options)],
-                                  'correct_answer': chr(65+q['answer']),
-                                  'explanation': string(q.get('explanation'), 1000, 'explanation'),
-                                  'source_reference': quotation(q.get('quote'), module.source_text)})
+            questions = checked_questions(data.get('questions'), module)
             quiz = create_manual(request.user, module_id=module.pk, questions=questions, request=request)
             quiz.generator = Generator.AI
             quiz.save(update_fields=['generator'])
@@ -146,5 +150,65 @@ class LocalAuthoringView(APIView):
         from audit import services as audit
         audit.record(request.user, 'authoring.device_received', module, {'kind': kind, 'operation': str(operation)}, request)
         output.update({'recorded': True, 'revision': revision(module)})
+        LocalAuthoringReceipt.objects.create(actor=request.user, operation_id=operation, payload_hash=fingerprint, response=output)
+        return Response(output)
+
+
+class LocalQuizView(APIView):
+    permission_classes = [IsAdminOrFaculty]
+    module = LocalAuthoringView.module
+    """A reviewed multi-module quiz, with replay protection and no model calls."""
+    @transaction.atomic
+    def post(self, request):
+        data = request.data
+        if not isinstance(data, dict) or len(json.dumps(data)) > 1_000_000:
+            raise ValidationFailed('Invalid quiz draft.')
+        try:
+            operation = UUID(str(data.get('id')))
+            sources = data['sources']
+            if not isinstance(sources, list) or not 1 <= len(sources) <= 30:
+                raise ValueError()
+            ids = [UUID(str(item['module_id'])) for item in sources]
+            if len(set(ids)) != len(ids):
+                raise ValueError()
+        except (KeyError, TypeError, ValueError):
+            raise ValidationFailed('Choose 1–30 distinct source modules.')
+        get_user_model().objects.select_for_update().get(pk=request.user.pk)
+        modules = [self.module(request.user, key) for key in ids]
+        # Match the document lock used by source editing and single-module authoring.
+        list(Document.objects.select_for_update().filter(pk__in={m.chapter.document_id for m in modules}).order_by('pk'))
+        modules = [self.module(request.user, key) for key in ids]
+        fingerprint = digest({'selection_quiz': data})
+        old = LocalAuthoringReceipt.objects.filter(actor=request.user, operation_id=operation).first()
+        if old:
+            if old.payload_hash != fingerprint:
+                raise Conflict('This operation ID was already used for different content.')
+            return Response(old.response)
+        if data.get('reviewed') is not True:
+            raise ValidationFailed('Review the quiz before sharing.')
+        if len({m.chapter.document.subject_id for m in modules}) != 1:
+            raise ValidationFailed('Select modules from one subject.')
+        for module, snapshot in zip(modules, sources):
+            if snapshot.get('revision') != revision(module):
+                raise Conflict('A source changed. Keep the draft and prepare a new quiz from the updated source.', code='AUTHORING_VERSION_CHANGED')
+            if module.source_missing or not module.source_text.strip():
+                raise ValidationFailed('A selected module has no source.')
+        raw = data.get('questions')
+        if not isinstance(raw, list) or not 1 <= len(raw) <= 30:
+            raise ValidationFailed('Provide 1–30 complete questions.')
+        by_id = {str(m.pk): m for m in modules}
+        questions = []
+        for item in raw:
+            if not isinstance(item, dict) or item.get('module_id') not in by_id:
+                raise ValidationFailed('Question source is not selected.')
+            questions.extend(checked_questions([item], by_id[item['module_id']]))
+        if len({q['question'].casefold() for q in questions}) != len(questions):
+            raise ValidationFailed('Repeated questions are not valid.')
+        from assessments.services.assessments import create_manual
+        from assessments.models import Generator
+        quiz = create_manual(request.user, module_ids=ids, title=string(data.get('title'), 300, 'title'), questions=questions, request=request)
+        quiz.generator = Generator.AI
+        quiz.save(update_fields=['generator'])
+        output = {'quiz_id': str(quiz.pk), 'status': quiz.status, 'recorded': True}
         LocalAuthoringReceipt.objects.create(actor=request.user, operation_id=operation, payload_hash=fingerprint, response=output)
         return Response(output)
