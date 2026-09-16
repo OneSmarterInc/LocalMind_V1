@@ -33,6 +33,8 @@ def ok(tag="T"):
     return AIResult(ok=True, data=lesson_json(tag), model="qwen3:1.7b")
 
 
+# Legacy server-generation compatibility coverage.
+@override_settings(DEVICE_AUTHORING_ONLY=False)
 class LessonTestBase(TestCase):
     def setUp(self):
         self.faculty = make_faculty()
@@ -111,6 +113,8 @@ class StudentReadsStoredLessonsTests(LessonTestBase):
 
 
 @override_settings(MEDIA_ROOT=MEDIA)
+# Legacy server-generation compatibility coverage.
+@override_settings(DEVICE_AUTHORING_ONLY=False)
 class LessonsQueuedWhenContentArrivesTests(TestCase):
     @classmethod
     def tearDownClass(cls):

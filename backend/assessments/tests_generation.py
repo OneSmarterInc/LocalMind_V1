@@ -3,7 +3,7 @@ placeholders, and questions a student can read without "the source text"."""
 import re
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from ai.gateway import AIResult
 from core.testing import assign, client_for, enroll, make_faculty, make_published_document, make_student, make_subject
@@ -59,6 +59,8 @@ class FakeModel:
         return AIResult(ok=True, data=data, model="fake")
 
 
+# Legacy server-generation compatibility coverage.
+@override_settings(DEVICE_AUTHORING_ONLY=False)
 class Base(TestCase):
     def setUp(self):
         self.faculty = make_faculty()

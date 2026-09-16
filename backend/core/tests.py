@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.db import connection
-from django.test import TestCase, TransactionTestCase
+from django.test import TestCase, TransactionTestCase, override_settings
 
 from ai.gateway import AIResult
 from assessments.models import AssessmentAttempt, AttemptStatus
@@ -23,6 +23,8 @@ def _no_transaction_open(**kwargs):
     return AIResult(ok=False, error_code="disabled", error="disabled")
 
 
+# Legacy server-generation compatibility coverage.
+@override_settings(DEVICE_AUTHORING_ONLY=False)
 class NoTransactionDuringModelCallTests(TransactionTestCase):
     def setUp(self):
         self.faculty = make_faculty()

@@ -181,6 +181,8 @@ class NewUploadTests(TestCase):
         self.assertEqual(summary["titles_repaired"], 0)
 
 
+# Legacy server-generation compatibility coverage.
+@override_settings(DEVICE_AUTHORING_ONLY=False)
 class ExistingBookTests(TestCase):
     def setUp(self):
         self.faculty = make_faculty()

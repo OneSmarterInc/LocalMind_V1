@@ -2,7 +2,7 @@
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from ai.gateway import AIResult
 from core.testing import assign, client_for, enroll, make_faculty, make_published_document, make_student, make_subject
@@ -26,6 +26,8 @@ def answer(text="Villi absorb nutrients.", grounded=True, ref="absorbs nutrients
                                                  "follow_up_suggestions": suggestions or []})
 
 
+# Legacy server-generation compatibility coverage.
+@override_settings(DEVICE_AUTHORING_ONLY=False)
 class AskBase(TestCase):
     def setUp(self):
         cache.clear()

@@ -13,6 +13,7 @@ from documents.services import retrieval
 from assessments.models import AssessmentAttempt, AttemptStatus
 from audit import services as audit
 from core.exceptions import AIUnavailable, Forbidden, NotFound, ValidationFailed
+from core.generation_policy import require_server_authoring
 from learning import services as learning
 
 from . import lessons
@@ -126,6 +127,7 @@ def ask(student, module_id, question, conversation_id=None, request=None):
     """Not wrapped in a transaction on purpose: the student's question must
     survive even when the model call fails."""
     module = _module(student, module_id)
+    require_server_authoring()
     question = (question or "").strip()
     if not question:
         raise ValidationFailed(details={"question": "A question is required."})
@@ -245,6 +247,7 @@ def remediation(student, attempt_id, request=None):
     # retaken with the answers in hand.
     if not attempt.results_visible:
         raise Forbidden("Results for this quiz have not been released yet.", code="RESULTS_NOT_RELEASED")
+    require_server_authoring()
     wrong = [r for r in attempt.detailed_results if r.get("is_correct") is False]
     if not wrong:
         return {"overview": "Every answered question was correct. Nothing to remediate.", "items": [], "generator": "rule"}

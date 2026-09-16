@@ -1,6 +1,6 @@
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from ai.gateway import AIResult
 from core.testing import MCQ, MCQ2, assign, client_for, enroll, make_faculty, make_published_document, make_student, make_subject
@@ -9,6 +9,8 @@ from learning.models import Module
 from .models import Conversation, ModuleLesson
 
 
+# Legacy server-generation compatibility coverage.
+@override_settings(DEVICE_AUTHORING_ONLY=False)
 class TutorTests(TestCase):
     def setUp(self):
         self.faculty = make_faculty()
@@ -74,6 +76,8 @@ class TutorTests(TestCase):
         self.assertEqual(client_for(self.other).post(f"/api/student/quiz-attempts/{attempt}/remediation/").status_code, 404)
 
 
+# Legacy server-generation compatibility coverage.
+@override_settings(DEVICE_AUTHORING_ONLY=False)
 class OffTopicAnswerTests(TestCase):
     """A student asking about something the module does not cover should be
     told what to do next, not handed the model's raw wording."""

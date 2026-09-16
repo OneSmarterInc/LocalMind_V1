@@ -1,6 +1,7 @@
 """AssessmentService: lifecycle, attempts, grading, scoping."""
 
 from django.conf import settings
+from core.generation_policy import require_server_authoring
 from django.db import transaction
 from django.utils import timezone
 
@@ -150,6 +151,7 @@ def generate(actor, *, module_id=None, chapter_id=None, module_ids=None, num_mcq
     SQLite write lock is not held for the length of the call."""
     subject, chapter, module, source_text, default_title, kind, modules = _target(actor, module_id, chapter_id, module_ids)
     _require_manage(actor, subject)
+    require_server_authoring()
     if num_mcqs + num_subjective <= 0 or num_mcqs > 30 or num_subjective > 10:
         raise ValidationFailed("Ask for 1-30 MCQs and 0-10 subjective questions.", code="INVALID_COUNTS")
     # Exclude what the last few quizzes on the same material already asked. A

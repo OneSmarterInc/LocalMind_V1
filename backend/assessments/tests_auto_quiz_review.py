@@ -22,6 +22,8 @@ from .tests_auto_quiz import RESP_TEXT, TEXT, run_quizzes
 UNGROUNDED = ("Leaves carry tiny pores on their lower surface that open and close with guard cells. " * 16)
 
 
+# Legacy server-generation compatibility coverage.
+@override_settings(DEVICE_AUTHORING_ONLY=False)
 class Base(TestCase):
     def setUp(self):
         # These tests cover review decisions, not the host's .env configuration.

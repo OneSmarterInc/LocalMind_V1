@@ -30,6 +30,8 @@ def run_quizzes(fake=None):
         return auto_quiz.run_pending(wait_for_students=False)
 
 
+# Legacy server-generation compatibility coverage.
+@override_settings(DEVICE_AUTHORING_ONLY=False)
 class Base(TestCase):
     def setUp(self):
         self.faculty = make_faculty()
@@ -48,6 +50,8 @@ class Base(TestCase):
 
 
 @override_settings(MEDIA_ROOT=MEDIA)
+# Legacy server-generation compatibility coverage.
+@override_settings(DEVICE_AUTHORING_ONLY=False)
 class GeneratedOnUploadTests(TestCase):
     @classmethod
     def tearDownClass(cls):

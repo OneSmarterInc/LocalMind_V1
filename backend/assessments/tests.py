@@ -1,7 +1,7 @@
 from datetime import timedelta
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from ai.gateway import AIResult
@@ -46,6 +46,8 @@ class Base(TestCase):
         return (client or self.sc).post(f"/api/student/quiz-attempts/{attempt_id}/submit/", {"submitted_answers": answers}, format="json")
 
 
+# Legacy server-generation compatibility coverage.
+@override_settings(DEVICE_AUTHORING_ONLY=False)
 class AuthoringTests(Base):
     def test_manual_creation_validates_questions(self):
         bad = self.fc.post("/api/faculty/quizzes/", {"module_id": str(self.module.id), "questions": [{"type": "mcq", "question": "x", "options": [], "correct_answer": "Z"}]}, format="json")
@@ -501,6 +503,7 @@ class HeldResultsDoNotLeakTests(ResultsReleaseTests):
         self.assertEqual(progress["best_quiz_percentage"], 0.0)
         self.assertEqual(progress["quiz_attempts"], 1)
 
+    @override_settings(DEVICE_AUTHORING_ONLY=False)
     def test_remediation_refused_while_held_and_allowed_after_release(self):
         quiz = self.manual_quiz(results_release="held")
         attempt_id = self._wrong_attempt(quiz)
@@ -520,6 +523,8 @@ class HeldResultsDoNotLeakTests(ResultsReleaseTests):
         self.assertEqual(progress.quiz_attempts, 1)
 
 
+# Legacy server-generation compatibility coverage.
+@override_settings(DEVICE_AUTHORING_ONLY=False)
 class RemediationSourceTests(Base):
     def test_remediation_on_a_selection_spanning_chapters(self):
         from learning.models import Chapter
