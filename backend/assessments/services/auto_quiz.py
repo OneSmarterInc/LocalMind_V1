@@ -37,6 +37,7 @@ from __future__ import annotations
 import logging
 from datetime import timedelta
 
+from core.generation_policy import device_authoring_only
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Case, F, IntegerField, Q, Value, When
@@ -93,7 +94,7 @@ def request_quizzes(modules, *, force: bool = False, reason: str = "") -> int:
     now = timezone.now()
     queued = 0
     for module in modules:
-        if module.chapter.document.parse_mode == "device-local":
+        if (device_authoring_only() or module.chapter.document.parse_mode == "device-local"):
             continue
         ok, digest = _text_of(module)
         if not ok or too_short(module):
@@ -281,6 +282,8 @@ def _ordered(queryset):
 
 
 def claim_next() -> AutoQuizJob | None:
+    if device_authoring_only():
+        return None
     now = timezone.now()
     for pk, version in _ordered(AutoQuizJob.objects.filter(_claimable(now))).values_list("pk", "version")[:5]:
         won = AutoQuizJob.objects.filter(pk=pk, version=version).filter(_claimable(now)).update(
@@ -291,6 +294,8 @@ def claim_next() -> AutoQuizJob | None:
 
 
 def process_one(job: AutoQuizJob) -> str:
+    if device_authoring_only():
+        return "device_required"
     from tutor.lessons import TRANSIENT_ERRORS, has_text, source_hash
 
     from .generation import QuizGenerationFailed, generate_questions
@@ -370,6 +375,8 @@ def run_pending(limit: int | None = None, *, wait_for_students: bool = True) -> 
     from tutor.lessons import _wait_for_students
 
     outcome = {"ready": 0, "failed": 0, "discarded": 0}
+    if device_authoring_only():
+        return outcome
     done = 0
     while limit is None or done < limit:
         if not enabled():
@@ -388,7 +395,7 @@ def run_pending(limit: int | None = None, *, wait_for_students: bool = True) -> 
 
 
 def has_claimable() -> bool:
-    return enabled() and AutoQuizJob.objects.filter(_claimable(timezone.now())).exists()
+    return not device_authoring_only() and enabled() and AutoQuizJob.objects.filter(_claimable(timezone.now())).exists()
 
 
 # ------------------------------------------------------------------ reading --
@@ -414,13 +421,15 @@ def state_for(module, job=_UNSET) -> str:
     if job is None or (job.assessment_id is None and job.status != AutoQuizStatus.DISMISSED and too_short(module)):
         return "short" if too_short(module) else "none"
     if job.status == AutoQuizStatus.READY and job.source_hash != source_hash(module.source_text):
-        return AutoQuizStatus.PENDING
+        return "none" if device_authoring_only() else AutoQuizStatus.PENDING
     quiz = job.assessment if job.assessment_id else None
     if job.status == AutoQuizStatus.READY and quiz is not None:
         if quiz.held_for_review:
             return "held"
         if quiz.status == AssessmentStatus.DRAFT and quiz.checked_at is None and monitor_gates():
             return "checking"
+    if device_authoring_only() and job.status in (AutoQuizStatus.PENDING, AutoQuizStatus.GENERATING):
+        return "none"
     return job.status
 
 

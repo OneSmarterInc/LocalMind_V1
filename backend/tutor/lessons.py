@@ -35,6 +35,7 @@ import threading
 import time
 from datetime import timedelta
 
+from core.generation_policy import device_authoring_only
 from django.conf import settings
 from django.db import close_old_connections, transaction
 from django.db.models import Case, F, IntegerField, Q, Value, When
@@ -100,7 +101,7 @@ def request_lessons(modules, *, force: bool = False, reason: str = "") -> int:
     now = timezone.now()
     queued = 0
     for module in modules:
-        if module.chapter.document.parse_mode == "device-local":
+        if (device_authoring_only() or module.chapter.document.parse_mode == "device-local"):
             continue
         if not has_text(module):
             continue
@@ -143,7 +144,7 @@ def request_for_document(document, *, force: bool = False, reason: str = "") -> 
 
 
 def auto_generate_enabled() -> bool:
-    return bool(_cfg("AUTO_GENERATE", True))
+    return not device_authoring_only() and bool(_cfg("AUTO_GENERATE", True))
 
 
 def on_content_changed(modules, reason: str) -> int:
@@ -170,11 +171,13 @@ def state_for(module, row=_UNSET) -> str:
         return "none"
     if row is _UNSET:
         row = ModuleLesson.objects.filter(module=module).first()
-    local = module.chapter.document.parse_mode == "device-local"
+    local = (device_authoring_only() or module.chapter.document.parse_mode == "device-local")
     if row is None:
         return LessonStatus.PENDING if auto_generate_enabled() and not local else "none"
     if row.source_hash != source_hash(module.source_text):
         return "none" if local else LessonStatus.PENDING
+    if local and row.status in (LessonStatus.PENDING, LessonStatus.GENERATING):
+        return "none"
     return row.status
 
 
@@ -199,7 +202,7 @@ def lesson_for_student(module) -> dict:
     if state == LessonStatus.READY and row and row.lesson:
         return {**base, "status": "ready", "lesson": row.lesson, "generator": "ai", "cached": True,
                 "model": row.model_name, "generated_at": row.generated_at}
-    if module.chapter.document.parse_mode == "device-local":
+    if (device_authoring_only() or module.chapter.document.parse_mode == "device-local"):
         return {**base, "status": "unavailable", "lesson": None, "generator": None, "cached": False,
                 "ai_error": "local_authoring_required", "retry_scheduled": False}
     ai_on = bool(settings.AI.get("ENABLED"))
@@ -275,6 +278,8 @@ def _ordered(queryset):
 
 
 def claim_next() -> ModuleLesson | None:
+    if device_authoring_only():
+        return None
     """Take the next job in ``_ordered`` order. The conditional update is the lock."""
     now = timezone.now()
     candidates = _ordered(ModuleLesson.objects.filter(_claimable(now))).values_list("pk", "version")[:5]
@@ -304,6 +309,8 @@ def _backoff(attempts: int) -> timedelta:
 
 
 def process_one(row: ModuleLesson) -> str:
+    if device_authoring_only():
+        return "device_required"
     """Generate the claimed lesson and record the outcome. Returns the new status
     (or "discarded" when the module changed or vanished meanwhile)."""
     claimed_version = row.version
@@ -364,6 +371,8 @@ def run_pending(limit: int | None = None, *, wait_for_students: bool = True) -> 
     """Work through the queue in this thread. Used by the background worker,
     the ``generate_lessons`` command and the tests."""
     outcome = {"ready": 0, "failed": 0, "discarded": 0}
+    if device_authoring_only():
+        return outcome
     done = 0
     while limit is None or done < limit:
         if wait_for_students:
@@ -393,6 +402,8 @@ def _worker_loop():
     try:
         while True:
             close_old_connections()
+            if device_authoring_only():
+                return
             outcome = {"ready": 0, "failed": 0, "discarded": 0}
             for runner, label in ((run_pending, "lesson"), (auto_quiz.run_pending, "quiz")):
                 try:
@@ -421,7 +432,7 @@ def start_worker() -> bool:
     """Start this process's lesson worker if it is not running. Never runs
     under the test runner (tests call ``run_pending`` directly) or with AI off."""
     global _worker
-    if settings.TESTING or not settings.AI.get("ENABLED"):
+    if device_authoring_only() or settings.TESTING or not settings.AI.get("ENABLED"):
         return False
     with _worker_lock:
         if _worker is not None and _worker.is_alive():
@@ -434,7 +445,7 @@ def start_worker() -> bool:
 def resume_on_startup(delay: float = 5.0) -> None:
     """Called once when the web process starts: pick up jobs left by a restart.
     Waits a moment so the server is accepting requests first."""
-    if settings.TESTING or not settings.AI.get("ENABLED"):
+    if device_authoring_only() or settings.TESTING or not settings.AI.get("ENABLED"):
         return
 
     def later():

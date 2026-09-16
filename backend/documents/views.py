@@ -1,3 +1,4 @@
+from core.generation_policy import require_server_authoring
 from django.db.models import Count
 from rest_framework import status
 from rest_framework.generics import ListAPIView
@@ -182,6 +183,7 @@ class ModuleLessonView(APIView):
         if not lessons.has_text(module):
             raise APIError("This module has no source text, so there is nothing to build a lesson from.",
                            code="EMPTY_SOURCE_TEXT", status_code=400)
+        require_server_authoring()
         lessons.request_lessons([module], force=True, reason="faculty.regenerate")
         audit.record(request.user, "lesson.regenerate_requested", module, {}, request)
         return Response(lessons.detail_for_faculty(module), status=status.HTTP_202_ACCEPTED)
@@ -199,6 +201,7 @@ class ModuleAutoQuizView(APIView):
         module = get_or_404(Module.objects.filter(chapter__document__in=_docs_for(request.user)).select_related("chapter__document"), pk=module_id)
         if not lessons.has_text(module):
             raise APIError("This module has no source text, so there is nothing to write a quiz from.", code="EMPTY_SOURCE_TEXT", status_code=400)
+        require_server_authoring()
         auto_quiz.request_quizzes([module], force=True, reason="faculty.regenerate_quiz")
         audit.record(request.user, "auto_quiz.regenerate_requested", module, {}, request)
         return Response({"module_id": str(module.id), "quiz_status": auto_quiz.state_for(module)}, status=status.HTTP_202_ACCEPTED)
@@ -214,6 +217,7 @@ class DocumentAutoQuizzesView(APIView):
         from audit import services as audit
         document = _doc(request.user, document_id)
         modules = list(Module.objects.filter(chapter__document=document).select_related("chapter__document"))
+        require_server_authoring()
         queued = auto_quiz.request_quizzes(modules, reason="faculty.generate_quizzes")
         audit.record(request.user, "auto_quiz.generate_requested", document, {"queued": queued}, request)
         return Response({"queued": queued, **auto_quiz.summary_for_document(document)}, status=status.HTTP_202_ACCEPTED)
@@ -230,6 +234,7 @@ class DocumentLessonsView(APIView):
         from tutor import lessons
         document = _doc(request.user, document_id)
         force = str(request.data.get("force", "")).lower() in ("1", "true", "yes")
+        require_server_authoring()
         queued = lessons.request_for_document(document, force=force, reason="faculty.generate_all")
         audit.record(request.user, "lessons.generate_requested", document, {"queued": queued, "force": force}, request)
         return Response({"queued": queued, **lessons.summary_for_document(document)}, status=status.HTTP_202_ACCEPTED)

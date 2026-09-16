@@ -104,3 +104,29 @@ class LocalBookTests(TestCase):
             result = lessons.lesson_for_student(module)
         self.assertEqual(result['ai_error'], 'local_authoring_required')
         self.assertIsNone(result['lesson'])
+
+    @override_settings(DEVICE_AUTHORING_ONLY=True)
+    def test_legacy_books_use_device_authoring_and_do_not_resume_server_jobs(self):
+        self.assertEqual(self.post().status_code,200)
+        doc=Document.objects.get();doc.parse_mode='native';doc.save()
+        module=doc.chapters.first().modules.first()
+        from tutor import lessons
+        from assessments.services import auto_quiz
+        from documents.services.documents import publish, edit_module
+        with self.captureOnCommitCallbacks(execute=True):
+            publish(self.faculty,doc)
+            edit_module(self.faculty,module,source_text=module.source_text+' Revised.')
+        self.assertEqual(lessons.request_lessons([module],force=True),0)
+        self.assertEqual(auto_quiz.request_quizzes([module],force=True),0)
+        self.assertIsNone(lessons.claim_next())
+        self.assertIsNone(auto_quiz.claim_next())
+        self.assertEqual(lessons.process_one(None),'device_required')
+        self.assertEqual(auto_quiz.process_one(None),'device_required')
+        with patch('assessments.services.auto_quiz.requeue_unchecked',side_effect=AssertionError('No server monitor retries')):
+            self.assertEqual(auto_quiz.run_pending(),{'ready':0,'failed':0,'discarded':0})
+        self.assertEqual(lessons.run_pending(),{'ready':0,'failed':0,'discarded':0})
+        self.assertFalse(lessons.start_worker())
+        self.assertEqual(lessons.lesson_for_student(module)['ai_error'],'local_authoring_required')
+        response=self.client.post(f'/api/faculty/modules/{module.pk}/lesson/',{},format='json')
+        self.assertEqual(response.status_code,409,response.data)
+        self.assertEqual(response.data['error']['code'],'LOCAL_AUTHORING_REQUIRED')
