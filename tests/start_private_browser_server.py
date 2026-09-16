@@ -57,6 +57,14 @@ with tempfile.TemporaryDirectory(prefix='localmind-browser-') as folder:
     from tutor.models import ModuleLesson
     from tutor.lessons import source_hash
     ModuleLesson.objects.update_or_create(module=module,defaults={'status':'ready','source_hash':source_hash(module.source_text),'lesson':{'title':'Stored course lesson','learning_objectives':['Understand plants'],'sections':[{'heading':'Photosynthesis','explanation':'This lesson was prepared by the institution before download.','source_reference':'Leaf science'}],'key_terms':[],'summary':'Plants use sunlight.'}})
+    # Keep automatic-download acceptance independent from authoring/conflict tests,
+    # which intentionally replace or invalidate the main fixture's lesson.
+    auto_doc=make_published_document(subject,title='Automatic sync acceptance',modules=(('Saved lesson acceptance',source),))
+    auto_module=Module.objects.filter(chapter__document=auto_doc).first()
+    ModuleLesson.objects.create(module=auto_module,status='ready',source_hash=source_hash(auto_module.source_text),lesson={
+        'title':'Automatic sync lesson','learning_objectives':['Understand plants'],
+        'sections':[{'heading':'Photosynthesis','explanation':'This lesson was prepared by the institution before download.','source_reference':'Saved lesson acceptance'}],
+        'key_terms':[],'summary':'Plants use sunlight.'})
     results=ROOT/'frontend/test-results';results.mkdir(exist_ok=True)
     pdf=io.BytesIO();canvas=Canvas(pdf);canvas.drawString(40,760,'Photosynthesis happens in the chloroplasts of green leaves.');canvas.save()
     (results/'private-fixture.pdf').write_bytes(pdf.getvalue())
@@ -96,6 +104,6 @@ with tempfile.TemporaryDirectory(prefix='localmind-browser-') as folder:
         c.showPage()
     c.save();(results/'large-illustrated.pdf').write_bytes(large.getvalue())
     bitmap.close();page.close();original.close()
-    (results/'fixture.json').write_text(json.dumps({'quizImmediate':str(immediate.pk),'quizHeld':str(held.pk),'module':str(module.id),'document':str(doc.id),'subject':str(subject.id),'source':source,'password':password}))
+    (results/'fixture.json').write_text(json.dumps({'autoModule':str(auto_module.pk),'quizImmediate':str(immediate.pk),'quizHeld':str(held.pk),'module':str(module.id),'document':str(doc.id),'subject':str(subject.id),'source':source,'password':password}))
     # runserver stays in this process so temporary storage settings are retained.
     call_command('runserver','127.0.0.1:8765',use_reloader=False,verbosity=0)

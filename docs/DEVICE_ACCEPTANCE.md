@@ -64,3 +64,38 @@ For each failure record:
 Automated browser acceptance uses a controlled model and a disposable database.
 Passing it does not establish real-model quality, speed, actual phone support,
 production capacity, or successful extraction for every textbook.
+
+## Repeatable real-model benchmark on Windows
+
+Run this in a separate terminal after installing the project dependencies. The
+harness starts a disposable test server on port 8765 and does not use your
+production database. Activate the backend virtual environment so `python` uses
+its dependencies. Install Playwright Chromium once with
+`npx.cmd playwright install chromium` from the frontend folder.
+
+```powershell
+Set-Location D:\MindLocal
+.\backend\.venv\Scripts\Activate.ps1
+npm.cmd --prefix frontend run export:web
+$env:LM_E2E_REAL_MODEL = "1"
+$env:LM_E2E_MODEL_FILE = "D:\Models\your-model.gguf"
+npm.cmd --prefix frontend run test:private:web
+Remove-Item Env:LM_E2E_REAL_MODEL
+Remove-Item Env:LM_E2E_MODEL_FILE
+```
+
+Replace the model path with an existing compatible GGUF. Without that variable,
+the test downloads the application's catalog model. Using an explicit file keeps
+before/after runs comparable. A recorded SHA-256 identifies the supplied bytes;
+it does not by itself verify the publisher or model quality.
+
+The test imports a fixed biology source, disconnects the browser, then generates
+a doubt answer, a lesson and a one-question quiz and checks local scoring. It
+waits for automatic offline app preparation. JSON reports under
+`frontend/test-results/runs/` include commit, model identity, host/browser
+capabilities, elapsed stages and any failure. Keep the JSON from each run before
+running again, because Playwright cleans its output directory.
+
+Repeat with the same device, model and power settings. These small-source timings
+are a baseline, not a promise for complete textbooks. Use the manual acceptance
+steps above for your actual books and physical phones.

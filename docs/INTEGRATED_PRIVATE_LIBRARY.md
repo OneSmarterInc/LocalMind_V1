@@ -114,6 +114,9 @@ The separate real-model suite downloads the pinned GGUF and performs actual loca
 inference after disconnecting. In a restricted development environment, set
 `LM_E2E_MODEL_FILE` to an independently downloaded and checksum-verified GGUF to
 exercise the model-import path. This does not count as browser-download verification.
+Stage timings, failure details and actual host/browser metadata are attached under
+`frontend/test-results/runs/`, including when a generation fails. Supplied model
+files include their SHA-256. See `docs/DEVICE_ACCEPTANCE.md` for Windows commands.
 `LM_BROWSER_PROXY` optionally configures only the browser test proxy.
 
 GitHub workflows cover the full Django suite, migration drift, frontend checks,

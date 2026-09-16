@@ -598,7 +598,7 @@ test('faculty can release held results from quiz settings',async({page})=>{
  await page.goto('/student/offline');
  await expect(page.getByText('Your course copy is saved.',{exact:true})).toBeVisible();
  await context.setOffline(true);
- await page.goto(`/student/module/${fixture().module}?tab=lesson`);
+ await page.goto(`/student/module/${fixture().autoModule}?tab=lesson`);
  await expect(page.getByText('This lesson was prepared by the institution before download.',{exact:true})).toBeVisible();
  await page.reload();
  await expect(page.getByText('This lesson was prepared by the institution before download.',{exact:true})).toBeVisible();
