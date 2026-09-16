@@ -3,7 +3,8 @@
 PDF visuals are cropped from conservative source evidence:
 * embedded raster image rectangles;
 * caption-linked vector diagrams/charts;
-* table regions that pass tabular-quality checks.
+* table regions that pass tabular-quality checks;
+* horizontally ruled textbook tables missed by normal table inference.
 
 Page furniture, large prose panels, page masks and near-full-page regions are
 rejected before rendering. Lesson generation stays text-grounded; the original
@@ -29,14 +30,15 @@ from .pdf_visual_regions import (
     dedupe as _dedupe,
     pdf_regions,
 )
+from .ruled_tables import ruled_table_regions
 
 logger = logging.getLogger("localmind.documents.visuals")
 
 MAX_VISUALS_PER_DOCUMENT = 500
 RENDER_SCALE = 2.0
-# Version 3 replaces broad drawing clustering with conservative textbook-aware
-# region detection. Bump so existing visual manifests are automatically rebuilt.
-EXTRACTOR_VERSION = 3
+# Version 4 adds horizontally-ruled / border-light textbook tables. Bump so
+# books processed with the previous policy are automatically re-extracted.
+EXTRACTOR_VERSION = 4
 MAX_STORED_BYTES = 128 * 1024 * 1024
 
 
@@ -52,8 +54,13 @@ def _expanded(rect, page_rect, margin=6):
 
 
 def _pdf_regions(page, page_no):
-    """Compatibility wrapper retained for tests and callers."""
-    return pdf_regions(page, page_no)
+    """Return the conservative detector plus ruled-text table fallback."""
+    regions = list(pdf_regions(page, page_no))
+    try:
+        regions.extend(ruled_table_regions(page, page_no))
+    except Exception as exc:
+        logger.debug("Ruled table detection failed on page %s: %s", page_no, exc)
+    return _dedupe(regions)
 
 
 def _atomic_json(path, value):
