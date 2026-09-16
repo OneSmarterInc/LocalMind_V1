@@ -1,6 +1,5 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
-import SavedModules from "@/authoring/SavedModules";
 import { manage } from "@/api/endpoints";
 import type { Document } from "@/api/types";
 import { useFilterChoices } from "@/hooks/useChoices";
@@ -34,7 +33,6 @@ export default function Books() {
       <PageHeading eyebrow="TEACHING CONTENT" title="Books & modules" subtitle="Import a book, prepare lessons and quizzes, then publish for your students."
         right={<Button title="Upload a book" icon="cloud-upload-outline" onPress={() => router.push({ pathname: "/manage/document/upload", params: subject ? { subject } : {} })} />} />
       <Button title="Continue preparing books" variant="secondary" onPress={()=>router.push("/manage/local-books")} />
-      <SavedModules />
       <ErrorBanner message={q.error} onRetry={q.reload} />
       <Card flush>
         <TableToolbar right={<>

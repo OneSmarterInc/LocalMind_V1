@@ -134,14 +134,13 @@ function StudentQuizEditor({ id }: { id: string }) {
             <Split
               main={
                 <Card>
-                  <View style={{ flexDirection: "row" }}><Badge value={left === 0 ? "No attempts left" : used ? "Ready to try again" : "Ready to start"} tone={left === 0 ? "neutral" : "green"} /></View>
+                  <View style={{ flexDirection: "row" }}><Badge value={left === 0 ? "No attempts left" : used ? "Previously attempted" : "Ready to start"} tone={left === 0 ? "neutral" : "green"} /></View>
                   <CardHead title="Before you begin" subtitle={`Answer ${q.question_count ?? "the"} question${q.question_count === 1 ? "" : "s"} about this module.`} />
                   <View style={{ borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.border, paddingVertical: 14 }}>
                     <DetailList items={[
                       ["Questions", String(q.question_count ?? "—")],
                       ["Time limit", q.time_limit_minutes ? `${q.time_limit_minutes} minutes` : "No time limit"],
                       ["Pass mark", `${q.pass_percentage}%`],
-                      ["Attempts", q.max_attempts ? `${q.max_attempts} allowed · ${used} used` : `Unlimited · ${used} used`],
                       ["Results", releaseText((q as { results_release?: string }).results_release, (q as { results_release_at?: string | null }).results_release_at)],
                       ...(q.due_at ? [["Due", fmtDate(q.due_at)] as [string, string]] : []),
                       ...(q.best_percentage != null ? [["Your best so far", pct(q.best_percentage)] as [string, string]] : (q.results_pending ?? 0) > 0 ? [["Your results", "Not released yet"] as [string, string]] : []),
@@ -203,7 +202,7 @@ function StudentQuizEditor({ id }: { id: string }) {
   const total = attempt.questions.length;
   return (
     <Screen>
-      <PageHeading eyebrow={eyebrow} title={q?.title ?? "Quiz"} subtitle="Focus on one question at a time." right={<Badge value={`Attempt ${attempt.attempt_number}${q?.max_attempts ? ` of ${q.max_attempts}` : ""}`} tone="blue" />} />
+      <PageHeading eyebrow={eyebrow} title={q?.title ?? "Quiz"} subtitle="Focus on one question at a time." right={<Badge value={`Attempt ${attempt.attempt_number}`} tone="blue" />} />
       {restored === null ? <Notice title="Restoring saved answers…" message="Your answers saved on this device are being loaded. Submitting waits until that is done." /> : null}
       {attempt.resumed && restored !== null ? <Notice title="Resuming your open attempt" message={restored ? "Your answers saved on this device were restored. Check them before you submit." : "No answers were saved on this device for this attempt, so check each question."} /> : null}
       <Split sideWidth={265}

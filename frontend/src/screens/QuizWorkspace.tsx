@@ -374,7 +374,6 @@ export function QuizDetailPage({ id, initialTab, note }: { id: string; initialTa
                 <Input label="Instructions" multiline value={d.instructions ?? ""} onChangeText={(v) => edit((z) => ({ ...z, instructions: v }))} editable={editable} style={{ minHeight: 90 }} />
                 <Grid min={200} gap={16}>
                   <Input label="Pass percentage" value={String(d.pass_percentage)} keyboardType="number-pad" onChangeText={(v) => edit((z) => ({ ...z, pass_percentage: Number(v) || 0 }))} editable={editable} />
-                  <Input label="Maximum attempts" value={d.max_attempts ? String(d.max_attempts) : ""} keyboardType="number-pad" hint="Leave blank for no limit." onChangeText={(v) => edit((z) => ({ ...z, max_attempts: Number(v) > 0 ? Number(v) : null }))} editable={editable} />
                 </Grid>
                 <Grid min={200} gap={16}>
                   <Input label="Time limit (minutes)" value={d.time_limit_minutes ? String(d.time_limit_minutes) : ""} placeholder="No limit" keyboardType="number-pad" onChangeText={(v) => edit((z) => ({ ...z, time_limit_minutes: Number(v) || null }))} editable={editable} />

@@ -7,7 +7,6 @@ import type { DetailedResult } from "@/api/types";
 import { useAction, useAsync } from "@/hooks/useAsync";
 import { Badge, Button, Card, CardHead, DetailList, Empty, ErrorBanner, Loading, Notice, PageHeading, ScoreRing, Screen, Split, TileIcon, colors, fmtDate, fmtSeconds, pct } from "@/ui";
 
-type Remediation = { overview: string; items: { question: string; explanation: string; source_reference?: string }[] };
 
 export default function StudentAttempt() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -15,14 +14,10 @@ export default function StudentAttempt() {
   const q = useAsync(() => student.attempt(id), [id]);
   const retrySync = useAction(async () => { await retryCourseEvent(id); await q.reload(); });
   const quizzes = useAsync(() => student.quizzes(), []);
-  const [rem, setRem] = useState<Remediation | null>(null);
-  const remediate = useAction(async () => { setRem(await student.remediation(id)); });
   const a = q.data;
   useEffect(() => { if (a?.status !== "submitted" && a?.status !== "pending_evaluation") return; const t=setInterval(q.reload,5000); return()=>clearInterval(t); },[a?.status,q.reload]);
   const quiz = a ? quizzes.data?.find((x) => x.id === a.assessment_id) : undefined;
   const held = !!a && (a as unknown as { results_released?: boolean }).results_released === false;
-  const left = quiz?.max_attempts ? quiz.max_attempts - (quiz.attempts_used ?? 0) : null;
-  const wrong = a?.detailed_results?.filter((r) => r.is_correct === false).length ?? 0;
   const correct = a?.detailed_results?.filter((r) => r.is_correct === true).length ?? 0;
   const title = a?.assessment_title ?? quiz?.title ?? "Quiz";
   const ctx = useAsync(async () => (quiz?.module_id ? student.module(quiz.module_id).catch(() => null) : null), [quiz?.module_id]);
@@ -48,7 +43,7 @@ export default function StudentAttempt() {
             action={<Badge value="Submitted · results not released" tone="amber" />} />
           <View style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 16 }}>
             <DetailList items={[
-              ["Attempt", `${a.attempt_number}${quiz?.max_attempts ? ` of ${quiz.max_attempts}` : ""}`],
+              ["Attempt", `${a.attempt_number}`],
               ["Submitted", fmtDate(a.submitted_at)],
               ["Results release", (a as unknown as { results_release?: string }).results_release === "scheduled" ? "At a set time" : "By faculty"],
             ]} />
@@ -69,7 +64,7 @@ export default function StudentAttempt() {
         <View style={{ flex: 1, minWidth: 220, gap: 8 }}>
           <Badge value={pending ? "Being marked" : passed ? "Passed" : "Not passed"} tone={pending ? "amber" : passed ? "green" : "red"} />
           <Text style={{ fontSize: 24, fontWeight: "600", color: colors.ink }}>{pending ? "Some answers are still being marked." : passed ? "You’ve got the essentials." : "Not quite yet. You are close."}</Text>
-          <Text style={{ fontSize: 13, color: colors.muted }}>{correct} of {a.total_questions} correct{quiz ? ` · Pass mark ${quiz.pass_percentage}%` : ""} · Attempt {a.attempt_number}{quiz?.max_attempts ? ` of ${quiz.max_attempts}` : ""}</Text>
+          <Text style={{ fontSize: 13, color: colors.muted }}>{correct} of {a.total_questions} correct{quiz ? ` · Pass mark ${quiz.pass_percentage}%` : ""}</Text>
         </View>
       </View>
       {pending ? <Notice tone="warning" title="Marking in progress" message="Your written answers are awaiting evaluation. Multiple-choice questions are already scored; this page shows the rest when marking finishes." /> : null}
@@ -80,24 +75,7 @@ export default function StudentAttempt() {
               <CardHead title="Question-by-question feedback" />
               {a.detailed_results.map((r, i) => <FeedbackRow key={r.question_id} r={r} n={i + 1} />)}
             </Card>
-            {wrong > 0 && a.status === "evaluated" ? (
-              <Card>
-                <CardHead title="Make the next attempt easier" subtitle="Get help with the idea behind the questions you missed." />
-                {rem ? (
-                  <View style={{ gap: 10 }}>
-                    <Text style={{ fontSize: 14, lineHeight: 24, color: colors.text }}>{rem.overview}</Text>
-                    {rem.items?.map((it, i) => (
-                      <View key={i} style={{ gap: 4, paddingTop: 10, borderTopWidth: 1, borderTopColor: colors.rowLine }}>
-                        <Text style={{ fontSize: 13, fontWeight: "600", color: colors.ink }}>{it.question}</Text>
-                        <Text style={{ fontSize: 13, lineHeight: 22, color: colors.text }}>{it.explanation}</Text>
-                        {it.source_reference ? <Text style={{ fontSize: 11, color: colors.muted }}>From the module: {it.source_reference}</Text> : null}
-                      </View>
-                    ))}
-                  </View>
-                ) : <View style={{ flexDirection: "row" }}><Button title="Explain what I missed" icon="sparkles-outline" onPress={() => remediate.run()} busy={remediate.busy} /></View>}
-                <ErrorBanner message={remediate.error} />
-              </Card>
-            ) : null}
+
           </>
         }
         side={
@@ -106,11 +84,9 @@ export default function StudentAttempt() {
             <DetailList items={[
               ["Questions answered", `${a.detailed_results.filter((r) => (r.selected_option || r.student_answer || "").trim()).length} of ${a.total_questions}`],
               ["Time taken", fmtSeconds(a.time_taken_seconds)],
-              ["Attempts remaining", left == null ? "Unlimited" : String(Math.max(0, left))],
               ["Result visibility", "Released"],
             ]} />
             {quiz?.module_id ? <Button title="Review the module" variant="secondary" icon="book-outline" full onPress={() => router.push(`/student/module/${quiz.module_id}`)} /> : null}
-            {quiz && (left == null || left > 0) ? <Button title="Try again" variant="secondary" icon="refresh" full onPress={() => router.push(`/student/quiz/${quiz.id}`)} /> : null}
           </Card>
         }
       />
