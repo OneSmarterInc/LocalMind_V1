@@ -28,10 +28,23 @@ export async function recordCourseWork(kind:'read'|'lesson'|'time',module_id:str
  await(await device()).put(c.prefix+'event:'+event.id,{event,state:'pending'});c.guard();if(isOnline())void flushCourseWork().catch(()=>{});return {learning_seconds:seconds||0};
 }
 export async function courseModule(id:string){const value=await api<ModuleFull>(`/student/modules/${id}/`);await recordCourseWork('read',id);return localProgress(value);}
+export class CourseQuizSubmitted extends Error {
+ constructor(public attemptId:string){super('This quiz has already been submitted. Your answers are final.');}
+}
+/** Submission events are authoritative, including a crash before the attempt record is updated. */
+export async function submittedCourseQuiz(id:string):Promise<string|null>{
+ const c=context(),d=await device(),attempts=await d.list<LocalAttempt>(c.prefix+'attempt:'),events=await d.list<Pending>(c.prefix+'event:');c.guard();
+ return submittedQuizId(id,attempts,events);
+}
+function submittedQuizId(id:string,attempts:LocalAttempt[],events:Pending[]):string|null {
+ return attempts.filter(a=>a.pack.quiz.id===id&&(a.event||events.some(e=>e.event.kind==='quiz'&&e.event.id===a.start.attempt_id)))
+ .sort((a,b)=>b.start.started_at.localeCompare(a.start.started_at))[0]?.start.attempt_id||null;
+}
 export async function startCourseAttempt(id:string):Promise<StartAttempt>{
  const c=context();return exclusive(async()=>{
  const d=await device(),local=await d.list<LocalAttempt>(c.prefix+'attempt:');c.guard();
  const storedEvents=await d.list<Pending>(c.prefix+'event:');
+ const submitted=submittedQuizId(id,local,storedEvents);if(submitted)throw new CourseQuizSubmitted(submitted);
  const existing=local.find(a=>a.pack.quiz.id===id&&!a.event&&!storedEvents.some(e=>e.event.id===a.start.attempt_id));if(existing)return {...existing.start,resumed:true};
  let packs=await readEntry<Record<string,Package>>('/student/offline/quizzes/');c.guard();
  if(isOnline()){try{const bundle=await api<{entries:Record<string,unknown>}>('/student/offline/',{cacheOffline:false});packs=bundle.entries['/student/offline/quizzes/'] as Record<string,Package>;c.guard();}catch(e){if(!(e instanceof ApiError&&e.code==='NETWORK'))throw e;}}

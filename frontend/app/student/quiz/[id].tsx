@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
+import {CourseQuizSubmitted,submittedCourseQuiz} from "@/offline/coursework";
 import { student } from "@/api/endpoints";
 import type { StartAttempt } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
@@ -22,26 +23,30 @@ function StudentQuizEditor({ id }: { id: string }) {
   const router = useRouter();
   const online = useOnline();
   const info = useAsync(async () => (await student.quizzes()).find((q) => q.id === id) ?? null, [id]);
+  const [checkingSubmission,setCheckingSubmission]=useState(true);
+  const [submissionError,setSubmissionError]=useState<string|null>(null);
+  const [finalized,setFinalized]=useState(false);
   const [attempt, setAttempt] = useState<StartAttempt | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [index, setIndex] = useState(0);
   const [remaining, setRemaining] = useState<number | null>(null);
   const [reviewing, setReviewing] = useState(false);
   const userId = useAuth().user?.id;
-  const start = useAction(async () => { const a = await student.startAttempt(id); setAnswers({}); setAttempt(a); setIndex(0); setReviewing(false); });
+  const start = useAction(async () => { try { const a = await student.startAttempt(id); setAnswers({}); setAttempt(a); setIndex(0); setReviewing(false); } catch(e) { if(e instanceof CourseQuizSubmitted){setFinalized(true);router.replace(`/student/attempt/${e.attemptId}`);return;}throw e;} });
+  useEffect(()=>{let live=true;const check=async()=>{try{const submitted=await submittedCourseQuiz(id);if(live&&submitted){setFinalized(true);setAttempt(null);setAnswers({});router.replace(`/student/attempt/${submitted}`);}if(live){setSubmissionError(null);setCheckingSubmission(false);}}catch(e){if(live){setCheckingSubmission(true);setSubmissionError(e instanceof Error?e.message:"Unable to check your saved submission.");}}};void check();const timer=setInterval(()=>void check(),1000);return()=>{live=false;clearInterval(timer);};},[id,router]);
   const answersRef = useRef(answers); answersRef.current = answers;
   // Answers are kept on this device per user and attempt, so a refresh or a resumed attempt restores them.
   const { restored, saving: draftSaving, flush: flushAnswers, discard: discardAnswers, error: draftError } = useLocalDraft([userId, "quiz", attempt?.attempt_id], answers, (saved) => setAnswers(saved));
   const restoredRef = useRef(restored); restoredRef.current = restored;
-  useUnsavedWarning(!!attempt && Object.values(answers).some((v) => v?.trim()));
+  useUnsavedWarning(!finalized && !!attempt && Object.values(answers).some((v) => v?.trim()));
   // Leaving on purpose writes the latest answers to the device first, so the last one is not lost.
   useEffect(() => {
-    if (!attempt || !Object.values(answers).some((v) => v?.trim())) return;
+    if (finalized || !attempt || !Object.values(answers).some((v) => v?.trim())) return;
     return registerGuard({ label: "your quiz answers", save: flushAnswers, discard: async () => { await discardAnswers(); setAnswers({}); } });
-  }, [attempt, answers, flushAnswers, discardAnswers]);
+  }, [attempt, answers, flushAnswers, discardAnswers, finalized]);
 
   const submit = useAction(async (force = false) => {
-    if (!attempt) return;
+    if (!attempt || finalized) return;
     // Never submit before the answers saved on this device have been loaded: an empty set would be final.
     if (restoredRef.current === null) { await alertAsync("Still restoring your answers", "Your saved answers are being loaded. Try again in a moment."); return; }
     const current = answersRef.current;
@@ -51,6 +56,9 @@ function StudentQuizEditor({ id }: { id: string }) {
       if (!ok) return;
     }
     const res = await student.submitAttempt(attempt.attempt_id, current);
+    setFinalized(true);
+    setAttempt(null);
+    setAnswers({});
     await discardAnswers();
     router.replace(`/student/attempt/${res.id}`);
   });
@@ -79,6 +87,7 @@ function StudentQuizEditor({ id }: { id: string }) {
     return m ? `${m.document_title ?? ""} · Module ${m.module_number ?? m.order}`.toUpperCase() : null;
   }, [q?.module_id]);
   const eyebrow = ctx.data ?? undefined;
+  if(checkingSubmission||finalized)return <Screen>{submissionError?<ErrorBanner message={submissionError}/>:<Loading />}</Screen>;
   if (!attempt) {
     const used = q?.attempts_used ?? 0;
     const left = q?.max_attempts ? q.max_attempts - used : null;

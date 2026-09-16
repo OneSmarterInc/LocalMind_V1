@@ -253,6 +253,12 @@ for(const release of ['Immediate','Held'])test(`institutional ${release} quiz an
  await expect(page.getByText('Saved on this device',{exact:true})).toBeVisible();
  if(release==='Immediate')await expect(page.getByText('Local result: 100% · Passed',{exact:true})).toBeVisible();
  else {await expect(page.getByText(/Your faculty has withheld results/)).toBeVisible();await expect(page.getByText(/Local result:/)).toHaveCount(0);}
+ // Reopening through the quiz route must show the immutable submission, including after reload.
+ await page.goto(`/student/quiz/${data['quiz'+release]}`);
+ await expect(page).toHaveURL(url);
+ await expect(page.getByRole('button',{name:'Start quiz',exact:true})).toHaveCount(0);
+ await expect(page.getByRole('button',{name:'Submit answers',exact:true})).toHaveCount(0);
+ await page.reload();await expect(page.getByText('Saved on this device',{exact:true})).toBeVisible();
  if(release==='Immediate'){
   await page.goto(`/student/module/${data.module}`);
   await expect(page.getByText('This progress is saved on your device and awaits institution synchronization.',{exact:true})).toBeVisible();
@@ -263,6 +269,9 @@ for(const release of ['Immediate','Held'])test(`institutional ${release} quiz an
  await expect(page.getByText(/0 saved events waiting/)).toBeVisible({timeout:45000});
  const response=await page.request.get('/api/student/scores/',{headers:{Authorization:`Bearer ${tokens.access}`}});expect(response.ok()).toBeTruthy();const scores=await response.json();const rows=Array.isArray(scores)?scores:scores.results;
  expect(rows.filter((r:any)=>r.assessment_id===data['quiz'+release])).toHaveLength(1);
+ await page.goto(`/student/quiz/${data['quiz'+release]}`);
+ await expect(page).toHaveURL(url);
+ await expect(page.getByRole('button',{name:'Start quiz',exact:true})).toHaveCount(0);
  await page.goto(url);
  await expect(page.getByText('Saved on this device',{exact:true})).toHaveCount(0);
  if(release==='Held')await expect(page.getByText('Your faculty will release the results.',{exact:true})).toBeVisible();
