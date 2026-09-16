@@ -36,10 +36,10 @@ logger = logging.getLogger("localmind.documents.visuals")
 
 MAX_VISUALS_PER_DOCUMENT = 500
 RENDER_SCALE = 2.0
-# Version 5 adds a final textbook safety pass that rejects page fragments,
-# headers/page-number tiles and text-heavy embedded composites. Bump so books
-# processed with the earlier policy are automatically re-extracted.
-EXTRACTOR_VERSION = 5
+# Version 6 adds caption-anchored multipart figures and borderless text tables
+# for NCERT-style and similarly typeset textbooks. Bump so previously cached
+# visual manifests are rebuilt with the new detector.
+EXTRACTOR_VERSION = 6
 MAX_STORED_BYTES = 128 * 1024 * 1024
 
 
