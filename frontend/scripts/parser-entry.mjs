@@ -2,7 +2,8 @@ import {pdfPictureContext, wordPictureContext, usefulPicture, looksLikeQrCanvas,
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { WorkerMessageHandler } from 'pdfjs-dist/legacy/build/pdf.worker.mjs';
 import { unzipSync } from 'fflate';
-import { readablePdfText, imageRectangles, visualRegions, visualRectangles } from './pdf-layout.mjs';
+import { readablePdfText, imageRectangles, visualRegions, visualRectangles, textLines } from './pdf-layout.mjs';
+import { headingItems } from './pdf-headings.mjs';
 import { OCR_WORKER } from './generated-ocr.mjs';
 globalThis.pdfjsWorker={WorkerMessageHandler};
 const LIMIT=2_000_000;
@@ -52,7 +53,7 @@ async function parse(bytes,name,signal,progress=()=>{},saveVisual){
   const task=pdfjs.getDocument({data:bytes,isEvalSupported:false,useSystemFonts:true});
   task.onPassword=()=>task.destroy();
   const abort=()=>{void task.destroy();};signal?.addEventListener('abort',abort);
-  let doc;
+  let doc;const pages=[];
   try {
    doc=await task.promise;assert(doc.numPages<=1500,'Import a chapter at a time (maximum 1,500 PDF pages).');let total=0;
    for(let p=1;p<=doc.numPages;p++){
@@ -114,10 +115,17 @@ async function parse(bytes,name,signal,progress=()=>{},saveVisual){
      total+=text.length;assert(total<=LIMIT,'Import a chapter at a time; this book has too much text.');
      if(!text.trim()&&visualIds.length)warnings.push(`Page ${p}: no usable text was recognised. Cropped visual regions are retained, but the text tutor cannot interpret image-only content.`);
      if(!text.trim()&&!visualIds.length)warnings.push(`Page ${p}: no usable text or visual region was detected.`);
-     items.push({title:`Page ${p}`,text,page:p,visualIds,ocr:needsOCR});
+     pages.push({page:p,text,visualIds,ocr:needsOCR,height:canvas.height,
+      lines:textLines(c.items,view).map(l=>({text:l.text,size:l.h,y0:l.y0,y1:l.y1}))});
     }finally{canvas.width=0;canvas.height=0;page.cleanup();}
    }
   } finally {signal?.removeEventListener('abort',abort);if(doc)await doc.destroy();else await task.destroy();}
+  // A book is written in sections, not in pages. Split it the way it was
+  // written when the headings can be read, and say which way was used.
+  const bySection=headingItems(pages);
+  if(bySection){items.push(...bySection);warnings.unshift(`Split into ${bySection.length} modules at headings found in the PDF. Page numbers are kept for checking against the original file.`);}
+  else{for(const r of pages)items.push({title:`Page ${r.page}`,text:r.text,page:r.page,visualIds:r.visualIds,ocr:r.ocr});
+   warnings.unshift('No usable headings were found in this PDF, so it is split one module per page. A Word file, or a PDF with numbered headings, splits by section instead.');}
   warnings.unshift('Only instructional source visual regions are retained: embedded figures, captioned diagrams and charts, and tables. QR/navigation codes, watermark stencils, page banners, running heads, page numbers, prose callouts, blocks of equations and full PDF pages are excluded. OCR runs locally in English; check numbers, formulas and table reading order against the source file.');
  } else if(ext==='docx') {
   let size=0,count=0;

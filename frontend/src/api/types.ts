@@ -5,6 +5,23 @@ export type SourceVisual = {
   module_id?: string; module_title?: string;
 };
 
+/** Where every extracted picture in a book sits, without the image bytes. */
+export type PictureIndex = {
+  document_id: string; title: string; assigned: number; needs_review: number;
+  report?: { status?: string; total?: number; assigned?: number; warnings?: string[] };
+  chapters: { id: string; title: string; order: number;
+    modules: { id: string; title: string; order: number; start_page: number | null; end_page: number | null; count: number }[] }[];
+  review: (SourceVisual & { reason?: string })[];
+};
+
+/** Students who can be enrolled, plus why the list is empty when it is. */
+export type Enrollable = { id: string; email: string; full_name: string; roll_number: string };
+export type StudentSearch = {
+  results: Enrollable[]; student_accounts: number; matching: number;
+  already_enrolled: number; not_active: number;
+};
+export type EnrolResult = { student_id: string; status: string; reason?: string; enrollment_id?: string };
+
 export type Role = "admin" | "faculty" | "student";
 
 export interface Profile {

@@ -51,7 +51,7 @@ export class Library {
     };
     const resolveId=async(hash:string)=>{
       const original=await d.get<PrivateBook>(this.key(hash));this.guard();
-      return original&&original.importVersion!==5?fingerprint(`${hash}|source-layout-v5`):hash;
+      return original&&original.importVersion!==6?fingerprint(`${hash}|source-layout-v6`):hash;
     };
     try {
       const parsed=await d.parse(file,signal,progress,async(visual,hash)=>{
@@ -65,7 +65,7 @@ export class Library {
       const id=await resolveId(parsed.hash), upgraded=id!==parsed.hash;
       const existing=await d.get<PrivateBook>(this.key(id));this.guard();
       if(existing)return {book:validateBook(existing),duplicate:true};
-      const book:PrivateBook={importVersion:5,assetSet,id,title:((shared?.title||file.name.replace(/\.[^.]+$/,''))+(upgraded?' · new extraction':'')).slice(0,300),originalName:file.name,importedAt:new Date().toISOString(),origin:shared?'shared':'personal',...(shared?{sourceId:shared.id}:{}),sections:parsed.sections,warnings:[...parsed.warnings,...(upgraded?['The earlier import and its practice history are unchanged. This copy uses the new extraction.']:[])]};
+      const book:PrivateBook={importVersion:6,assetSet,id,title:((shared?.title||file.name.replace(/\.[^.]+$/,''))+(upgraded?' · new extraction':'')).slice(0,300),originalName:file.name,importedAt:new Date().toISOString(),origin:shared?'shared':'personal',...(shared?{sourceId:shared.id}:{}),sections:parsed.sections,warnings:[...parsed.warnings,...(upgraded?['The earlier import and its practice history are unchanged. This copy uses the new extraction.']:[])]};
       // Compatibility for parsers that return images instead of streaming them.
       assetPrefix ||= `${this.work(id)}visual:${assetSet}:`;
       for(const visual of parsed.visuals||[]){this.guard();cancelled(signal);await saveVisual(visual);}

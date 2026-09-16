@@ -11,7 +11,7 @@ export function SourceVisuals({bookId,sectionId}:{bookId:string;sectionId:string
  const cropped=(visuals.data||[]).filter(v=>v.kind!=='page'&&!v.caption.startsWith('Original page'));
  return <View style={{gap:12,minWidth:0}}>
   <ErrorBanner message={visuals.error}/>
-  {!!cropped.length&&<><H2>Visuals from the source</H2><P muted>Only the figure, diagram, chart or table region is preserved. The surrounding PDF page and page text are not shown as an image.</P></>}
+  {!!cropped.length&&<><H2>Figures from the source</H2><P muted>Only the figure, diagram, chart or table region is kept. Page banners, running heads, page numbers and navigation codes are not saved as pictures.</P></>}
   <SourceFigures visuals={cropped}/>
  </View>;
 }

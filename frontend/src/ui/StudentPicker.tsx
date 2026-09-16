@@ -3,9 +3,33 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, View } from "react-native";
 import { errorMessage } from "@/api/client";
 import { useDebounced } from "@/hooks/useDebounced";
-import { Button, Card, Empty, ErrorBanner, H2, Input, Loading, P, Row, colors, space } from "@/ui";
+import type { Enrollable, EnrolResult, StudentSearch } from "@/api/types";
+import { Button, Card, Empty, ErrorBanner, H2, Input, Loading, Notice, P, Row, colors, space } from "@/ui";
 
-export interface Enrollable { id: string; email: string; full_name: string; roll_number: string }
+export type { Enrollable };
+
+/** Why nothing can be offered, in the terms the person can act on. */
+function emptyReason(info: StudentSearch | null, searching: boolean) {
+  if (!info) return "Nobody to show yet.";
+  if (!info.student_accounts) return "There are no student accounts yet. Create them in People, then enrol them here.";
+  if (searching && !info.matching) return "Nobody matches that search.";
+  if (info.matching && info.matching === info.already_enrolled) return "Everyone who matches is already enrolled on this subject.";
+  if (info.not_active && !info.results.length) return `Every match is locked or discontinued (${info.not_active}). Reactivate the account in People before enrolling.`;
+  if (info.already_enrolled && !info.results.length) return "Everyone found is already enrolled on this subject.";
+  return "Nobody is available to enrol.";
+}
+
+/** What actually happened to each person, rather than silence. */
+function outcomeMessage(results: EnrolResult[]) {
+  const count = (s: string) => results.filter(r => r.status === s).length;
+  const added = count("enrolled") + count("re_enrolled");
+  const parts: string[] = [];
+  if (added) parts.push(`${added} enrolled`);
+  if (count("already_enrolled")) parts.push(`${count("already_enrolled")} already enrolled`);
+  const skipped = results.filter(r => r.status === "skipped");
+  if (skipped.length) parts.push(`${skipped.length} skipped because the account is locked or discontinued`);
+  return parts.join(" \u00b7 ");
+}
 
 /**
  * Pick students to enrol on a subject.
@@ -28,12 +52,13 @@ export function StudentPicker({
   onDone,
 }: {
   subjectId: string;
-  search: (q: string, subject: string) => Promise<Enrollable[]>;
-  enrol: (ids: string[]) => Promise<unknown>;
+  search: (q: string, subject: string) => Promise<StudentSearch>;
+  enrol: (ids: string[]) => Promise<{ results: EnrolResult[] }>;
   onDone: () => void | Promise<void>;
 }) {
   const [q, setQ] = useState("");
-  const [results, setResults] = useState<Enrollable[]>([]);
+  const [info, setInfo] = useState<StudentSearch | null>(null);
+  const [outcome, setOutcome] = useState<string | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,9 +68,9 @@ export function StudentPicker({
     setLoading(true);
     setError(null);
     try {
-      setResults(await search(query, subjectId));
+      setInfo(await search(query, subjectId));
     } catch (e) {
-      setResults([]);
+      setInfo(null);
       setError(errorMessage(e));
     } finally {
       setLoading(false);
@@ -58,6 +83,7 @@ export function StudentPicker({
   const query = useDebounced(q);
   useEffect(() => { void run(query.trim()); }, [query, run]);
 
+  const results = info?.results ?? [];
   const toggle = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
   const visibleIds = useMemo(() => results.map((r) => r.id), [results]);
   const allShown = visibleIds.length > 0 && visibleIds.every((id) => picked.includes(id));
@@ -67,11 +93,15 @@ export function StudentPicker({
     setBusy(true);
     setError(null);
     try {
-      await enrol(picked);
+      // An enrolment can partly succeed: a locked account is skipped rather
+      // than refused, and silence about that reads as the whole thing failing.
+      const response = await enrol(picked);
+      setOutcome(outcomeMessage(response?.results ?? []) || null);
       setPicked([]);
       await onDone();
       await run(q.trim());
     } catch (e) {
+      setOutcome(null);
       setError(errorMessage(e));
     } finally {
       setBusy(false);
@@ -99,13 +129,9 @@ export function StudentPicker({
         autoCorrect={false}
       />
       <ErrorBanner message={error} />
+      {outcome ? <Notice message={outcome} /> : null}
       {loading && !results.length ? <Loading /> : null}
-      {!loading && !results.length ? (
-        <Empty
-          icon="people-outline"
-          text={q.trim() ? "Nobody matches that search." : "Every active student is already enrolled on this subject."}
-        />
-      ) : null}
+      {!loading && !results.length ? <Empty icon="people-outline" text={emptyReason(info, !!q.trim())} /> : null}
       <View style={{ gap: space.xs }}>
         {results.map((s) => {
           const on = picked.includes(s.id);

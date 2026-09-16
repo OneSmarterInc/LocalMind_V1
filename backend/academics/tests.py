@@ -53,6 +53,45 @@ class SubjectTests(TestCase):
         self.assertFalse(Enrollment.objects.exists())
         self.assertTrue(AuditLog.objects.filter(action="subject.deleted").exists())
 
+    def test_delete_subject_keeps_shared_books_and_only_drops_the_label(self):
+        """A shared book is study material a student may already hold. Deleting
+        the subject that labelled it used to raise a five hundred; it must free
+        the label and leave the file alone."""
+        from private_library.models import SharedBook
+
+        subject = make_subject()
+        book = SharedBook.objects.create(
+            title="Physics Part I", subject=subject, uploaded_by=self.admin,
+            file="shared/book.pdf", original_name="book.pdf", sha256="a" * 64, file_size=1024,
+        )
+
+        res = self.client.delete(f"/api/admin/subjects/{subject.id}/")
+
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertFalse(Subject.objects.filter(pk=subject.pk).exists())
+        book.refresh_from_db()
+        self.assertIsNone(book.subject_id)
+        self.assertTrue(book.active)
+        entry = AuditLog.objects.get(action="subject.deleted")
+        self.assertEqual(entry.summary.get("shared_books_detached"), 1)
+
+    def test_delete_subject_refuses_readably_when_something_still_holds_it(self):
+        """A refusal names what is blocking it. A five hundred names nothing."""
+        from unittest.mock import patch
+
+        from django.db.models.deletion import ProtectedError
+
+        from assessments.models import Assessment
+
+        subject = make_subject()
+        blocker = Assessment(subject=subject, title="Quiz")
+        with patch.object(Subject, "delete", side_effect=ProtectedError("protected", {blocker})):
+            res = self.client.delete(f"/api/admin/subjects/{subject.id}/")
+
+        self.assertEqual(res.status_code, 409, res.content)
+        self.assertEqual(res.data["error"]["code"], "SUBJECT_IN_USE")
+        self.assertIn("Assessments", res.data["error"]["message"])
+
     def test_delete_subject_needs_admin(self):
         subject = make_subject()
         res = client_for(make_faculty()).delete(f"/api/admin/subjects/{subject.id}/")
@@ -93,8 +132,8 @@ class SubjectTests(TestCase):
         on_maths = self.client.get(f"/api/admin/students/search/?subject={maths.id}").data
         on_physics = self.client.get(f"/api/admin/students/search/?subject={physics.id}").data
 
-        self.assertNotIn(str(student.id), [s["id"] for s in on_maths])
-        self.assertIn(str(student.id), [s["id"] for s in on_physics])
+        self.assertNotIn(str(student.id), [s["id"] for s in on_maths["results"]])
+        self.assertIn(str(student.id), [s["id"] for s in on_physics["results"]])
 
     def test_student_search_can_exclude_those_already_enrolled(self):
         """The enrol picker asks for candidates for one subject, so anyone
@@ -105,12 +144,64 @@ class SubjectTests(TestCase):
         enroll(already, subject)
 
         everyone = self.client.get("/api/admin/students/search/").data
-        self.assertIn(str(already.id), [s["id"] for s in everyone])
+        self.assertIn(str(already.id), [s["id"] for s in everyone["results"]])
 
         candidates = self.client.get(f"/api/admin/students/search/?subject={subject.id}").data
-        ids = [s["id"] for s in candidates]
+        ids = [s["id"] for s in candidates["results"]]
+        self.assertEqual(candidates["already_enrolled"], 1)
         self.assertNotIn(str(already.id), ids)
         self.assertIn(str(available.id), ids)
+
+    def test_search_says_why_nobody_can_be_enrolled(self):
+        """An empty picker used to claim everyone was already enrolled, whatever
+        the real reason. Enrolling looked broken when no student account existed
+        at all, or when every match was locked."""
+        from accounts.models import AccountStatus
+
+        subject = make_subject(code="EN101")
+        nothing = self.client.get(f"/api/admin/students/search/?subject={subject.id}").data
+        self.assertEqual([nothing["results"], nothing["student_accounts"]], [[], 0])
+
+        locked = make_student(name="Locked Account")
+        locked.status = AccountStatus.LOCKED
+        locked.save()
+        only_locked = self.client.get(f"/api/admin/students/search/?subject={subject.id}").data
+        self.assertEqual(only_locked["results"], [])
+        self.assertEqual([only_locked["student_accounts"], only_locked["not_active"]], [1, 1])
+
+    def test_enrolling_a_locked_account_reports_the_skip(self):
+        """A locked account is skipped rather than refused, so the outcome has
+        to reach the caller; silence about it reads as a failed enrolment."""
+        from accounts.models import AccountStatus
+
+        subject = make_subject(code="EN102")
+        active = make_student(name="Active One")
+        locked = make_student(name="Locked One", email="locked-two@example.edu")
+        locked.status = AccountStatus.LOCKED
+        locked.save()
+
+        res = self.client.post(f"/api/admin/subjects/{subject.id}/students/",
+                               {"student_ids": [str(active.id), str(locked.id)]}, format="json")
+
+        self.assertEqual(res.status_code, 201, res.content)
+        outcomes = {r["student_id"]: r for r in res.data["results"]}
+        self.assertEqual(outcomes[str(active.id)]["status"], "enrolled")
+        self.assertEqual(outcomes[str(locked.id)]["status"], "skipped")
+        self.assertEqual(outcomes[str(locked.id)]["reason"], "account_inactive")
+        self.assertEqual(Enrollment.objects.filter(subject=subject).count(), 1)
+
+    def test_faculty_search_matches_the_admin_shape(self):
+        """Both portals share one picker, so both endpoints answer alike."""
+        subject = make_subject(code="EN103")
+        faculty = make_faculty()
+        assign(faculty, subject)
+        make_student(name="Pickable")
+
+        data = client_for(faculty).get(f"/api/faculty/students/search/?subject={subject.id}").data
+
+        self.assertEqual(set(data), {"results", "student_accounts", "matching", "already_enrolled", "not_active"})
+        self.assertEqual(len(data["results"]), 1)
+        self.assertEqual(set(data["results"][0]), {"id", "email", "full_name", "roll_number"})
 
     def test_assign_and_unassign_faculty(self):
         subject = make_subject()

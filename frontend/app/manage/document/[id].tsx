@@ -18,7 +18,7 @@ import { SourceFigures } from "@/ui/SourceFigures";
 /** Which node of the outline the right-hand pane is editing. */
 type Selection = { ci: number; mi: number | null };
 
-type DocTab = "outline" | "lessons" | "publish" | "live";
+type DocTab = "outline" | "pictures" | "lessons" | "publish" | "live";
 
 export default function DocumentScreen() {
   const { id, tab: tabParam, module: moduleParam } = useLocalSearchParams<{ id: string; tab?: DocTab; module?: string }>();
@@ -236,9 +236,11 @@ export default function DocumentScreen() {
       <ErrorBanner message={tabError ?? doc.error ?? act.error ?? remove.error} onRetry={doc.error ? doc.reload : undefined} />
       <PageTabs<DocTab> value={tab} onChange={setTab} tabs={[
         { key: "outline", label: "Outline & source" },
+        { key: "pictures", label: "Pictures" },
         { key: "lessons", label: "Lessons & quizzes", count: d!.auto_quizzes?.held ? d!.auto_quizzes.held : null },
         live ? { key: "live", label: "Published book" } : { key: "publish", label: "Publish checklist" },
       ]} />
+      {tab === "pictures" ? <PicturesTab documentId={id} /> : null}
       {tab === "outline" ? (
         <>
           <Notice title="One module at a time." message="Choose a module on the left. Edit its title and source on the right. Save explicitly before leaving." />
@@ -853,26 +855,101 @@ function SaveReport({ report, onDismiss }: { report: OutlineReport; onDismiss: (
   );
 }
 
+/** Every picture extracted from the book, read-only, grouped the way the book
+ * is organised. Extraction happens during processing, but until now its output
+ * could only be reached through a module editor or a generated lesson, so a
+ * freshly uploaded book looked as though nothing had been extracted. */
+function PicturesTab({ documentId }: { documentId: string }) {
+  const index = useAsync(() => manage.documentPictures(documentId), [documentId]);
+  const data = index.data;
+  const chapters = data?.chapters ?? [];
+  const total = data?.report?.total ?? 0;
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const first = chapters[0]?.modules.find((m) => m.count > 0)?.id;
+  useEffect(() => { if (first) setOpen((v) => (v[first] ? v : { ...v, [first]: true })); }, [first]);
+  const warnings = data?.report?.warnings ?? [];
+  return (
+    <View style={{ gap: 14 }}>
+      <ErrorBanner message={index.error} onRetry={index.reload} />
+      {index.loading && !data ? <Loading /> : null}
+      {data ? <>
+        <Notice message="Figures, charts, diagrams and tables only. Page banners, running heads, page numbers, navigation codes, watermarks and blocks of equations are left out on purpose. This tab is read-only." />
+        <Grid min={190}>
+          <Card><Text style={{ fontSize: 26, fontWeight: "700", color: colors.ink }}>{total}</Text><Text style={{ fontSize: 11, color: colors.muted }}>Pictures extracted</Text></Card>
+          <Card><Text style={{ fontSize: 26, fontWeight: "700", color: colors.ink }}>{data.assigned}</Text><Text style={{ fontSize: 11, color: colors.muted }}>Placed in a module</Text></Card>
+          <Card><Text style={{ fontSize: 26, fontWeight: "700", color: colors.ink }}>{data.needs_review}</Text><Text style={{ fontSize: 11, color: colors.muted }}>Need review</Text></Card>
+          <Card><Text style={{ fontSize: 26, fontWeight: "700", color: colors.ink }}>{warnings.length}</Text><Text style={{ fontSize: 11, color: colors.muted }}>Extraction warnings</Text></Card>
+        </Grid>
+        {warnings.length ? <Notice tone="warning" title="Extraction notes" message={warnings.join("\n")} /> : null}
+        {!total ? <Empty icon="image-outline" title="No picture was extracted" text="This book may be text only, or its figures may be the page furniture that is deliberately left out. The source text is unaffected." /> : null}
+        {chapters.map((chapter) => (
+          <Card key={chapter.id}>
+            <CardHead title={chapter.title} subtitle={`${chapter.modules.reduce((n, m) => n + m.count, 0)} picture(s) across ${chapter.modules.length} module(s)`} />
+            {chapter.modules.map((module) => (
+              <View key={module.id} style={{ borderTopWidth: 1, borderColor: colors.rowLine, paddingVertical: 10, gap: 10 }}>
+                <Row style={{ justifyContent: "space-between" }}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={{ fontWeight: "600", color: colors.ink }}>{module.title}</Text>
+                    <Text style={{ fontSize: 11, color: colors.muted }}>
+                      {module.start_page ? `Source page${module.end_page && module.end_page !== module.start_page ? `s ${module.start_page}\u2013${module.end_page}` : ` ${module.start_page}`}` : "Source pages not recorded"}
+                    </Text>
+                  </View>
+                  <Badge value={module.count ? `${module.count} picture${module.count === 1 ? "" : "s"}` : "None"} tone={module.count ? "green" : "neutral"} />
+                  {module.count ? <Button small variant="secondary" icon="image-outline" title={open[module.id] ? "Hide" : "Show"} onPress={() => setOpen((v) => ({ ...v, [module.id]: !v[module.id] }))} /> : null}
+                </Row>
+                {module.count && open[module.id] ? <ModulePictures moduleId={module.id} /> : null}
+              </View>
+            ))}
+          </Card>
+        ))}
+        {data.review.length ? (
+          <Card>
+            <CardHead title={`Need review (${data.needs_review})`} subtitle="Extracted and stored, but matched to no module. Nothing has been discarded." />
+            {data.review.map((visual) => (
+              <View key={visual.id} style={{ borderTopWidth: 1, borderColor: colors.rowLine, paddingTop: 10, gap: 6 }}>
+                <SourceFigures visuals={[visual]} />
+                <Text style={{ fontSize: 11, color: colors.warning }}>{reviewReason(visual.reason)}</Text>
+              </View>
+            ))}
+          </Card>
+        ) : null}
+      </> : null}
+    </View>
+  );
+}
+
+/** Why a picture was held back, in words rather than a code. */
+function reviewReason(reason?: string) {
+  if (reason === "no_matching_source_page") return "No matching source page. The module it belongs to was probably edited by hand, which detaches it from its heading and clears its page range.";
+  if (reason === "insufficient_context") return "Its caption and surrounding text match no module strongly enough to place it without guessing.";
+  if (reason === "ambiguous_context") return "Two modules matched almost equally well, so it was not placed in either.";
+  return reason ? `Held back: ${reason}` : "Held back for review.";
+}
+
+function ModulePictures({ moduleId }: { moduleId: string }) {
+  const q = useAsync(() => manage.moduleVisuals(moduleId), [moduleId]);
+  return <View style={{ gap: 8 }}>
+    <ErrorBanner message={q.error} onRetry={q.reload} />
+    {q.loading ? <Loading /> : <SourceFigures visuals={q.data?.visuals ?? []} />}
+  </View>;
+}
+
 /** The cropped figures, charts and tables extracted from this module's pages.
  * Faculty and administrators see exactly what students will see, before any
  * lesson has been written. */
 function ModuleSourceVisualsPanel({ moduleId }: { moduleId: string }) {
-  const [open, setOpen] = useState(false);
-  const q = useAsync(async () => (open ? await manage.moduleVisuals(moduleId) : null), [moduleId, open]);
+  const q = useAsync(() => manage.moduleVisuals(moduleId), [moduleId]);
   const visuals = q.data?.visuals ?? [];
   return (
     <View style={{ gap: 10 }}>
-      <Row style={{ justifyContent: "space-between" }}>
-        <Text style={{ fontSize: 11, color: colors.muted }}>Source pictures · cropped figures, charts and tables from this module's pages</Text>
-        <Button title={open ? "Hide pictures" : "Show pictures"} small variant="secondary" icon="image-outline" onPress={() => setOpen((v) => !v)} />
-      </Row>
-      {open ? <>
-        <ErrorBanner message={q.error} onRetry={q.reload} />
-        {q.loading ? <Loading /> : null}
-        {!q.loading && !q.error && !visuals.length
-          ? <Notice message="No source picture was extracted for this module. Page banners, watermarks, QR codes and blocks of equations are excluded on purpose; the source picture report lists what was skipped." />
-          : <SourceFigures visuals={visuals} />}
-      </> : null}
+      <Text style={{ fontSize: 11, fontWeight: "700", letterSpacing: 1.2, color: colors.muted }}>
+        SOURCE PICTURES{visuals.length ? ` \u00b7 ${visuals.length}` : ""}
+      </Text>
+      <ErrorBanner message={q.error} onRetry={q.reload} />
+      {q.loading ? <Loading /> : null}
+      {!q.loading && !q.error && !visuals.length
+        ? <Text style={{ fontSize: 11.5, color: colors.muted }}>No picture was extracted for these pages. Page banners, watermarks, navigation codes and blocks of equations are left out on purpose; the Pictures tab lists everything the book produced.</Text>
+        : <SourceFigures visuals={visuals} />}
     </View>
   );
 }

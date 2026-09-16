@@ -1,5 +1,6 @@
 from django.db import transaction
 from django.db.models import Q
+from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 
 from accounts.models import AccountStatus, Role, User
@@ -113,11 +114,31 @@ def delete_subject(actor, subject, request=None):
         _discard_document_files(document)
     Document.objects.filter(subject=subject).delete()
 
+    # A shared book is a file staff published for private study. Its subject is
+    # a label on that file, not ownership of it, so deleting the subject frees
+    # the label and leaves the book, rather than destroying study material a
+    # student may already have imported.
+    from private_library.models import SharedBook
+
+    detached = SharedBook.objects.filter(subject=subject).update(subject=None)
+
     audit.record(
         actor, "subject.deleted", subject,
-        {"code": subject.code, "name": subject.name, "documents": len(documents)}, request,
+        {"code": subject.code, "name": subject.name, "documents": len(documents),
+         "shared_books_detached": detached}, request,
     )
-    subject.delete()
+    try:
+        subject.delete()
+    except ProtectedError as exc:
+        # Something else still points at this subject and refuses to let go.
+        # Say what it is: a five hundred is worse than a refusal, because it
+        # tells the administrator nothing about how to proceed.
+        blocking = sorted({obj._meta.verbose_name_plural.title() for obj in exc.protected_objects})
+        raise Conflict(
+            f"{label} cannot be deleted while it is still referenced by {', '.join(blocking)}. "
+            "Remove or reassign those records first.",
+            code="SUBJECT_IN_USE", details={"referenced_by": blocking},
+        ) from exc
     return label
 
 

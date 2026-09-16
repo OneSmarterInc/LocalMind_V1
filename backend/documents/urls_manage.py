@@ -4,6 +4,7 @@ from . import lesson_views, views
 
 urlpatterns = [
     path("documents/<uuid:document_id>/visuals/", lesson_views.DocumentVisualReportView.as_view(), name="document-visual-report"),
+    path("documents/<uuid:document_id>/pictures/", lesson_views.DocumentPicturesView.as_view(), name="document-pictures"),
     path("documents/", views.DocumentListUploadView.as_view(), name="documents-list"),
     path("documents/<uuid:document_id>/", views.DocumentDetailView.as_view(), name="documents-detail"),
     path("documents/<uuid:document_id>/process/", views.ProcessView.as_view(), name="documents-process"),

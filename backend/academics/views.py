@@ -4,7 +4,7 @@ from rest_framework.generics import ListAPIView
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.models import Role, User
+from accounts.models import AccountStatus, Role, User
 from core.exceptions import Forbidden
 from core.permissions import IsAdmin, IsAdminOrFaculty, IsStudent
 from core.utils import get_or_404
@@ -151,29 +151,45 @@ class SubjectStudentDiscontinueView(APIView):
 
 
 class StudentSearchView(ListAPIView):
-    """Faculty need to find students to enrol; only minimal identity is exposed."""
+    """Students the caller can enrol, with an explanation when there are none.
+
+    The list used to be a bare array, so an empty one was indistinguishable
+    between "everyone is already on this subject", "no student accounts exist
+    yet" and "every match is locked". The picker guessed, and guessed wrong.
+    Only minimal identity is exposed either way.
+    """
 
     permission_classes = [IsAdminOrFaculty]
 
     def get(self, request):
         q = request.query_params.get("q", "").strip()
-        qs = User.objects.filter(role=Role.STUDENT, status="active")
+        students = User.objects.filter(role=Role.STUDENT)
+        matching = students
         if q:
-            qs = qs.filter(Q(email__icontains=q) | Q(full_name__icontains=q) | Q(student_profile__roll_number__icontains=q))
+            matching = matching.filter(Q(email__icontains=q) | Q(full_name__icontains=q) | Q(student_profile__roll_number__icontains=q))
+        available = matching.filter(status=AccountStatus.ACTIVE)
         # ?subject=<id> leaves out anyone already actively enrolled there, so the
         # picker only ever offers students the caller can actually add. Without
         # it the list happily showed people who were already on the course and
         # enrolling them again did nothing.
         subject_id = request.query_params.get("subject")
+        enrolled = 0
         if subject_id:
-            enrolled = Enrollment.objects.filter(subject_id=subject_id, status=EnrollmentStatus.ACTIVE).values("student_id")
-            qs = qs.exclude(id__in=enrolled)
-        qs = qs.select_related("student_profile").order_by("full_name")[:50]
-        return Response([
-            {"id": str(u.id), "email": u.email, "full_name": u.full_name,
-             "roll_number": getattr(getattr(u, "student_profile", None), "roll_number", "")}
-            for u in qs
-        ])
+            on_subject = Enrollment.objects.filter(subject_id=subject_id, status=EnrollmentStatus.ACTIVE).values("student_id")
+            enrolled = available.filter(id__in=on_subject).count()
+            available = available.exclude(id__in=on_subject)
+        rows = available.select_related("student_profile").order_by("full_name")[:50]
+        return Response({
+            "results": [
+                {"id": str(u.id), "email": u.email, "full_name": u.full_name,
+                 "roll_number": getattr(getattr(u, "student_profile", None), "roll_number", "")}
+                for u in rows
+            ],
+            "student_accounts": students.count(),
+            "matching": matching.count(),
+            "already_enrolled": enrolled,
+            "not_active": matching.exclude(status=AccountStatus.ACTIVE).count(),
+        })
 
 
 # ---------- Faculty ----------

@@ -79,9 +79,9 @@ export const student = {
 export const manage = {
   subjects: () => api<(T.Subject & { active_students: number; assignment_status: string })[]>("/faculty/subjects/"),
   subjectStudents: (id: string) => api<{ id: string; student_id: string; student_email: string; student_name: string; status: string; enrolled_at: string }[]>(`/faculty/subjects/${id}/students/`),
-  enroll: (id: string, student_ids: string[]) => api<{ results: { student_id: string; status: string }[] }>(`/faculty/subjects/${id}/students/`, { method: "POST", body: { student_ids } }),
+  enroll: (id: string, student_ids: string[]) => api<{ results: T.EnrolResult[] }>(`/faculty/subjects/${id}/students/`, { method: "POST", body: { student_ids } }),
   discontinueEnrollment: (subjectId: string, studentId: string) => api(`/faculty/subjects/${subjectId}/students/${studentId}/discontinue/`, { method: "POST" }),
-  searchStudents: (q: string, subject?: string) => api<{ id: string; email: string; full_name: string; roll_number: string }[]>("/faculty/students/search/", { query: { q, subject } }),
+  searchStudents: (q: string, subject?: string) => api<T.StudentSearch>("/faculty/students/search/", { query: { q, subject } }),
 
   documents: (q: Q = {}) => allPages<T.Document>("/faculty/documents/", q),
   document: (id: string) => api<T.Document>(`/faculty/documents/${id}/`),
@@ -93,6 +93,8 @@ export const manage = {
   moduleLesson: (id: string) => api<T.LessonDetail>(`/faculty/modules/${id}/lesson/`),
   /** The cropped source pictures assigned to one module, for staff review. */
   moduleVisuals: (id: string) => api<{ module_id: string; visuals: T.SourceVisual[] }>(`/faculty/modules/${id}/visuals/`),
+  /** Read-only picture index for a book: chapters, modules, counts, review queue. */
+  documentPictures: (id: string) => api<T.PictureIndex>(`/faculty/documents/${id}/pictures/`),
   regenerateLesson: (id: string) => api<T.LessonDetail>(`/faculty/modules/${id}/lesson/`, { method: "POST", body: {} }),
   /** Faculty-side incident review (their own subjects), used to release a held quiz as a false alarm. */
   reviewIncident: (id: string, action: "false_positive" | "confirm", note = "") =>
@@ -152,9 +154,9 @@ export const admin = {
   assignFaculty: (id: string, faculty_ids: string[]) => api(`/admin/subjects/${id}/faculty/`, { method: "POST", body: { faculty_ids } }),
   unassignFaculty: (id: string, facultyId: string) => api(`/admin/subjects/${id}/faculty/${facultyId}/`, { method: "DELETE" }),
   subjectStudents: (id: string) => manage.subjectStudents(id),
-  enroll: (id: string, student_ids: string[]) => api<{ results: { student_id: string; status: string }[] }>(`/admin/subjects/${id}/students/`, { method: "POST", body: { student_ids } }),
+  enroll: (id: string, student_ids: string[]) => api<{ results: T.EnrolResult[] }>(`/admin/subjects/${id}/students/`, { method: "POST", body: { student_ids } }),
   discontinueEnrollment: (subjectId: string, studentId: string) => api(`/admin/subjects/${subjectId}/students/${studentId}/discontinue/`, { method: "POST" }),
-  searchStudents: (q: string, subject?: string) => api<{ id: string; email: string; full_name: string; roll_number: string }[]>("/admin/students/search/", { query: { q, subject } }),
+  searchStudents: (q: string, subject?: string) => api<T.StudentSearch>("/admin/students/search/", { query: { q, subject } }),
 
   users: (kind: "faculty" | "students", q: Q = {}) => allPages<T.User>(`/admin/${kind}/`, q),
   user: (kind: "faculty" | "students", id: string) => api<T.User>(`/admin/${kind}/${id}/`),

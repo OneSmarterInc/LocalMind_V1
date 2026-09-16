@@ -156,3 +156,27 @@ class StaffSourcePictureVisibilityTests(VisualCourseIntegrationTests):
         first = response.data['thumbnails'][0]
         self.assertTrue(first['data_url'].startswith('data:image/png;base64,'))
         self.assertEqual(first['module_title'], modules[0].title)
+
+
+class StaffPictureIndexTests(VisualCourseIntegrationTests):
+    """The read-only Pictures tab: every extracted picture, reachable from the
+    book itself rather than only from a module editor or a generated lesson."""
+
+    def test_index_reports_chapters_modules_and_counts_without_image_bytes(self):
+        document, modules = self.upload(self.faculty)
+        response = client_for(self.faculty).get(f'/api/faculty/documents/{document.pk}/pictures/')
+        self.assertEqual(response.status_code, 200, response.data)
+        chapters = response.data['chapters']
+        self.assertTrue(chapters)
+        module_rows = [m for c in chapters for m in c['modules']]
+        self.assertEqual(sum(m['count'] for m in module_rows), response.data['assigned'])
+        self.assertNotIn('data:image/png', str(response.data['chapters']))
+
+    def test_administrators_see_a_facultys_book_and_other_faculty_do_not(self):
+        document, _ = self.upload(self.faculty)
+        self.assertEqual(client_for(self.admin).get(f'/api/faculty/documents/{document.pk}/pictures/').status_code, 200)
+        self.assertEqual(client_for(self.other).get(f'/api/faculty/documents/{document.pk}/pictures/').status_code, 404)
+
+    def test_students_cannot_reach_the_picture_index(self):
+        document, _ = self.upload(self.faculty)
+        self.assertIn(client_for(self.student).get(f'/api/faculty/documents/{document.pk}/pictures/').status_code, (403, 404))

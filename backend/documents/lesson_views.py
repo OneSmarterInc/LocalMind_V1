@@ -2,7 +2,7 @@
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from core.permissions import IsAdminOrFaculty
-from .services.visual_delivery import enrich_lesson, module_visuals
+from .services.visual_delivery import enrich_lesson, module_visuals, picture_index, unassigned_visuals
 from learning.models import Module
 from core.utils import get_or_404
 from . import views as base_views
@@ -44,6 +44,27 @@ class ModuleVisualsView(APIView):
         module = get_or_404(Module.objects.filter(chapter__document__in=base_views._docs_for(request.user))
                             .select_related("chapter__document"), pk=module_id)
         return Response({"module_id": str(module.pk), "visuals": module_visuals(module)})
+
+
+class DocumentPicturesView(APIView):
+    """Read-only picture index for one book, for faculty and administrators.
+
+    Extraction happens during processing, but until now the only way to see its
+    output was to open a module editor or generate a lesson, so a freshly
+    uploaded book looked as though nothing had been extracted.
+    """
+    permission_classes = [IsAdminOrFaculty]
+
+    def get(self, request, document_id):
+        document = base_views._doc(request.user, document_id)
+        review, pending = unassigned_visuals(document)
+        chapters = picture_index(document)
+        return Response({
+            "document_id": str(document.pk), "title": document.title,
+            "report": document.visual_report, "chapters": chapters,
+            "assigned": sum(m["count"] for c in chapters for m in c["modules"]),
+            "needs_review": pending, "review": review,
+        })
 
 
 class DocumentVisualReportView(APIView):

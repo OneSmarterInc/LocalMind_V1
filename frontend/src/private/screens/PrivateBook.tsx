@@ -17,6 +17,12 @@ import {useUnsavedWarning} from '@/hooks/useDraft';
 import {confirmLeave,registerGuard} from '@/hooks/unsavedGuard';
 
 type Tab='read'|'lesson'|'quiz'|'ask';
+/** Page numbers are kept so a reader can check a module against the original file. */
+export function pageLabel(section:Section){
+ if(!section.page)return '';
+ const end=section.endPage&&section.endPage!==section.page?`\u2013${section.endPage}`:'';
+ return `p ${section.page}${end}`;
+}
 export default function PrivateBook(){
  const {id,section:targetSection,tab:targetTab}=useLocalSearchParams<{id:string;section?:string;tab?:string}>(),router=useRouter(),library=useLibrary();
  const book=useAsync(()=>{if(!library)throw Error('Open the library after signing in.');return library.book(id);},[id,library]);
@@ -24,12 +30,16 @@ export default function PrivateBook(){
  useEffect(()=>{let alive=true;if(library&&book.data)void library.viewState(id,'section').then(saved=>{if(alive)setSectionId(book.data!.sections.find(s=>s.id===(targetSection||saved))?.id||book.data!.sections[0].id);});return()=>{alive=false;};},[book.data,id,library,targetSection]);
  const selectSection=(value:string)=>{setSectionId(value);void library?.saveViewState(id,'section',value).catch(()=>{});};
  const b=book.data,s=b?.sections.find(x=>x.id===sectionId);
- const sidebar=<Card><H2>Modules</H2><P muted>Open any module. Quiz results never lock the next one.</P><Input value={query} onChangeText={setQuery} placeholder="Find a module"/><ScrollView style={{maxHeight:550}}>
-  {(b?.sections||[]).filter(x=>x.title.toLowerCase().includes(query.toLowerCase())).map((x)=><Pressable key={x.id} accessibilityRole="button" accessibilityState={{selected:x.id===sectionId}} onPress={()=>{void confirmLeave().then(ok=>{if(ok)selectSection(x.id);});}} style={{padding:12,borderRadius:8,marginBottom:5,backgroundColor:x.id===sectionId?colors.primary:'transparent'}}><P style={{color:x.id===sectionId?'white':colors.text}}>{x.title}</P></Pressable>)}
+ const byHeading=(b?.sections||[]).some(x=>x.group);
+ const sidebar=<Card><H2>Modules</H2><P muted>{byHeading?'Split at the headings found in this book. Open any module; quiz results never lock the next one.':'Open any module. Quiz results never lock the next one.'}</P><Input value={query} onChangeText={setQuery} placeholder="Find a module"/><ScrollView style={{maxHeight:550}}>
+  {(b?.sections||[]).filter(x=>x.title.toLowerCase().includes(query.toLowerCase())).map((x)=><Pressable key={x.id} accessibilityRole="button" accessibilityState={{selected:x.id===sectionId}} onPress={()=>{void confirmLeave().then(ok=>{if(ok)selectSection(x.id);});}} style={{padding:12,borderRadius:8,marginBottom:5,backgroundColor:x.id===sectionId?colors.primary:'transparent'}}>
+   <Row style={{justifyContent:'space-between',gap:8}}><P style={{flex:1,color:x.id===sectionId?'white':colors.text}}>{x.title}</P>
+    {pageLabel(x)?<P small style={{color:x.id===sectionId?'white':colors.muted}}>{pageLabel(x)}</P>:null}</Row>
+  </Pressable>)}
  </ScrollView></Card>;
  return <Screen><PageHeading title={b?.title||'Private book'} subtitle="Personal study · Saved only on this device" right={<Button title="Back to library" variant="secondary" onPress={()=>{void confirmLeave().then(ok=>{if(ok)router.push('/student/private-library');});}}/>}/><ErrorBanner message={book.error} onRetry={book.reload}/>
   {book.loading&&!b?<Loading/>:null}
-  {b&&(b.importVersion||0)<5?<Notice title="Earlier picture extraction" message="Reimport the original file to create a new copy with improved pictures and captions. This copy and its saved practice history will be preserved."/>:null}
+  {b&&(b.importVersion||0)<6?<Notice title="Earlier import" message="This copy is unchanged and stays exactly as it is. Reimporting the original file creates a separate copy that is split at the book's own headings instead of page by page, with better pictures and captions. Practice history on this copy is kept either way."/>:null}
   {b?.warnings.length?<Notice tone="warning" title="About this import" message={b.warnings.join('\n')}/>:null}
   {b&&s&&library?<Split side={sidebar} main={<ModuleLearning key={`${library.prefix}:${id}:${s.id}`} bookId={id} initialTab={targetTab} onSourceSaved={book.reload} section={s} next={()=>{const n=b.sections.findIndex(x=>x.id===s.id)+1;if(b.sections[n])void confirmLeave().then(ok=>{if(ok)selectSection(b.sections[n].id);});}}/>}/>:null}
  </Screen>;
@@ -64,7 +74,7 @@ function ModuleLearning({bookId,section,next,initialTab,onSourceSaved}:{bookId:s
  const generateLesson=()=>{setLessonId('');enqueue('lesson',(signal,progress)=>library.generateLesson(bookId,section.id,signal,progress));};
  const generateQuiz=()=>{const total=Number(count);enqueue('quiz',(signal,progress)=>library.generateQuiz(bookId,section.id,total,signal,n=>progress(`Prepared question ${n} of ${total}`),progress));};
  const ask=()=>{const q=question.trim();enqueue('doubt',(signal,progress)=>library.ask(bookId,section.id,q,signal,progress));};
- return <Card><Row><H2>{section.title}</H2><Badge value="All modules open" tone="green"/></Row>
+ return <Card><Row style={{justifyContent:'space-between'}}><View style={{flex:1,gap:2}}><H2>{section.title}</H2>{pageLabel(section)?<P small muted>{`Source ${pageLabel(section).replace('p ','page'+(section.endPage&&section.endPage!==section.page?'s ':' '))}`}</P>:null}</View><Badge value="All modules open" tone="green"/></Row>
   <PageTabs value={tab} onChange={t=>{if(t!==tab)void confirmLeave().then(ok=>{if(ok)setTab(t);});}} tabs={[{key:'read',label:'Read'},{key:'lesson',label:'Lesson'},{key:'quiz',label:'Practice quiz'},{key:'ask',label:'Ask a doubt'}]}/>
   <ErrorBanner message={task.error||lessons.error||quizzes.error||chats.error}/>
   {task.busy?<Notice title="Working on this device" message={`${task.note} You can leave this page; the job will continue while the app stays open.`} action={<Button title="Cancel" variant="secondary" onPress={task.cancel}/>}/>:null}

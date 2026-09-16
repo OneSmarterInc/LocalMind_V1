@@ -3,8 +3,8 @@ export const MAX_BOOK_BYTES = 35 * 1024 * 1024;
 export const MAX_TEXT_CHARS = 2_000_000;
 export const MAX_SECTION_CHARS = 3200;
 export type SourceVisual = { id: string; dataUrl: string; width: number; height: number; caption: string; kind?: 'page'|'figure'; page?: number; contextText?: string; captionOrigin?: 'source'|'label'; headingPath?: string[]; assetId?: string };
-export type SourceItem = { title: string; text: string; page?: number; visualIds?: string[]; ocr?: boolean };
-export type Section = { id: string; title: string; source: string; page?: number; visualIds?: string[]; ocr?: boolean };
+export type SourceItem = { title: string; text: string; page?: number; endPage?: number; group?: string; visualIds?: string[]; ocr?: boolean };
+export type Section = { id: string; title: string; source: string; page?: number; endPage?: number; group?: string; visualIds?: string[]; ocr?: boolean };
 export type PrivateBook = { importVersion?: number; assetSet?: string; id: string; title: string; originalName: string; importedAt: string; origin: 'personal'|'shared'; sourceId?: string; sections: Section[]; warnings: string[] };
 export type Lesson = { introduction: string; sections: {heading: string; content: string; quote: string; visualIds?: string[]}[]; takeaways: string[] };
 export type MCQ = { id: string; sectionId: string; question: string; options: string[]; answer: number; explanation: string; quote: string };
@@ -58,7 +58,7 @@ export function makeSections(items: SourceItem[]): Section[] {
   const result:Section[]=[]; let total=0;
   for(const item of items) {
     const source=item.text.replace(/\r\n?/g,'\n').trim();
-    const provenance={...(item.page?{page:item.page}:{}),...(item.visualIds?.length?{visualIds:item.visualIds}:{}),...(item.ocr?{ocr:true}:{})};
+    const provenance={...(item.page?{page:item.page}:{}),...(item.endPage?{endPage:item.endPage}:{}),...(item.group?{group:item.group}:{}),...(item.visualIds?.length?{visualIds:item.visualIds}:{}),...(item.ocr?{ocr:true}:{})};
     if(!source) {if(item.visualIds?.length)result.push({id:`s${result.length+1}`,title:item.title,source:'',...provenance});continue;}
     total+=source.length; requireThat(total<=MAX_TEXT_CHARS,'Book exceeds the 2-million-character limit. Import a chapter at a time.');
     let remaining=source, part=0;
@@ -74,7 +74,12 @@ export function makeSections(items: SourceItem[]): Section[] {
 /** A split PDF page remains one source for learning; never borrow another book's text. */
 export function pageSource(sections: Section[], id: string): string {
  const selected=sections.find(s=>s.id===id); requireThat(selected,'Choose a module');
- return (selected.page ? sections.filter(s=>s.page===selected.page) : [selected]).map(s=>s.source).join('\n\n');
+ // A heading section and a PDF page are both split into parts when they are
+ // long. Parts of the same section belong together; two sections that happen
+ // to start on one page do not, which is what the group marker distinguishes.
+ const siblings=selected.group ? sections.filter(s=>s.group===selected.group)
+  : selected.page ? sections.filter(s=>!s.group&&s.page===selected.page) : [selected];
+ return siblings.map(s=>s.source).join('\n\n');
 }
 export function retrieve(source: string, question: string, limit=MAX_SECTION_CHARS) {
   if(source.length<=limit) return source;
