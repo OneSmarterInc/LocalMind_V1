@@ -4,6 +4,7 @@ from pathlib import Path
 from django.test import SimpleTestCase
 
 from .services import visuals
+from .services import pdf_visual_regions
 
 
 class RectStub:
@@ -30,7 +31,36 @@ class VisualRegionPolicyTests(SimpleTestCase):
         figure = RectStub(80, 120, 430, 390)
         self.assertTrue(visuals._valid_region(figure, page))
 
-    def test_deduplication_prefers_table_over_overlapping_diagram(self):
+    def test_rejects_header_and_footer_furniture(self):
+        page = RectStub(0, 0, 600, 800)
+        header = RectStub(80, 20, 420, 100)
+        body = RectStub(80, 220, 420, 420)
+        footer = RectStub(80, 730, 420, 780)
+        self.assertTrue(pdf_visual_regions.is_page_furniture(header, page))
+        self.assertFalse(pdf_visual_regions.is_page_furniture(body, page))
+        self.assertTrue(pdf_visual_regions.is_page_furniture(footer, page))
+
+    def test_activity_and_question_titles_are_not_figure_captions(self):
+        self.assertEqual(pdf_visual_regions.source_caption_line("Activity 5.1"), "")
+        self.assertEqual(pdf_visual_regions.source_caption_line("QUESTIONS"), "")
+        self.assertEqual(pdf_visual_regions.source_caption_line("More to Know!"), "")
+        self.assertEqual(pdf_visual_regions.source_caption_line("Example 1.4"), "")
+
+    def test_explicit_textbook_figure_and_table_captions_are_recognised(self):
+        self.assertEqual(
+            pdf_visual_regions.source_caption_line("Figure 5.9 Human respiratory system"),
+            "Figure 5.9 Human respiratory system",
+        )
+        self.assertEqual(
+            pdf_visual_regions.source_caption_line("FIGURE 1.14 Field lines due to charges"),
+            "FIGURE 1.14 Field lines due to charges",
+        )
+        self.assertEqual(
+            pdf_visual_regions.source_caption_line("Table 4.2 - What would count as success?"),
+            "Table 4.2 - What would count as success?",
+        )
+
+    def test_deduplication_prefers_table_over_overlapping_generic_diagram(self):
         table = {"kind": "table", "page": 2, "rect": RectStub(50, 60, 350, 260)}
         diagram = {"kind": "diagram", "page": 2, "rect": RectStub(55, 65, 345, 255)}
         result = visuals._dedupe([diagram, table])
@@ -62,6 +92,28 @@ class VisualRegionPolicyTests(SimpleTestCase):
                 x0, y0, x1, y1 = item["bbox"]
                 self.assertLess(((x1 - x0) * (y1 - y0)) / (600 * 800), visuals.MAX_REGION_PAGE_RATIO)
                 self.assertNotEqual((round(x0), round(y0), round(x1), round(y1)), (0, 0, 600, 800))
+
+    def test_large_coloured_prose_panel_is_not_emitted_as_visual(self):
+        try:
+            import pymupdf
+        except ImportError:
+            self.skipTest("PyMuPDF is not installed")
+
+        doc = pymupdf.open()
+        page = doc.new_page(width=600, height=800)
+        page.draw_rect(pymupdf.Rect(70, 180, 530, 500), fill=(0.85, 0.9, 1.0), color=(0.2, 0.3, 0.7))
+        y = 220
+        for line in (
+            "Activity 5.1",
+            "Take a specimen and observe it carefully.",
+            "Record your result and answer the questions.",
+            "This is prose content, not an instructional figure.",
+        ):
+            page.insert_text((95, y), line)
+            y += 45
+        regions = pdf_visual_regions.pdf_regions(page, 1)
+        doc.close()
+        self.assertEqual(regions, [])
 
 
 class PrivateParserContractTests(SimpleTestCase):
