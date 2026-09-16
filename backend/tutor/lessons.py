@@ -231,14 +231,14 @@ def summary_for_document(document) -> dict:
     from learning.models import Module
 
     modules = list(Module.objects.filter(chapter__document=document).select_related("lesson"))
-    counts = {"total": 0, "ready": 0, "pending": 0, "generating": 0, "failed": 0}
+    counts = {"total": 0, "ready": 0, "pending": 0, "generating": 0, "failed": 0, "not_generated": 0}
     for m in modules:
         # A missing reverse one-to-one raises an AttributeError subclass.
         state = state_for(m, getattr(m, "lesson", None))
-        if state == "none":
+        if not has_text(m):
             continue
         counts["total"] += 1
-        counts[state if state in counts else "pending"] += 1
+        counts["not_generated" if state == "none" else state if state in counts else "pending"] += 1
     counts["auto_generate"] = auto_generate_enabled()
     return counts
 

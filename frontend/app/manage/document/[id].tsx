@@ -1,3 +1,5 @@
+import {prepareAutomatically,preparation,type PreparationMap} from '@/authoring/automatic';
+import {device} from '@/private/device';
 import {useAuth} from "@/auth/AuthContext";
 import {LocalAuthoring,type Draft} from "@/authoring/local";
 import { Ionicons } from "@expo/vector-icons";
@@ -35,6 +37,15 @@ export default function DocumentScreen() {
   const subjects = useAsync(() => manage.subjects(), []);
   const d = doc.data;
   const sourceChapters=d?.chapters;
+  const [automatic,setAutomatic]=useState<PreparationMap>({});
+  const [modelInstalled,setModelInstalled]=useState(false);
+  const autoStarted=useRef('');
+  useEffect(()=>{let live=true;const poll=async()=>{if(!authoring||!d)return;try{const status=await(await device()).status();const rows=await preparation(authoring,d);if(live){setModelInstalled(status.installed);setAutomatic(rows);}}catch(e){if(live)setPrepareError(errorMessage(e));}};void poll();const timer=setInterval(poll,1500);return()=>{live=false;clearInterval(timer);};},[authoring,d]);
+  useEffect(()=>{if(!authoring||!d||!modelInstalled||!['under_review','ready','published'].includes(d.status))return;
+    const token=`${owner}:${d.id}:${d.content_version}`;if(autoStarted.current===token)return;autoStarted.current=token;
+    void prepareAutomatically(authoring,d).catch(e=>{setPrepareError(errorMessage(e));autoStarted.current='';});
+  },[authoring,d,modelInstalled,owner]);
+
   useEffect(()=>{let live=true;if(!authoring||!sourceChapters)return;
     void (async()=>{const saved=await authoring.drafts();for(const chapter of sourceChapters)for(const module of chapter.modules){if(!live)return;if(module.id&&module.source_text?.trim())await authoring.ensure(saved.find(s=>s.snapshot.remote_id===module.id)?.snapshot.module_id||module.id);}})().catch(e=>{if(live)setPrepareError(errorMessage(e));});
     return()=>{live=false;};
@@ -259,7 +270,7 @@ export default function DocumentScreen() {
           </View>
         </>
       ) : null}
-      {tab === "lessons" ? <ReadinessTab doc={d!} onQueueLessons={() => queueLessons.run()} lessonsBusy={queueLessons.busy} onQueueQuizzes={() => queueQuizzes.run()} quizzesBusy={queueQuizzes.busy} error={queueLessons.error ?? queueQuizzes.error} onPreview={setPreview} /> : null}
+      {tab === "lessons" ? <ReadinessTab automatic={automatic} modelInstalled={modelInstalled} doc={d!} onQueueLessons={() => queueLessons.run()} lessonsBusy={queueLessons.busy} onQueueQuizzes={() => queueQuizzes.run()} quizzesBusy={queueQuizzes.busy} error={queueLessons.error ?? queueQuizzes.error} onPreview={setPreview} /> : null}
       {tab === "publish" ? <PublishTab doc={d!} onAct={(a) => act.run(a)} busy={act.busy} onDelete={() => remove.run()} deleting={remove.busy} onTab={setTab} /> : null}
     </Screen>
   );
@@ -296,15 +307,13 @@ function ProcessingCard({ doc, onOpen }: { doc: Document; onOpen: () => void }) 
   );
 }
 
-const LESSON_TONE: Record<string, Tone> = { ready: "green", pending: "neutral", generating: "blue", failed: "amber", none: "neutral" };
-const LESSON_TEXT: Record<string, string> = { ready: "Ready", pending: "Queued", generating: "Preparing", failed: "Failed", none: "No text" };
-const QUIZ_TONE: Record<string, Tone> = { ready: "green", checking: "blue", held: "amber", pending: "neutral", generating: "blue", failed: "red", dismissed: "neutral", short: "neutral", none: "neutral", off: "neutral" };
+const LESSON_TEXT: Record<string, string> = { ready: "Ready", pending: "Queued", generating: "Preparing", failed: "Failed", none: "Not generated" };
 const QUIZ_TEXT: Record<string, string> = { ready: "Ready", checking: "Being checked", held: "Held for review", pending: "Queued", generating: "Being written", failed: "Failed", dismissed: "Deleted", short: "Too short", none: "None", off: "Off" };
 
 type ModuleRow = OutlineModule & { chapter: string; number: number };
 type Preview = { id: string; title: string; quizStatus: string; quizId: string | null };
 
-function ReadinessTab({ doc, onQueueLessons, lessonsBusy, onQueueQuizzes, quizzesBusy, error, onPreview }: { doc: Document; onQueueLessons: () => void; lessonsBusy: boolean; onQueueQuizzes: () => void; quizzesBusy: boolean; error: string | null; onPreview: (p: Preview) => void }) {
+function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsBusy, onQueueQuizzes, quizzesBusy, error, onPreview }: { automatic: PreparationMap; modelInstalled:boolean; doc: Document; onQueueLessons: () => void; lessonsBusy: boolean; onQueueQuizzes: () => void; quizzesBusy: boolean; error: string | null; onPreview: (p: Preview) => void }) {
   const router = useRouter();
   const {user}=useAuth(),owner=user?.id;
   const service=useMemo(()=>owner?new LocalAuthoring(owner):null,[owner]);
@@ -314,11 +323,19 @@ function ReadinessTab({ doc, onQueueLessons, lessonsBusy, onQueueQuizzes, quizze
   let n = 0;
   const modules: ModuleRow[] = (doc.chapters ?? []).flatMap((c) => c.modules.map((m) => ({ ...m, chapter: c.title, number: ++n }))).filter((m) => m.id);
   const l = doc.lessons; const a = doc.auto_quizzes;
+  const total=modules.filter(m=>!m.source_missing&&m.source_text?.trim()).length;
+  const status=(m:ModuleRow,kind:'lesson'|'quiz')=>{
+    if(m.source_missing||!m.source_text?.trim())return 'No source text';
+    const saved=local(m.id!);if(kind==='lesson'?saved?.lesson:saved?.questions?.length)return 'Ready for review';
+    const shared=kind==='lesson'?m.lesson_status:m.quiz_status;
+    if(shared&&['ready','held','checking','failed','dismissed'].includes(shared))return (kind==='lesson'?LESSON_TEXT:QUIZ_TEXT)[shared];
+    return automatic[m.id!]?.[kind]||(modelInstalled?'Waiting to prepare':'Model setup required');
+  };
   const columns: Column<ModuleRow>[] = [
     { key: "m", label: "Module", flex: 2.2, render: (m) => <CellText title={m.title} sub={`Module ${m.number}`} /> },
-    { key: "l", label: "Institution lesson", flex: 0.8, render: (m) => <Badge value={LESSON_TEXT[m.lesson_status ?? "none"] ?? String(m.lesson_status)} tone={LESSON_TONE[m.lesson_status ?? "none"] ?? "neutral"} /> },
-    { key: "q", label: "Institution quiz", flex: 1, render: (m) => <Badge value={QUIZ_TEXT[m.quiz_status ?? "none"] ?? String(m.quiz_status)} tone={QUIZ_TONE[m.quiz_status ?? "none"] ?? "neutral"} /> },
-    { key: "draft", label: "Saved work", flex: 1.1, render: (m) => {const d=local(m.id!);return <CellText title={d?.lesson?"Lesson draft saved":"No lesson draft"} sub={d?.questions?`${d.questions.length} quiz questions saved`:"No quiz draft"}/>;} },
+    { key: "l", label: "Lesson", flex: 0.8, render: (m) => <Badge value={status(m,"lesson")} tone={status(m,"lesson").startsWith("Ready")?"green":"neutral"} /> },
+    { key: "q", label: "Quiz", flex: 1, render: (m) => <Badge value={status(m,"quiz")} tone={status(m,"quiz").startsWith("Ready")?"green":"neutral"} /> },
+    { key: "draft", label: "Saved work", flex: 1.1, render: (m) => {const d=local(m.id!);return <CellText title={d?.lesson?"Lesson draft saved":"No lesson draft"} sub={automatic[m.id!]?.error||(d?.questions?`${d.questions.length} quiz questions saved`:"No quiz draft")}/>;} },
     { key: "x", label: "", flex: 1.7, render: (m) => (
       <View style={{ flexDirection: "row", gap: 6 }}>
         <Button title="Open module" small variant="secondary" onPress={()=>router.push(`/manage/local-authoring/${local(m.id!)?.snapshot.module_id||m.id}`)}/>
@@ -332,9 +349,9 @@ function ReadinessTab({ doc, onQueueLessons, lessonsBusy, onQueueQuizzes, quizze
   const heldCount = a?.enabled ? a.held ?? 0 : 0;
   return (
     <>
-      <Notice tone={heldCount || (l && l.ready < l.total) ? "warning" : "success"}
-        title={`${l ? `${l.ready} of ${l.total} institution lessons are ready.` : "Lesson status is not available."}${heldCount ? ` ${heldCount === 1 ? "One quiz needs" : `${heldCount} quizzes need`} your review.` : ""}`}
-        message="Institution columns describe shared content. Saved work describes your local drafts. Open a module to review either version; generation is only needed for new or replacement content." />
+      <Notice tone={heldCount || (l && l.ready < total) ? "warning" : "success"}
+        title={`${l ? `${l.ready} of ${total} institution lessons are ready.` : "Lesson status is not available."}${heldCount ? ` ${heldCount === 1 ? "One quiz needs" : `${heldCount} quizzes need`} your review.` : ""}`}
+        message={modelInstalled?"Lessons and quizzes prepare automatically on this device. Keep the app open; you can navigate while it works. Open each module to review and approve saved drafts for synchronization. Failed modules do not stop the rest of the book.":"Set up a model in Offline AI to start automatic lesson and quiz generation. The extracted source text is already saved."} />
       <ErrorBanner message={error} />
       <Card flush>
         <Table noun="module" columns={columns} rows={modules} keyOf={(m) => m.id!} minWidth={860} empty={<Empty icon="school-outline" text="This book has no modules yet." />} />
@@ -365,11 +382,12 @@ function PublishTab({ doc, onAct, busy, onDelete, deleting, onTab }: { doc: Docu
   const modules = (doc.chapters ?? []).flatMap((c) => c.modules).filter((m) => m.id);
   const open = modules.filter((m) => m.availability === "open").length;
   const l = doc.lessons; const a = doc.auto_quizzes;
+  const total=modules.filter(m=>!m.source_missing&&m.source_text?.trim()).length;
   const missing = doc.missing_source_modules?.length ?? 0;
   const checks: { icon: IconName; title: string; text: string; badge: string; tone: Tone }[] = [
     { icon: "document-text-outline", title: "Source text", text: missing ? `${missing} module${missing === 1 ? " has" : "s have"} no source text and stay hidden.` : `${modules.length} modules have readable source text.`, badge: missing ? "Check text" : "Ready", tone: missing ? "amber" : "green" },
     { icon: "list-outline", title: "Outline reviewed", text: `${doc.chapter_count ?? 0} chapters with ${modules.length} modules, ${open} open to students.`, badge: doc.status === "under_review" ? "Review needed" : "Ready", tone: doc.status === "under_review" ? "amber" : "green" },
-    { icon: "sparkles-outline", title: "Guided lessons", text: l ? `${l.ready} ready · ${l.total - l.ready} still being prepared.` : "Lesson status is not available.", badge: l && l.ready === l.total ? "Ready" : "Optional to wait", tone: l && l.ready === l.total ? "green" : "amber" },
+    { icon: "sparkles-outline", title: "Guided lessons", text: l ? `${l.ready} ready · ${total - l.ready} not yet shared.` : "Lesson status is not available.", badge: l && l.ready === total ? "Ready" : "Optional to wait", tone: l && l.ready === total ? "green" : "amber" },
     autoQuizCheck(a),
   ];
   return (

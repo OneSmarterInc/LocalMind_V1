@@ -392,3 +392,16 @@ class OlderClientsTests(LessonTestBase):
         self.assertEqual(older.data["generator"], "fallback")
         self.assertTrue(older.data["lesson"]["title"])
         self.assertTrue(older.data["lesson"]["sections"])
+
+
+@override_settings(DEVICE_AUTHORING_ONLY=True)
+class DeviceReadinessCountsTests(TestCase):
+    def test_source_without_generated_lesson_is_counted_as_not_generated(self):
+        from core.testing import make_subject, make_published_document
+        from tutor.lessons import summary_for_document
+        doc = make_published_document(make_subject(), modules=(("Readable module", "Source material for a lesson."),))
+        summary = summary_for_document(doc)
+        self.assertEqual(summary["total"], 1)
+        self.assertEqual(summary["ready"], 0)
+        self.assertEqual(summary["not_generated"], 1)
+        self.assertEqual(summary["pending"], 0)

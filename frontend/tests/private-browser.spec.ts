@@ -641,3 +641,29 @@ test('faculty upload uses content headings and opens the existing outline editor
  await page.reload();
  await expect(page.getByLabel('Module title',{exact:true})).toHaveValue('Energy and living systems');
 });
+
+test('book readiness distinguishes missing generation from missing text and prepares device drafts automatically',async({page})=>{
+ await signIn(page,'faculty',`/manage/document/${fixture().document}?tab=lessons`);
+ await expect(page.getByText('1 of 2 institution lessons are ready.',{exact:true})).toBeVisible();
+ await expect(page.getByText('No text',{exact:true})).toHaveCount(0);
+ await expect(page.getByText('Model setup required',{exact:true})).toHaveCount(3);
+ await model(page,'/manage/offline-ai');
+ const central:string[]=[];page.on('request',r=>{if(r.method()==='POST'&&/\/api\/faculty\/.*(lessons|auto-quizzes|generate)/.test(r.url()))central.push(r.url());});
+ await page.goto(`/manage/document/${fixture().document}?tab=lessons`);
+ await expect(page.getByText('Ready for review',{exact:true})).toHaveCount(3,{timeout:60000});
+ expect(central).toEqual([]);
+ await page.reload();
+ await expect(page.getByText('Ready for review',{exact:true})).toHaveCount(3);
+});
+
+
+test('automatic book preparation continues after a module timeout',async({page})=>{
+ await signIn(page,'faculty','/manage/offline-ai');await model(page,'/manage/offline-ai');
+ await page.addInitScript(()=>{(window as any).__LM_TEST_FAIL_AT__=1;});
+ await page.goto(`/manage/document/${fixture().document}?tab=lessons`);
+ await expect(page.getByText('Ready for review',{exact:true})).toHaveCount(2,{timeout:60000});
+ await expect(page.getByText('Failed',{exact:true})).toHaveCount(1);
+ await expect(page.getByText(/simulated interruption/).first()).toBeVisible();
+ await page.getByRole('menuitem',{name:'Subjects',exact:true}).click();
+ await expect(page).toHaveURL(/\/manage\/subjects/);
+});
