@@ -1,11 +1,12 @@
 """Mounted under both /api/admin/ and /api/faculty/; scoping happens in views."""
 from django.urls import path
-from . import views
+from . import lesson_views, views
 from .local_authoring import LocalAuthoringView, LocalQuizView
 from .local_books import LocalBookView
 from .book_transfers import BookTransferView, BookChunkView
 
 urlpatterns = [
+    path("documents/<uuid:document_id>/visuals/", lesson_views.DocumentVisualReportView.as_view(), name="document-visual-report"),
     path("local-quizzes/", LocalQuizView.as_view()),
     path("local-books/transfers/", BookTransferView.as_view()),
     path("local-books/transfers/<uuid:operation_id>/", BookChunkView.as_view()),
@@ -25,6 +26,7 @@ urlpatterns = [
     path("chapters/<uuid:chapter_id>/availability/", views.ChapterAvailabilityView.as_view(), name="chapters-availability"),
     path("modules/<uuid:module_id>/", views.ModuleEditView.as_view(), name="modules-edit"),
     path("modules/<uuid:module_id>/availability/", views.ModuleAvailabilityView.as_view(), name="modules-availability"),
-    path("modules/<uuid:module_id>/lesson/", views.ModuleLessonView.as_view(), name="modules-lesson"),
+    path("modules/<uuid:module_id>/lesson/", lesson_views.ModuleLessonView.as_view(), name="modules-lesson"),
+    path("modules/<uuid:module_id>/visuals/", lesson_views.ModuleVisualsView.as_view(), name="modules-visuals"),
     path("modules/<uuid:module_id>/auto-quiz/", views.ModuleAutoQuizView.as_view(), name="modules-auto-quiz"),
 ]

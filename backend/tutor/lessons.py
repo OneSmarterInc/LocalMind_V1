@@ -332,7 +332,10 @@ def process_one(row: ModuleLesson) -> str:
     now = timezone.now()
     live = ModuleLesson.objects.filter(pk=row.pk, version=claimed_version, source_hash=digest)
     if result.ok:
-        done = live.update(status=LessonStatus.READY, lesson=result.data, generator="ai", model_name=result.model or "",
+        from documents.services.visual_context import place_in_lesson
+        prepared = place_in_lesson(result.data, module.source_visuals) if module.source_visuals else dict(result.data)
+        prepared.pop("source_visuals", None)  # image bytes are resolved only after access checks
+        done = live.update(status=LessonStatus.READY, lesson=prepared, generator="ai", model_name=result.model or "",
                            generated_at=now, last_error="", next_attempt_at=None, claimed_at=None,
                            version=F("version") + 1, updated_at=now)
         if done:

@@ -12,6 +12,14 @@ def _msg(m):
             "created_at": m.created_at}
 
 
+def _with_source_visuals(student, module_id, data):
+    if not data.get("lesson"):
+        return data
+    from documents.services.visual_delivery import enrich_lesson
+    module = svc._module(student, module_id)
+    return {**data, "lesson": enrich_lesson(data["lesson"], module)}
+
+
 class TeachView(APIView):
     """The stored lesson for a module. ``status`` is ready (``lesson`` is the
     tutor's lesson), preparing (``lesson`` is null; ask again shortly) or
@@ -24,10 +32,11 @@ class TeachView(APIView):
     permission_classes = [IsStudent]
 
     def get(self, request, module_id):
-        return Response(svc.teach(request.user, module_id, request))
+        return Response(_with_source_visuals(request.user, module_id, svc.teach(request.user, module_id, request)))
 
     def post(self, request, module_id):
-        return Response(svc.teach(request.user, module_id, request, legacy=True))
+        data = svc.teach(request.user, module_id, request, legacy=True)
+        return Response(_with_source_visuals(request.user, module_id, data))
 
 
 class AskView(APIView):

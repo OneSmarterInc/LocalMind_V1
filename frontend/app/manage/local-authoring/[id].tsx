@@ -1,3 +1,7 @@
+import {SourceFigures} from '@/ui/SourceFigures';
+import {lessonVisualIds} from '@/private/visualPlacement';
+import {useAsync} from '@/hooks/useAsync';
+import type {SourceVisual} from '@/private/core';
 import {LessonView} from '@/ui/LessonView';
 import React,{useEffect,useMemo,useState} from 'react';
 import {useLocalSearchParams,useRouter} from 'expo-router';
@@ -6,7 +10,6 @@ import {LocalAuthoring,type Draft,type ArchivedDraft} from '@/authoring/local';
 import {useLibrary} from '@/private/useLibrary';
 import {generationJobs} from '@/private/jobs';
 import {jobScope,useGenerationJobs} from '@/private/useGenerationJobs';
-import {SourceVisuals} from '@/private/SourceVisuals';
 import {device} from '@/private/device';
 import {useTask} from '@/private/useTask';
 import {Screen,PageHeading,Card,H2,P,Button,Row,Notice,ErrorBanner,Badge,Input,confirmAsync} from '@/ui';
@@ -22,19 +25,22 @@ function Authoring(){
  const busy=jobs.some(j=>['queued','running'].includes(j.state));
  useEffect(()=>{let live=true;void service.history(id).then(h=>{if(live)setHistory(h);}).catch(e=>{if(live)setError(String(e));});const read=()=>service.read(id).then(v=>{if(live)setDraft(v);}).catch(e=>{if(live)setError(String(e));});void service.ensure(id).then(v=>{if(live)setDraft(v);void service.loadInstitution(id).then(next=>{if(live&&next)setDraft(next);}).catch(()=>{});}).catch(e=>{if(live)setError(String(e));});void device().then(d=>d.status()).then(s=>{if(live)setModelReady(s.installed);}).catch(()=>{});void read();const timer=setInterval(()=>{void read();void device().then(d=>d.status()).then(s=>{if(live)setModelReady(s.installed);}).catch(()=>{});},1000);return()=>{live=false;clearInterval(timer);};},[service,id]);
  useEffect(()=>{setQuestionIndex(0);},[id,draft?.questions?.length]);
+ const pictures=useAsync(()=>draft?.sourceBook&&draft.sourceSection?service.library.visuals(draft.sourceBook,draft.sourceSection):Promise.resolve(null),[service,draft?.sourceBook,draft?.sourceSection]);
+ const visuals:SourceVisual[]=pictures.data ?? (draft?.snapshot.source_visuals||[]).map(v=>({id:v.id,dataUrl:v.data_url,width:v.width,height:v.height,caption:v.caption,kind:v.kind,page:v.page,contextText:v.context_text,captionOrigin:v.caption_origin,headingPath:v.heading_path}));
+ const visualIds=draft?.lesson?lessonVisualIds(draft.lesson.sections,visuals):[];
  const generate=(kind:'lesson'|'quiz')=>{try{setError('');generationJobs.enqueue({scope:jobScope(library!.prefix),bookId:id,sectionId:id,kind:'staff-'+kind,label:`${draft?.snapshot.title||'Module'} · ${kind}`},(signal,progress)=>service.generate(id,kind,signal,progress,Number(quizCount)));}catch(e){setError(String(e));}};
  return <Screen><PageHeading title={draft?.snapshot.title||'Local authoring'} subtitle="Your work saves automatically. Review it before publishing to students." right={<Button title="Offline AI" variant="secondary" onPress={()=>router.push('/manage/offline-ai')}/>}/>
- <ErrorBanner message={error||task.error}/>
+ <ErrorBanner message={error||task.error||pictures.error}/>
  <Card><P muted>{draft?'Source ready · Changes saved automatically':'Preparing source…'}</P><Button title="Books & modules" variant="secondary" onPress={()=>router.push('/manage/books')}/></Card>
  {!modelReady?<Notice title="Set up AI before generating" message="Download or import a model in Offline AI once on this device. Your books and saved work remain available without it."/>:null}
- {draft?<><Card><Button title={showSource?"Hide source":"Show source"} variant="secondary" onPress={()=>setShowSource(!showSource)}/>{showSource?<P>{draft.snapshot.source}</P>:null}{draft.sourceBook&&draft.sourceSection?<SourceVisuals bookId={draft.sourceBook} sectionId={draft.sourceSection} sourceLibrary={service.library}/>:null}</Card>
+ {draft?<><Card><Button title={showSource?"Hide source":"Show source"} variant="secondary" onPress={()=>setShowSource(!showSource)}/>{showSource?<P>{draft.snapshot.source}</P>:null}<SourceFigures visuals={visuals}/></Card>
  {!draft.localBook||draft.snapshot.remote_id?<Button title="Prepare book" variant="secondary" onPress={()=>router.push(`/manage/local-batch?document=${draft.snapshot.document_id}`)}/>:null}
  {draft.localBook?<Button title="Open local book synchronization" variant="secondary" onPress={()=>router.push('/manage/local-books')}/>:null}
  <Card><Input label="Quiz question count" value={quizCount} onChangeText={setQuizCount} keyboardType="number-pad" hint="1–6 questions. Previously generated quizzes keep their existing count."/><Row><Button title={draft.lesson||draft.snapshot.institution?.lesson?"Regenerate lesson":"Generate lesson"} disabled={busy||task.busy||!modelReady} onPress={()=>generate('lesson')}/><Button title={draft.questions||draft.snapshot.institution?.quiz?"Regenerate quiz":"Generate quiz"} disabled={busy||task.busy||!modelReady} onPress={()=>generate('quiz')}/></Row>
  {draft.run?<P muted>Saved through part {draft.run.done}. Select the same generation again after an interruption to resume.</P>:null}
  {jobs.filter(j=>j.state!=='completed').map(j=><Row key={j.id}><Badge value={j.state}/><P>{j.error||j.note}</P>{['queued','running'].includes(j.state)?<Button title="Cancel generation" small variant="secondary" onPress={()=>generationJobs.cancel(j.id)}/>:null}</Row>)}
  </Card>
- {draft.lesson?<Card><H2>Review lesson</H2><P>{draft.lesson.introduction}</P>{draft.lesson.sections.map((s,i)=><Card key={i}><H2>{s.heading}</H2><P>{s.content}</P><P small muted>Source: {s.quote}</P></Card>)}<Button title="Approve and synchronize lesson" disabled={busy} busy={task.busy} onPress={()=>task.run(async()=>{setDraft(await service.share(id,'lesson'));})}/></Card>:null}
+ {draft.lesson?<Card><H2>Review lesson</H2><P>{draft.lesson.introduction}</P>{draft.lesson.sections.map((s,i)=><Card key={i}><H2>{s.heading}</H2><P>{s.content}</P><P small muted>Source: {s.quote}</P><SourceFigures visuals={visuals.filter(v=>visualIds[i]?.includes(v.id))}/></Card>)}<SourceFigures visuals={visuals.filter(v=>!visualIds.some(ids=>ids.includes(v.id)))}/><Button title="Approve and synchronize lesson" disabled={busy} busy={task.busy} onPress={()=>task.run(async()=>{setDraft(await service.share(id,'lesson'));})}/></Card>:null}
  {draft.questions?<Card><H2>Review quiz</H2><P>{draft.questions.length} questions in this saved draft</P>
  <Row><Button title="Previous question" disabled={questionIndex<=0} onPress={()=>setQuestionIndex(i=>i-1)}/><P>Question {Math.min(questionIndex,draft.questions.length-1)+1} of {draft.questions.length}</P><Button title="Next question" disabled={questionIndex>=draft.questions.length-1} onPress={()=>setQuestionIndex(i=>i+1)}/></Row>
  {draft.questions.slice(Math.min(questionIndex,draft.questions.length-1),Math.min(questionIndex,draft.questions.length-1)+1).map(q=><Card key={q.id}><P>{q.question}</P>{q.options.map((o,n)=><P key={n}>{String.fromCharCode(65+n)}. {o}{n===q.answer?' — correct':''}</P>)}<P>{q.explanation}</P><P small muted>Source: {q.quote}</P></Card>)}<Button title="Approve and synchronize quiz draft" disabled={busy} busy={task.busy} onPress={()=>task.run(async()=>{setDraft(await service.share(id,'quiz'));})}/></Card>:null}
