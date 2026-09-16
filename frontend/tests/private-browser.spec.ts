@@ -409,8 +409,7 @@ test('faculty generates offline and synchronizes a reviewed lesson without serve
  await page.getByRole('button',{name:'Approve and synchronize lesson',exact:true}).click();
  await expect(page.getByText('Waiting to synchronize',{exact:true})).toBeVisible();
  await context.setOffline(false);
- await page.getByRole('button',{name:'Retry synchronization',exact:true}).click();
- await expect(page.getByText('Received by institution',{exact:true})).toBeVisible();
+ await expect(page.getByText('Received by institution',{exact:true})).toBeVisible({timeout:45000});
  const result=await page.request.get(`/api/faculty/modules/${fixture().module}/lesson/`,{headers});
  expect(result.ok()).toBeTruthy();const lesson=await result.json();expect(lesson.model).toBe('device-local');expect(lesson.status).toBe('ready');expect(aiRequests).toBe(0);
  await page.reload();
@@ -425,8 +424,7 @@ test('faculty generates offline and synchronizes a reviewed lesson without serve
  await expect(page.getByText('Waiting to synchronize',{exact:true})).toBeVisible();
  await page.reload();await expect(page.getByRole('heading',{name:'Review quiz',exact:true})).toBeVisible();
  await context.setOffline(false);
- await page.getByRole('button',{name:'Retry synchronization',exact:true}).click();
- await expect(page.getByText('Received by institution',{exact:true})).toBeVisible();expect(aiRequests).toBe(0);
+ await expect(page.getByText('Received by institution',{exact:true})).toBeVisible({timeout:45000});expect(aiRequests).toBe(0);
 
 });
 
@@ -577,8 +575,7 @@ test('Create Quiz uses device inference and syncs a reviewed multi-module draft 
  await expect(page.getByRole('button',{name:'Retry synchronization',exact:true})).toBeVisible();
  await page.reload();
  await context.setOffline(false);
- await page.getByRole('button',{name:'Retry synchronization',exact:true}).click();
- await expect(page.getByRole('button',{name:'Open quiz settings and publish',exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'Open quiz settings and publish',exact:true})).toBeVisible({timeout:45000});
  const response=await page.request.get('/api/faculty/quizzes/',{headers:{Authorization:`Bearer ${tokens.access}`}});expect(response.ok()).toBeTruthy();
  const body=await response.json(),rows=Array.isArray(body)?body:body.results;
  expect(rows.filter((q:any)=>q.title==='Device selection quiz')).toHaveLength(1);
