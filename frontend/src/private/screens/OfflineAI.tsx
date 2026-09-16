@@ -1,3 +1,4 @@
+import {useAppFilesStatus} from "@/offline/appFiles";
 import React, { useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 import * as Picker from 'expo-document-picker';
@@ -10,6 +11,7 @@ import type { ModelStatus } from '../device.types';
 
 export default function OfflineAI() {
   const router = useRouter();
+  const appFilesStatus=useAppFilesStatus();
   const {user}=useAuth();const student=user?.role==='student';
   const [status, setStatus] = useState<ModelStatus | null>(null);
   const [busy, setBusy] = useState(false), [progress, setProgress] = useState(0);
@@ -54,6 +56,8 @@ export default function OfflineAI() {
     <Card><H2>Scanned books and original visuals</H2><P>English OCR is included in the offline application files. Scanned PDF pages are recognised on this device; original pages, including tables and diagrams, are saved for reading and lessons. No OCR API key is needed.</P><P muted>OCR can misread numbers and formulas. Check the preserved page. The local text model uses recognised text; it does not interpret image-only diagrams.</P></Card>
     <Card><H2>Ready to reopen offline</H2><P>Use the same installed application or browser profile. Closing the app must not delete your books. Clearing app storage or browser site data will remove them.</P>
       {Platform.OS === 'web' && <P muted>A browser needs HTTPS or localhost, enough free storage, and the application files saved below. A plain HTTP address on another computer is not an independently installed offline app.</P>}
+      {Platform.OS === 'web' && <P>{appFilesStatus}</P>}
+      <P muted>Preparation runs automatically while the app is open and connected. The button below is only for a manual check or recovery.</P>
       <Button title="Check and save offline app files" variant="secondary" disabled={busy} onPress={() => { void run(async () => { const note = await (await device()).prepareOffline(); if (alive.current) setNotice(note); }); }} />
     </Card>
   </Screen>;

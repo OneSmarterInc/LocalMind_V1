@@ -24,7 +24,7 @@ export async function model(page:Page,path='/student/offline-ai'){
  // A model file alone is not the offline application. Complete the same setup
  // the user is prompted to complete before disconnecting.
  await page.getByRole('button',{name:'Check and save offline app files',exact:true}).click();
- await expect(page.getByText(/Application files saved/)).toBeVisible();
+ await expect(page.getByText(/Application files saved/).first()).toBeVisible();
 }
 async function importBook(page:Page,name='Personal biology'){
  await page.goto('/student/private-library');
@@ -588,3 +588,15 @@ test('faculty can release held results from quiz settings',async({page})=>{
  await page.reload();
  await expect(page.getByRole('button',{name:'Release results now',exact:true})).toHaveCount(0);
 });
+
+ test('app files and course content prepare automatically without setup buttons',async({page,context})=>{
+ await signIn(page,'student','/student/offline-ai');
+ await expect(page.getByText('Application files saved automatically. Ready to reopen offline.',{exact:true})).toBeVisible({timeout:120000});
+ await page.goto('/student/offline');
+ await expect(page.getByText('Your course copy is saved.',{exact:true})).toBeVisible();
+ await context.setOffline(true);
+ await page.goto(`/student/module/${fixture().module}?tab=lesson`);
+ await expect(page.getByText('This lesson was prepared by the institution before download.',{exact:true})).toBeVisible();
+ await page.reload();
+ await expect(page.getByText('This lesson was prepared by the institution before download.',{exact:true})).toBeVisible();
+ });

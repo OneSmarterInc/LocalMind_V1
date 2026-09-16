@@ -1,4 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import {prepareAppFiles} from "@/offline/appFiles";
+import {onConnectivityChange} from "@/offline/connectivity";
 import { AppState } from "react-native";
 import { ApiError, tokenStore } from "@/api/client";
 import { META, clearAll, readEntry, setOfflineScope, writeEntry } from "@/offline/store";
@@ -62,6 +64,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })();
     return () => tokenStore.setSessionLostHandler(null);
   }, [clear, adopt]);
+
+  // Install/update public offline assets for every role without a setup click.
+  useEffect(() => {
+    if (!ready || !user || mustChange) return;
+    const prepare = () => { void prepareAppFiles(); };
+    prepare();
+    const off = onConnectivityChange(online => { if (online) prepare(); });
+    const timer = setInterval(prepare, 60000);
+    const sub = AppState.addEventListener('change', state => { if (state === 'active') prepare(); });
+    return () => { off(); clearInterval(timer); sub.remove(); };
+  }, [ready, user, mustChange]);
 
   // Heartbeat while a user is signed in and the app is in the foreground.
   useEffect(() => {

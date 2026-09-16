@@ -5,6 +5,7 @@ async function manifest(){const r=await fetch('/offline-files.json',{cache:'no-s
 async function prepare(){
  const m=await manifest(),name=PREFIX+m.version,cache=await caches.open(name);
  try{
+  if(await cache.match('/__complete__')){current=name;return name;}
   // Bounded concurrency avoids excessive browser memory use while caching WASM.
   for(let i=0;i<m.files.length;i+=4)await Promise.all(m.files.slice(i,i+4).map(async url=>{
    if(!url.startsWith('/')||url.startsWith('//')||url.startsWith('/api/')||url.startsWith('/media/'))throw Error('Invalid application asset path');
@@ -22,8 +23,7 @@ async function active(){
  return null;
 }
 self.addEventListener('install',event=>{event.waitUntil(prepare());});
-// Only an explicit Offline AI setup action activates a waiting update. Never
-// replace a running quiz automatically just because a new deployment appeared.
+// Preparation activates complete asset caches without reloading open screens.
 self.addEventListener('activate',event=>event.waitUntil(self.clients.claim()));
 self.addEventListener('message',event=>{if(event.data?.type==='PREPARE_OFFLINE')event.waitUntil(prepare().then(async()=>{event.ports[0]?.postMessage({ok:true});await self.skipWaiting();}).catch(e=>event.ports[0]?.postMessage({ok:false,error:e.message})));});
 self.addEventListener('fetch',event=>{

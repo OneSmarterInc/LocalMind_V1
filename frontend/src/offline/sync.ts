@@ -10,7 +10,7 @@ import {flushCourseWork} from './coursework';
 //
 // Runs when a student signs in or the app starts online, when the server
 // becomes reachable again after being offline, when the app returns to the
-// foreground, and every ten minutes while it stays open. A download belongs to
+// foreground, and every minute while it stays open. A download belongs to
 // the user who started it: if that user signs out before it finishes, its
 // result is thrown away and the next user starts their own.
 import { useEffect, useState } from "react";
@@ -64,7 +64,7 @@ export async function startOfflineSync() {
   stopOfflineSync();
   publish({ lastSync: (await readEntry<string>(META.lastSync)) ?? null, error: null });
   void syncNow();
-  timer = setInterval(() => { void syncNow(); }, 10 * 60 * 1000);
+  timer = setInterval(() => { void syncNow(); }, 60 * 1000);
   unsubscribe = onConnectivityChange((online) => { if (online) void syncNow(); });
 }
 

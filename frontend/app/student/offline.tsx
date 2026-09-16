@@ -49,14 +49,14 @@ export default function OfflineLibrary() {
   const s = saved.data;
   return (
     <Screen refreshing={saved.loading} onRefresh={() => { saved.reload(); model.reload(); }}>
-      <PageHeading eyebrow="OFFLINE AVAILABILITY" title="Learning without a connection" subtitle="Course work is saved on this device and synchronized with your institution. Private study stays local."
+      <PageHeading eyebrow="OFFLINE AVAILABILITY" title="Learning without a connection" subtitle="Course updates and saved progress synchronize automatically while connected. Private study stays local."
         right={<Button title="Refresh course copy" icon="refresh" onPress={refresh} busy={sync.running} disabled={!online} />} />
       <Row><Button title="Open Private Library" icon="book-outline" onPress={() => router.push('/student/private-library')} /><Button title="Set up Offline AI" variant="secondary" icon="hardware-chip-outline" onPress={() => router.push('/student/offline-ai')} /></Row>
       <Notice tone={model.data?.installed ? "success" : "info"} title={model.data?.installed ? "A local model is installed." : "Local AI setup is needed for new explanations and doubts."}
-        message="Install a model and save offline application files in Offline AI before disconnecting. The same model serves Private Library and new doubts about downloaded, authorized course modules. Saved reading and checking existing private MCQs do not need inference." />
+        message="Install a model once. Application files save automatically while connected; check readiness in Offline AI before disconnecting. The same model serves Private Library and new doubts about downloaded, authorized course modules. Saved reading and checking existing private MCQs do not need inference." />
       <ErrorBanner message={model.error} onRetry={model.reload} />
       <Notice tone={sync.lastSync ? "success" : "info"} title={sync.lastSync ? "Your course copy is saved." : "No complete course download yet."}
-        message={`${sync.lastSync ? `Course copy from ${fmtDate(sync.lastSync)}: ${s?.modules ?? 0} modules, ${s?.lessons ?? 0} ready lessons.` : "Refresh the course copy while connected."} Only published, open course modules are included. This count does not include your separate Private Library.`} />
+        message={`${sync.lastSync ? `Course copy from ${fmtDate(sync.lastSync)}: ${s?.modules ?? 0} modules, ${s?.lessons ?? 0} ready lessons.` : "The course copy downloads automatically while connected."} Only published, open course modules are included. This count does not include your separate Private Library.`} />
       <ErrorBanner message={sync.error ? `The last course refresh did not finish: ${sync.error}` : null} />
       <Card><CardHead title="Course synchronization"/><Notice message={`${pending.length} saved events waiting for synchronization or review. Private Library activity is not uploaded.`}/><ErrorBanner message={work.error}/>{pending.map(row=><Row key={row.event.id}><Text>{row.event.kind} · {row.state}{row.error?` · ${row.error}`:''}</Text>{row.state==='conflict'?<Button title="Retry synchronization" disabled={!online} onPress={()=>{void retryCourseEvent(row.event.id).then(work.reload).catch(work.reload);}}/>:null}</Row>)}</Card>
       <Grid min={320} gap={20}>
