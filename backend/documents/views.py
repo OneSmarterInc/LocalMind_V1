@@ -45,7 +45,7 @@ class DocumentListUploadView(ListAPIView):
             qs = qs.filter(status=params["status"])
         # The chapter and module counts drop the model's default ordering; a
         # paged list with no order can repeat or skip books between pages.
-        return qs.order_by("-created_at", "id")
+        return qs.prefetch_related("chapters__modules__lesson").order_by("-created_at", "id")
 
     def post(self, request):
         serializer = UploadSerializer(data=request.data)

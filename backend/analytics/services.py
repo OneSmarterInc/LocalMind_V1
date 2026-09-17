@@ -456,6 +456,7 @@ def admin_subjects(window=(None, None)):
         events = _between(ActivityEvent.objects.filter(subject=s), "occurred_at", window)
         rows.append({
             "subject_id": str(s.id), "code": s.code, "name": s.name, "status": s.status, "faculty": faculty,
+            "faculty_ids": [str(i) for i in FacultySubject.objects.filter(subject=s, status="active").values_list("faculty_id", flat=True)],
             "students_enrolled": Enrollment.objects.filter(subject=s, status="active").count(),
             "documents_published": Document.objects.filter(subject=s, status="published").count(),
             "modules_published": Module.objects.filter(chapter__document__subject=s, chapter__document__status="published", source_missing=False).count(),

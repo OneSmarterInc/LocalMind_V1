@@ -66,13 +66,18 @@ class DocumentSerializer(serializers.ModelSerializer):
     chapter_count = serializers.SerializerMethodField()
     module_count = serializers.SerializerMethodField()
     progress = serializers.SerializerMethodField()
+    lessons = serializers.SerializerMethodField()
+
+    def get_lessons(self, doc):
+        from tutor import lessons
+        return lessons.summary_for_document(doc)
 
     class Meta:
         model = Document
         fields = ["id", "subject_id", "subject_code", "title", "original_name", "file_type", "file_size", "status",
                   "outline_strategy", "outline_source", "parse_mode", "error_message", "uploaded_by_id", "uploaded_by_name", "published_by_name",
                   "processed_at", "reviewed_at", "published_at", "unpublished_at", "archived_at",
-                  "content_version", "last_edited_at", "chapter_count", "module_count", "progress",
+                  "content_version", "last_edited_at", "chapter_count", "module_count", "progress", "lessons",
                   "processing_started_at", "created_at", "updated_at"]
 
     def get_progress(self, doc):
@@ -102,7 +107,7 @@ class DocumentDetailSerializer(DocumentSerializer):
     background_job = serializers.SerializerMethodField()
 
     class Meta(DocumentSerializer.Meta):
-        fields = DocumentSerializer.Meta.fields + ["extracted_headings", "chapters", "missing_source_modules", "lessons", "auto_quizzes", "background_job"]
+        fields = DocumentSerializer.Meta.fields + ["extracted_headings", "chapters", "missing_source_modules", "auto_quizzes", "background_job"]
 
     def get_background_job(self, doc) -> dict | None:
         from jobs.models import Job

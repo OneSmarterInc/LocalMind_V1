@@ -230,7 +230,9 @@ def summary_for_document(document) -> dict:
     """Counts for the faculty screen: every module with text is in exactly one bucket."""
     from learning.models import Module
 
-    modules = list(Module.objects.filter(chapter__document=document).select_related("lesson"))
+    modules = ([m for chapter in document.chapters.all() for m in chapter.modules.all()]
+               if "chapters" in getattr(document, "_prefetched_objects_cache", {})
+               else list(Module.objects.filter(chapter__document=document).select_related("lesson")))
     counts = {"total": 0, "ready": 0, "pending": 0, "generating": 0, "failed": 0, "not_generated": 0}
     for m in modules:
         # A missing reverse one-to-one raises an AttributeError subclass.

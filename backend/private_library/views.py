@@ -13,7 +13,7 @@ from core.exceptions import ValidationFailed, NotFound
 from documents.models import Document
 from .models import SharedBook
 
-MAX_BYTES = 35 * 1024 * 1024
+MAX_BYTES = 100 * 1024 * 1024
 
 class UploadSerializer(serializers.Serializer):
     title = serializers.CharField(max_length=300)
@@ -50,7 +50,7 @@ def record(book, kind):
 
 def check_file(upload):
     if not 0 < upload.size <= MAX_BYTES:
-        raise ValidationFailed("Choose a nonempty book of at most 35 MB.")
+        raise ValidationFailed("Choose a nonempty book of at most 100 MB.")
     suffix = Path(upload.name).suffix.lower()
     if suffix not in (".pdf", ".docx", ".txt", ".md"):
         raise ValidationFailed("Use a text-based PDF, DOCX, TXT or Markdown file.")

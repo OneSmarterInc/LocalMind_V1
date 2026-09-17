@@ -46,7 +46,7 @@ async function parse(bytes,name,signal,progress=()=>{},saveVisual){
  assert(!running,'A book is already being imported. Wait for it to finish.');running=true;
  let ocr;
  try {
- check(signal);assert(bytes.length>0 && bytes.length<=35*1024*1024,'Choose a book up to 35 MB.');
+ check(signal);assert(bytes.length>0 && bytes.length<=100*1024*1024,'Choose a book up to 100 MB.');
  const ext=name.split('.').pop().toLowerCase(), warnings=[],visuals=[];let items=[],visualCount=0;
  const capture=async(canvas,caption,page,kind='figure')=>{
   check(signal);

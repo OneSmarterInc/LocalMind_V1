@@ -1,4 +1,5 @@
 import type {Lesson as CourseLesson,Question} from '@/api/types';
+import {quizSectionIndices} from './quizSections';
 import {activeBookTransfers} from './locks';
 import {randomUUID} from 'expo-crypto';
 import {api,ApiError} from '@/api/client';
@@ -8,7 +9,7 @@ import {generationJobs} from '@/private/jobs';
 import {makeSections,requireThat,type Lesson,type MCQ} from '@/private/core';
 export type Snapshot={module_id:string;document_id:string;title:string;source:string;revision:string;remote_id?:string;institution?:{lesson:CourseLesson|null;quiz:{id:string;status:string;questions:Question[]}|null}};
 type Operation={id:string;revision:string;kind:'lesson'|'quiz';reviewed:true;lesson?:Lesson;questions?:MCQ[]};
-export type Draft={snapshot:Snapshot;localBook?:string;sourceBook?:string;sourceSection?:string;lesson?:Lesson;questions?:MCQ[];run?:{kind:'lesson'|'quiz';book:string;done:number;quizCount?:number;lessonParts:Lesson[];questions:MCQ[]};operation?:Operation;state?:'pending'|'synced'|'conflict';error?:string;quiz_id?:string;shared?:Partial<Record<'lesson'|'quiz',string>>};
+export type Draft={snapshot:Snapshot;localBook?:string;sourceBook?:string;sourceSection?:string;lesson?:Lesson;questions?:MCQ[];run?:{kind:'lesson'|'quiz';book:string;done:number;quizCount?:number;sectionIds?:string[];lessonParts:Lesson[];questions:MCQ[]};pausedRuns?:Partial<Record<'lesson'|'quiz',NonNullable<Draft['run']>>>;operation?:Operation;state?:'pending'|'synced'|'conflict';error?:string;quiz_id?:string;shared?:Partial<Record<'lesson'|'quiz',string>>};
 export type ArchivedDraft={id:string;archivedAt:string;draft:Draft};
 const draftOperations=new Set<string>();
 const preparing=new Map<string,Promise<Draft>>();
@@ -17,6 +18,8 @@ export class LocalAuthoring {
  readonly library:Library;
  constructor(owner:string){this.library=new Library(owner,'authoring');}
  private key(id:string){return this.library.prefix+'module:'+id;}
+ async isRemoved(documentId:string){return !!await(await device()).get(this.library.prefix+'removed:'+documentId);}
+ async markRemoved(documentId:string){this.library.guard();await(await device()).put(this.library.prefix+'removed:'+documentId,true);}
  async drafts(){const rows=await(await device()).list<Draft>(this.library.prefix+'module:');this.library.guard();return rows;}
  async flushAll(){const rows=await this.drafts();for(const row of rows)if(row.state==='pending')await this.flush(row.snapshot.module_id);}
  async read(id:string){this.library.guard();const value=await(await device()).get<Draft>(this.key(id));this.library.guard();return value;}
@@ -80,18 +83,26 @@ export class LocalAuthoring {
  private async generateDraft(id:string,kind:'lesson'|'quiz',signal:AbortSignal,progress:(message:string)=>void,quizCount:number){
   if(kind==='quiz')requireThat(Number.isInteger(quizCount)&&quizCount>=1&&quizCount<=6,'Choose 1–6 questions.');
   const draft=await this.read(id);requireThat(draft,'Save this module on the device first.');
+  requireThat(!await this.isRemoved(draft.snapshot.document_id),'This book was removed or archived.');
   requireThat(!draft.localBook||!activeBookTransfers.has(this.library.prefix+'import:'+draft.localBook),'A book transfer is in progress. Try generation when it finishes.');
   requireThat(!draft.operation||draft.state==='synced','Finish synchronizing the reviewed draft before generating another version.');
-  requireThat(!draft.run||draft.run.kind===kind,'Resume the interrupted generation first.');
+  if(draft.run&&draft.run.kind!==kind){draft.pausedRuns={...draft.pausedRuns,[draft.run.kind]:draft.run};draft.run=undefined;}
+  if(!draft.run&&draft.pausedRuns?.[kind]){draft.run=draft.pausedRuns[kind];delete draft.pausedRuns[kind];}
   const d=await device();requireThat((await d.status()).installed,'Download a model in Offline AI first.');
+  const legacyQuiz=kind==='quiz'&&!!draft.run&&!draft.run.sectionIds;
   if(!draft.run){
    const book=fingerprint(id+'|'+randomUUID());
    await this.library.seed({id:book,title:draft.snapshot.title,originalName:draft.snapshot.title,origin:'personal',importedAt:new Date().toISOString(),warnings:[],sections:makeSections([{title:draft.snapshot.title,text:draft.snapshot.source}])});
    draft.run={kind,book,done:0,quizCount:kind==='quiz'?quizCount:undefined,lessonParts:[],questions:[]};draft.operation=undefined;draft.state=undefined;await this.save(id,draft);
   }
   const run=draft.run,book=await this.library.book(run.book);
+  if(kind==='quiz'&&!run.sectionIds){
+   run.sectionIds=quizSectionIndices(book.sections.length,run.quizCount||6,legacyQuiz).map(i=>book.sections[i].id);
+   await this.save(id,draft);
+  }
   for(let index=run.done;index<(kind==='quiz'?Math.min(book.sections.length,run.quizCount||6):book.sections.length);index++){
-   const section=book.sections[index];progress(`Module part ${index+1} of ${book.sections.length}`);
+   if(signal.aborted)throw Error('Generation cancelled. Completed work is retained.');
+   const section=kind==='quiz'?book.sections.find(s=>s.id===run.sectionIds![index])!:book.sections[index];progress(`Module part ${index+1} of ${book.sections.length}`);
    if(kind==='lesson'){const result=await this.library.generateLesson(book.id,section.id,signal,progress);run.lessonParts.push(result.lesson);}
    else {const used=Math.min(book.sections.length,run.quizCount||6);const count=run.quizCount?Math.floor(run.quizCount/used)+(index<run.quizCount%used?1:0):1;const result=await this.library.generateQuiz(book.id,section.id,count,signal,done=>progress(`${done} questions saved`),progress);run.questions.push(...result.questions);}
    run.done=index+1;await this.save(id,draft);
@@ -103,7 +114,8 @@ export class LocalAuthoring {
  }
  async share(id:string,kind:'lesson'|'quiz'){return this.exclusive(id,()=>this.shareDraft(id,kind));}
  private async shareDraft(id:string,kind:'lesson'|'quiz'){
-  const draft=await this.read(id);requireThat(draft,'No local draft.');requireThat(!draft.run,'Finish generation before sharing.');
+  const draft=await this.read(id);requireThat(draft,'No local draft.');requireThat(draft.run?.kind!==kind&&!draft.pausedRuns?.[kind],'Finish generation before sharing.');
+  requireThat(!await this.isRemoved(draft.snapshot.document_id),'This book was removed or archived.');
   requireThat(!draft.localBook||!activeBookTransfers.has(this.library.prefix+'import:'+draft.localBook),'A book transfer is in progress. Try approval when it finishes.');
   requireThat(kind==='lesson'?draft.lesson:draft.questions?.length,'Generate and review the content first.');
   if(draft.shared?.[kind]===fingerprint(JSON.stringify(kind==='lesson'?draft.lesson:draft.questions)))return draft;
@@ -116,7 +128,7 @@ export class LocalAuthoring {
   const task=this.performFlush(id).finally(()=>syncing.delete(key));syncing.set(key,task);return task;
  }
  private async performFlush(id:string){
-  const draft=await this.read(id);if(!draft?.operation||draft.state==='synced')return draft;
+  const draft=await this.read(id);if(!draft?.operation||draft.state==='synced'||await this.isRemoved(draft.snapshot.document_id))return draft;
   if(draft.localBook&&activeBookTransfers.has(this.library.prefix+'import:'+draft.localBook))return draft;
   if(draft.localBook&&!draft.snapshot.remote_id){draft.error='Synchronize the book draft before its reviewed content.';await this.save(id,draft);return draft;}
   try{
@@ -125,4 +137,13 @@ export class LocalAuthoring {
   }catch(e){this.library.guard();draft.state=e instanceof ApiError&&[400,403,404,409].includes(e.status)?'conflict':'pending';draft.error=e instanceof Error?e.message:String(e);await this.save(id,draft);}
   return draft;
  }
+}
+
+export function draftStatus(draft:Draft|undefined,kind:'lesson'|'quiz'){
+ const content=kind==='lesson'?draft?.lesson:draft?.questions;
+ if(!content||(Array.isArray(content)&&!content.length))return undefined;
+ if(draft?.shared?.[kind]===fingerprint(JSON.stringify(content)))return 'Synchronized';
+ if(draft?.operation?.kind===kind&&draft.state==='pending')return 'Awaiting synchronization';
+ if(draft?.operation?.kind===kind&&draft.state==='conflict')return 'Synchronization needs review';
+ return 'Ready for review';
 }

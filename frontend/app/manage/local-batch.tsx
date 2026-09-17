@@ -24,7 +24,7 @@ function Batch({owner}:{owner:string}){
  const service=useMemo(()=>new LocalAuthoring(owner),[owner]);
  const [preparing,setPreparing]=useState(true),[modelReady,setModelReady]=useState(false);
  const [rows,setRows]=useState<Draft[]>([]),[error,setError]=useState('');
- const jobs=useGenerationJobs(library?.prefix||'').filter(j=>j.bookId===id&&j.kind==='staff-batch');
+ const jobs=useGenerationJobs(library?.prefix||'').filter(j=>j.bookId===id||j.documentId===id);
  const busy=jobs.some(j=>['running','queued'].includes(j.state));
  useEffect(()=>{let live=true;const read=()=>draftsFor(service,id).then(v=>{if(live)setRows(v);}).catch(e=>{if(live)setError(String(e));});void read();const timer=setInterval(()=>{void read();void device().then(d=>d.status()).then(s=>{if(live)setModelReady(s.installed);}).catch(()=>{});},1500);return()=>{live=false;clearInterval(timer);};},[service,id]);
  useEffect(()=>{let live=true;setPreparing(true);
@@ -39,7 +39,7 @@ function Batch({owner}:{owner:string}){
  },[service,id]);
  const run=(kind:'lesson'|'quiz')=>{try{
   setError('');const ids=rows.map(d=>d.snapshot.module_id);
-  generationJobs.enqueue({scope:jobScope(library!.prefix),bookId:id,sectionId:id,kind:'staff-batch',label:`Book · local ${kind}s`},(signal,progress)=>runMissingBatch({ids,kind,signal,read:id=>service.read(id),generate:(...args)=>service.generate(...args),progress})
+  generationJobs.enqueue({scope:jobScope(library!.prefix),bookId:id,documentId:id,sectionId:id,kind:'staff-batch',label:`Book · local ${kind}s`},(signal,progress)=>runMissingBatch({ids,kind,signal,read:id=>service.read(id),generate:(...args)=>service.generate(...args),progress})
   );
  }catch(e){setError(String(e));}};
  return <Screen><PageHeading title="Prepare book" subtitle="Generate lessons and quizzes, then review your drafts." right={<Button title="Offline AI" variant="secondary" onPress={()=>router.push('/manage/offline-ai')}/>}/>

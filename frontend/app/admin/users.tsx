@@ -23,7 +23,7 @@ export default function People() {
   const query = useDebounced(q);
   const list = useAsync(() => admin.users(kind, { q: query, status: status || undefined }), [kind, query, status]);
   const subjects = useAsync(() => admin.platformSubjects(), []);
-  const teaching = (u: User) => (subjects.data?.subjects ?? []).filter((s: any) => (s.faculty ?? []).includes(u.full_name)).map((s: any) => s.code);
+  const teaching = (u: User) => (subjects.data?.subjects ?? []).filter((s: any) => (s.faculty_ids ?? []).includes(u.id)).map((s: any) => s.code);
   const open = (u: User) => router.push({ pathname: "/admin/user/[id]", params: { id: u.id, kind } });
   const statusBadge = (u: User) => <Badge value={u.status} tone={u.status === "active" ? "green" : "red"} />;
   const studentCols: Column<User>[] = [

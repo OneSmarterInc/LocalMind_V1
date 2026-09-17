@@ -1,5 +1,5 @@
 /** Portable private learning contract. No fetch, accounts, locks or grading API. */
-export const MAX_BOOK_BYTES = 35 * 1024 * 1024;
+export const MAX_BOOK_BYTES = 100 * 1024 * 1024;
 export const MAX_TEXT_CHARS = 2_000_000;
 export const MAX_SECTION_CHARS = 3200;
 export type SourceVisual = { id: string; dataUrl: string; width: number; height: number; caption: string; kind?: 'page'|'figure'; page?: number };

@@ -50,6 +50,8 @@ with tempfile.TemporaryDirectory(prefix='localmind-browser-') as folder:
     outline_word.add_heading('Light and leaves',1);outline_word.add_paragraph(source)
     (ROOT/'frontend/test-results').mkdir(exist_ok=True)
     outline_word.save(ROOT/'frontend/test-results/outline-upload.docx')
+    outline_word.paragraphs[1].add_run(' This is the offline intake acceptance source.')
+    outline_word.save(ROOT/'frontend/test-results/offline-outline.docx')
     doc.original_name='faculty-biology.docx';doc.file_type='docx';doc.file_size=len(raw);doc.content_hash=hashlib.sha256(raw).hexdigest();doc.uploaded_by=faculty
     doc.file.save(doc.original_name,ContentFile(raw),save=True)
     from learning.models import Module
@@ -70,6 +72,9 @@ with tempfile.TemporaryDirectory(prefix='localmind-browser-') as folder:
         'title':'Automatic sync lesson','learning_objectives':['Understand plants'],
         'sections':[{'heading':'Photosynthesis','explanation':'This lesson was prepared by the institution before download.','source_reference':'Saved lesson acceptance'}],
         'key_terms':[],'summary':'Plants use sunlight.'})
+    readiness_doc=make_published_document(subject,title='Readiness acceptance',modules=(('Readiness leaves',source),('Readiness practice',source)))
+    readiness_module=Module.objects.filter(chapter__document=readiness_doc).order_by('order').first()
+    ModuleLesson.objects.create(module=readiness_module,status='ready',source_hash=source_hash(readiness_module.source_text),lesson=ModuleLesson.objects.get(module=auto_module).lesson)
     results=ROOT/'frontend/test-results';results.mkdir(exist_ok=True)
     pdf=io.BytesIO();canvas=Canvas(pdf);canvas.drawString(40,760,'Photosynthesis happens in the chloroplasts of green leaves.');canvas.save()
     (results/'private-fixture.pdf').write_bytes(pdf.getvalue())
@@ -109,6 +114,6 @@ with tempfile.TemporaryDirectory(prefix='localmind-browser-') as folder:
         c.showPage()
     c.save();(results/'large-illustrated.pdf').write_bytes(large.getvalue())
     bitmap.close();page.close();original.close()
-    (results/'fixture.json').write_text(json.dumps({'autoModule':str(auto_module.pk),'quizImmediate':str(immediate.pk),'quizHeld':str(held.pk),'module':str(module.id),'document':str(doc.id),'subject':str(subject.id),'source':source,'password':password}))
+    (results/'fixture.json').write_text(json.dumps({'readinessDocument':str(readiness_doc.id),'autoModule':str(auto_module.pk),'quizImmediate':str(immediate.pk),'quizHeld':str(held.pk),'module':str(module.id),'document':str(doc.id),'subject':str(subject.id),'source':source,'password':password}))
     # runserver stays in this process so temporary storage settings are retained.
     call_command('runserver','127.0.0.1:8765',use_reloader=False,verbosity=0)

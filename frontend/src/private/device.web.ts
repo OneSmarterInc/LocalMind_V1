@@ -54,7 +54,7 @@ async function files() {
 }
 async function fileOf(f:LocalFile):Promise<File> {
   requireThat(f.file,'Choose a file from this device. Remote book URLs cannot be used for private parsing.');
-  requireThat(f.file.size>0 && f.file.size<=MAX_BOOK_BYTES,'Choose a nonempty book up to 35 MB.');return f.file;
+  requireThat(f.file.size>0 && f.file.size<=MAX_BOOK_BYTES,'Choose a nonempty book up to 100 MB.');return f.file;
 }
 type Installed={file:string;name:string;bytes:number;hash:string};
 let engine:Engine|undefined, loaded:string|undefined;
@@ -132,7 +132,7 @@ const implementation:Device={...store, complete,
   const r=await fetch(url,{headers,signal,cache:'no-store'});requireThat(r.ok,`Book download failed (${r.status}). Refresh the available books.`);
   requireThat(Number(r.headers.get('content-length')||0)<=MAX_BOOK_BYTES,'This book is too large.');
   requireThat(r.body,'Book download did not contain data.'); const reader=r.body.getReader();const parts:Uint8Array<ArrayBuffer>[]=[];let bytes=0;
-  try {while(true){cancelled(signal);const x=await reader.read();if(x.done)break;bytes+=x.value.length;requireThat(bytes<=MAX_BOOK_BYTES,'This book exceeds 35 MB.');parts.push(x.value as Uint8Array<ArrayBuffer>);}}finally{await reader.cancel().catch(()=>{});}
+  try {while(true){cancelled(signal);const x=await reader.read();if(x.done)break;bytes+=x.value.length;requireThat(bytes<=MAX_BOOK_BYTES,'This book exceeds 100 MB.');parts.push(x.value as Uint8Array<ArrayBuffer>);}}finally{await reader.cancel().catch(()=>{});}
   const file=new File(parts,name);return {name,uri:'device-selected',file,size:file.size};
  },
  async releaseFile(){/* A browser File is released by garbage collection. */},

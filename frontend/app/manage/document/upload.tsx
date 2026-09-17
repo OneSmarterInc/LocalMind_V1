@@ -1,20 +1,23 @@
+import {UploadStatus} from '@/authoring/UploadStatus';
 import * as DocumentPicker from "expo-document-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
-import { Platform, Text, View } from "react-native";
-import { ApiError } from "@/api/client";
+import React, { useEffect, useMemo, useState } from "react";
+import { Text, View } from "react-native";
+import {useAuth} from "@/auth/AuthContext";
+import {BookUploads} from "@/authoring/uploads";
 import { manage } from "@/api/endpoints";
 import { useAction, useAsync } from "@/hooks/useAsync";
 import { Button, Card, CardHead, Dropdown, ErrorBanner, FormFooter, Input, Notice, PageHeading, Screen, Split, StepList, Stepper, TileIcon, colors } from "@/ui";
 
 export default function UploadBook() {
   const router = useRouter();
+  const {user}=useAuth();
+  const uploads=useMemo(()=>user?new BookUploads(user.id):null,[user]);
   const params = useLocalSearchParams<{ subject?: string }>();
   const subjects = useAsync(() => manage.subjects(), []);
   const [subjectId, setSubjectId] = useState(params.subject ?? "");
   const [title, setTitle] = useState("");
   const [file, setFile] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
-  const [duplicate, setDuplicate] = useState<string | null>(null);
   const active = (subjects.data ?? []).filter((s) => s.status === "active");
   const onlyOne = active.length === 1 ? active[0].id : null;
   useEffect(() => { if (!subjectId && onlyOne) setSubjectId(onlyOne); }, [subjectId, onlyOne]);
@@ -23,27 +26,18 @@ export default function UploadBook() {
     if (!res.canceled && res.assets[0]) { setFile(res.assets[0]); if (!title) setTitle(res.assets[0].name.replace(/\.[^.]+$/, "")); }
   };
   const upload = useAction(async () => {
-    setDuplicate(null);
-    if (!file) return;
-    const form = new FormData();
-    form.append("subject_id", subjectId); form.append("title", title.trim());
-    form.append("outline_strategy", "source");
-    if (Platform.OS === "web" && file.file) form.append("file", file.file, file.name);
-    else form.append("file", { uri: file.uri, name: file.name, type: file.mimeType ?? "application/octet-stream" } as unknown as Blob);
-    let doc;
-    try { doc = await manage.upload(form); } catch (e) {
-      const existing = (e as ApiError)?.details?.document_id;
-      if (typeof existing === "string") setDuplicate(existing);
-      throw e;
-    }
-    await manage.process(doc.id).catch(() => {});
-    router.replace(`/manage/document/${doc.id}`);
+    if (!file||!uploads) return;
+    const saved=await uploads.enqueue(file,title,subjectId);
+    if(saved.state==='synced'&&saved.documentId){await uploads.dismiss(saved.id);router.replace(`/manage/document/${saved.documentId}`);}
+    else {setFile(null);setTitle('');}
+
   });
   const size = file?.size ? `${(file.size / 1024 / 1024).toFixed(1)} MB` : "";
   return (
     <Screen>
       <PageHeading eyebrow="BOOKS & MODULES" title="Let’s add a book." subtitle="We’ll walk you from source material to student-ready modules."
         right={<Button title="Back to books" variant="secondary" icon="arrow-back" onPress={() => router.push("/manage/books")} />} />
+      {user?<UploadStatus owner={user.id}/>:null}
       <Stepper steps={["Upload a book", "Review the outline", "Publish to students"]} active={0} />
       <Split
         main={
@@ -64,7 +58,7 @@ export default function UploadBook() {
               </View>
             </View>
             <ErrorBanner message={upload.error} />
-            {duplicate ? <Button title="Open the existing book" icon="open-outline" variant="secondary" onPress={() => router.replace(`/manage/document/${duplicate}`)} /> : null}
+
             <FormFooter note={file ? `Ready to upload ${file.name}.` : "The book is read and split into modules after upload."}>
               <Button title="Cancel" variant="secondary" onPress={() => router.push("/manage/books")} />
               <Button title="Upload and process" icon="arrow-forward" onPress={() => upload.run()} busy={upload.busy} disabled={!file || !subjectId || !title.trim()} />

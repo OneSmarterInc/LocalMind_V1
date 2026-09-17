@@ -316,6 +316,7 @@ class DocumentLifecycleTests(TestCase):
         client.post(f"/api/faculty/documents/{doc.id}/publish/")
         self.assertEqual(client.post(f"/api/faculty/documents/{doc.id}/unpublish/").data["status"], "unpublished")
         self.assertEqual(client.post(f"/api/faculty/documents/{doc.id}/archive/").data["status"], "archived")
+        self.assertEqual(client.post(f"/api/faculty/documents/{doc.id}/archive/").status_code, 200)
         self.assertEqual(client.post(f"/api/faculty/documents/{doc.id}/process/").status_code, 409)
 
     def test_the_same_book_cannot_be_uploaded_twice_to_one_subject(self, _):

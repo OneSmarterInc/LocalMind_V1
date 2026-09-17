@@ -11,18 +11,18 @@ export async function preparation(service:LocalAuthoring,doc:Document){return aw
 /** One book job, sequential module operations, with durable progress and isolated failures. */
 export async function prepareAutomatically(service:LocalAuthoring,doc:Document){
  const store=await device();service.library.guard();
- if(!(await store.status()).installed)return false;
+ if(await service.isRemoved(doc.id)||!(await store.status()).installed)return false;
  const scope=jobScope(new Library(service.library.owner).prefix);
- if(generationJobs.snapshot().some(j=>j.scope===scope&&j.bookId===doc.id&&j.kind==='staff-auto'&&['queued','running'].includes(j.state)))return true;
+ if(generationJobs.snapshot().some(j=>j.scope===scope&&(j.bookId===doc.id||j.documentId===doc.id)&&['queued','running'].includes(j.state)))return true;
  const modules=(doc.chapters||[]).flatMap(c=>c.modules).filter(m=>m.id);
  const states=await preparation(service,doc);
  const save=async()=>{service.library.guard();await store.put(key(service,doc),states);};
  for(const m of modules)states[m.id!]={lesson:m.lesson_status==='ready'?'Shared':'Queued',quiz:['ready','held','checking','dismissed'].includes(m.quiz_status||'')?'Shared':'Queued'};
  await save();
- generationJobs.enqueue({scope,bookId:doc.id,sectionId:doc.id,kind:'staff-auto',label:`${doc.title} · lessons and quizzes`},async(signal,progress)=>{
+ generationJobs.enqueue({scope,bookId:doc.id,documentId:doc.id,sectionId:doc.id,kind:'staff-auto',label:`${doc.title} · lessons and quizzes`},async(signal,progress)=>{
   const saved=await service.drafts();
   for(const m of modules){
-   if(signal.aborted)throw Error('Preparation cancelled. Saved drafts are retained.');
+   if(signal.aborted||await service.isRemoved(doc.id))throw Error('Preparation cancelled. Saved drafts are retained.');
    const state=states[m.id!];
    if(state.lesson==='Shared'&&state.quiz==='Shared')continue;
    if(m.source_missing||!m.source_text?.trim()){state.lesson='No source text';state.quiz='No source text';await save();continue;}

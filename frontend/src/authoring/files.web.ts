@@ -18,3 +18,5 @@ export async function originalChunk(key:string,offset:number,length:number){
  const form=new FormData();form.append('chunk',part,'source.part');form.append('offset',String(offset));form.append('sha256',bytesToHex(sha256(bytes)));
  return {form,release:async()=>{}};
 }
+
+export async function discardFile(key:string){await(await device()).removePrefix(key);}

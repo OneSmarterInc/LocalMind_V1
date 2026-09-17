@@ -1,8 +1,8 @@
-import { removeBook } from "@/documents/remove";
+import { removeBook, archiveBook } from "@/documents/remove";
 import {prepareAutomatically,preparation,type PreparationMap} from '@/authoring/automatic';
 import {device} from '@/private/device';
 import {useAuth} from "@/auth/AuthContext";
-import {LocalAuthoring,type Draft} from "@/authoring/local";
+import {LocalAuthoring,draftStatus,type Draft} from "@/authoring/local";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -111,7 +111,7 @@ export default function DocumentScreen() {
     if (action === "publish" && !(await confirmAsync("Publish this book?", "Enrolled students can see its open modules as soon as it is published.", "Publish book", "Cancel"))) return;
     if (action === "unpublish" && !(await confirmAsync("Unpublish this book?", "Students stop seeing its modules, lessons and quizzes until you publish it again. Nothing is deleted.", "Unpublish book", "Cancel", { tone: "warning" }))) return;
     if (action === "archive" && !(await confirmAsync("Archive this book?", "Students stop seeing it and it moves out of your active books. Its content and student records are kept.", "Archive book", "Cancel", { tone: "warning" }))) return;
-    if (action === "process") await manage.process(id); else await manage.transition(id, action);
+    if (action === "process") await manage.process(id); else if(action === "archive") await archiveBook(id,owner!); else await manage.transition(id, action);
     await doc.reload();
     if (action === "publish") setTab("live");
     if (action === "unpublish") setTab("publish");
@@ -120,7 +120,7 @@ export default function DocumentScreen() {
     if (!d) return;
     const ok = await confirmDeleteAsync("Delete this book?", "This permanently removes the book, its chapters and modules, and any quiz or assignment built from them, along with student attempts and submissions. It cannot be undone.", { detail: `${d.title} · ${d.original_name}`, okLabel: "Delete book" });
     if (!ok) return;
-    if (!(await removeBook(id))) return;
+    if (!(await removeBook(id,owner!))) return;
     router.replace("/manage/books");
   });
 
@@ -193,9 +193,7 @@ export default function DocumentScreen() {
             ))}
           </Card>
         </Grid>
-        <DangerZone title="Delete book permanently" text="Deleting removes the book, its chapters and modules, and any quiz or assignment built from them, with student attempts and submissions.">
-          <Button title="Delete book" variant="danger" icon="trash-outline" onPress={() => remove.run()} busy={remove.busy} />
-        </DangerZone>
+
       </Screen>
     );
   }
@@ -330,7 +328,7 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
   const total=modules.filter(m=>!m.source_missing&&m.source_text?.trim()).length;
   const status=(m:ModuleRow,kind:'lesson'|'quiz')=>{
     if(m.source_missing||!m.source_text?.trim())return 'No source text';
-    const saved=local(m.id!);if(kind==='lesson'?saved?.lesson:saved?.questions?.length)return 'Ready for review';
+    const saved=draftStatus(local(m.id!),kind);if(saved)return saved;
     const shared=kind==='lesson'?m.lesson_status:m.quiz_status;
     if(shared&&['ready','held','checking','failed','dismissed'].includes(shared))return (kind==='lesson'?LESSON_TEXT:QUIZ_TEXT)[shared];
     return automatic[m.id!]?.[kind]||(modelInstalled?'Waiting to prepare':'Model setup required');

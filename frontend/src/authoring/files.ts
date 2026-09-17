@@ -27,3 +27,5 @@ export async function originalChunk(key:string,offset:number,length:number){
  const form=new FormData();form.append('chunk',{uri:path,name:'source.part',type:'application/octet-stream'} as unknown as Blob);form.append('offset',String(offset));form.append('sha256',bytesToHex(sha256(toByteArray(base64))));
  return {form,release:()=>FS.deleteAsync(path,{idempotent:true})};
 }
+
+export async function discardFile(key:string){const d=await device();const uri=await d.get<string>(key);if(uri)await FS.deleteAsync(uri,{idempotent:true});await d.removePrefix(key);}

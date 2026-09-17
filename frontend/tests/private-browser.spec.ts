@@ -414,6 +414,7 @@ test('faculty generates offline and synchronizes a reviewed lesson without serve
  expect(result.ok()).toBeTruthy();const lesson=await result.json();expect(lesson.model).toBe('device-local');expect(lesson.status).toBe('ready');expect(aiRequests).toBe(0);
  await page.reload();
  await expect(page.getByRole('heading',{name:'Institution lesson',exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'Lesson synchronized',exact:true})).toBeDisabled();
  await context.setOffline(true);
  await page.getByRole('button',{name:'Generate quiz',exact:true}).click();
  await expect(page.getByRole('heading',{name:'Review quiz',exact:true})).toBeVisible();
@@ -652,13 +653,13 @@ test('faculty upload uses content headings and opens the existing outline editor
 });
 
 test('book readiness distinguishes missing generation from missing text and prepares device drafts automatically',async({page})=>{
- await signIn(page,'faculty',`/manage/document/${fixture().document}?tab=lessons`);
+ await signIn(page,'faculty',`/manage/document/${fixture().readinessDocument}?tab=lessons`);
  await expect(page.getByText('1 of 2 institution lessons are ready.',{exact:true})).toBeVisible();
  await expect(page.getByText('No text',{exact:true})).toHaveCount(0);
  await expect(page.getByText('Model setup required',{exact:true})).toHaveCount(3);
  await model(page,'/manage/offline-ai');
  const central:string[]=[];page.on('request',r=>{if(r.method()==='POST'&&/\/api\/faculty\/.*(lessons|auto-quizzes|generate)/.test(r.url()))central.push(r.url());});
- await page.goto(`/manage/document/${fixture().document}?tab=lessons`);
+ await page.goto(`/manage/document/${fixture().readinessDocument}?tab=lessons`);
  await expect(page.getByText('Ready for review',{exact:true})).toHaveCount(3,{timeout:60000});
  expect(central).toEqual([]);
  await page.reload();
@@ -669,7 +670,7 @@ test('book readiness distinguishes missing generation from missing text and prep
 test('automatic book preparation continues after a module timeout',async({page})=>{
  await signIn(page,'faculty','/manage/offline-ai');await model(page,'/manage/offline-ai');
  await page.addInitScript(()=>{(window as any).__LM_TEST_FAIL_AT__=1;});
- await page.goto(`/manage/document/${fixture().document}?tab=lessons`);
+ await page.goto(`/manage/document/${fixture().readinessDocument}?tab=lessons`);
  await expect(page.getByText('Ready for review',{exact:true})).toHaveCount(2,{timeout:60000});
  await expect(page.getByText('Failed',{exact:true})).toHaveCount(1);
  await expect(page.getByText(/simulated interruption/).first()).toBeVisible();
@@ -734,4 +735,32 @@ test('protected book removal offers archive and hides it from the default list',
  await page.getByRole('button',{name:'Archive book',exact:true}).click();
  await expect(page.getByText('Faculty Biology',{exact:true})).toHaveCount(0);
  expect(archived).toBe(true);
+});
+
+test('faculty upload survives an offline restart and resumes the content outline automatically',async({page,context})=>{
+ await signIn(page,'faculty','/manage/offline-ai');await model(page,'/manage/offline-ai');
+ await page.goto('/manage/document/upload');
+ await page.getByLabel('Book title',{exact:true}).fill('Offline queued outline');
+ await pick(page,'Choose file',{name:'offline-outline.docx',mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',buffer:fs.readFileSync('test-results/offline-outline.docx')});
+ await context.setOffline(true);
+ await page.getByRole('button',{name:'Upload and process',exact:true}).click();
+ await expect(page.getByText('Book saved — awaiting upload',{exact:true})).toBeVisible();
+ await page.reload();
+ await expect(page.getByText('Book saved — awaiting upload',{exact:true})).toBeVisible();
+ await context.setOffline(false);
+ await expect(page.getByRole('button',{name:'Review uploaded book',exact:true})).toBeVisible({timeout:60000});
+ await page.getByRole('button',{name:'Review uploaded book',exact:true}).click();
+ await expect(page.getByLabel('Module title',{exact:true})).toHaveValue('Energy and living systems',{timeout:60000});
+ await expect(page.getByLabel('Source text',{exact:true})).toHaveValue(/offline intake acceptance/);
+});
+
+test('automatic book work disables module generation and can be cancelled there',async({page})=>{
+ await signIn(page,'faculty','/manage/offline-ai');await model(page,'/manage/offline-ai');
+ await page.addInitScript(()=>{(window as any).__LM_TEST_DELAY__=5000;});
+ await page.goto(`/manage/document/${fixture().readinessDocument}?tab=lessons`);
+ await expect(page.getByText('Generating',{exact:true}).first()).toBeVisible();
+ await page.getByRole('button',{name:'Open module',exact:true}).first().click();
+ await expect(page.getByRole('button',{name:/^(Generate|Regenerate) quiz$/})).toBeDisabled();
+ await page.getByRole('button',{name:'Cancel generation',exact:true}).click();
+ await expect(page.getByRole('button',{name:/^(Generate|Regenerate) quiz$/})).toBeEnabled({timeout:30000});
 });

@@ -60,7 +60,7 @@ async function complete(req:Completion){return lock.queue(async()=>{
 },req.signal);}
 const implementation:Device={...store,complete,
  async parse(f, signal, progress, saveVisual){
-  const i=await info(f.uri);requireThat(i.size<=MAX_BOOK_BYTES,'Import a book up to 35 MB.');
+  const i=await info(f.uri);requireThat(i.size<=MAX_BOOK_BYTES,'Import a book up to 100 MB.');
   const base64=await FS.readAsStringAsync(f.uri,{encoding:FS.EncodingType.Base64});
   const hash=bytesToHex(sha256(toByteArray(base64)));const parsed=await parseNative(f.name,base64,signal,progress,saveVisual?visual=>saveVisual(visual,hash):undefined);
   return {hash,sections:makeSections(parsed.items),warnings:parsed.warnings,visuals:parsed.visuals};
@@ -69,7 +69,7 @@ const implementation:Device={...store,complete,
   const uri=`${FS.cacheDirectory}private-book-${randomUUID()}`;
   const task=FS.createDownloadResumable(url,uri,{headers},p=>{if(p.totalBytesWritten>MAX_BOOK_BYTES)void task.cancelAsync();});
   const cancel=()=>{void task.cancelAsync();};signal.addEventListener('abort',cancel);
-  try{cancelled(signal);const r=await task.downloadAsync();cancelled(signal);requireThat(r && r.status===200,'Book download failed. Refresh the catalogue.');const i=await info(uri);requireThat(i.size<=MAX_BOOK_BYTES,'Book exceeds 35 MB.');return {name,uri,size:i.size};}
+  try{cancelled(signal);const r=await task.downloadAsync();cancelled(signal);requireThat(r && r.status===200,'Book download failed. Refresh the catalogue.');const i=await info(uri);requireThat(i.size<=MAX_BOOK_BYTES,'Book exceeds 100 MB.');return {name,uri,size:i.size};}
   catch(e){await FS.deleteAsync(uri,{idempotent:true}).catch(()=>{});throw e;}finally{signal.removeEventListener('abort',cancel);}
  },
  async releaseFile(f){if(f.uri.startsWith(`${FS.cacheDirectory}private-book-`))await FS.deleteAsync(f.uri,{idempotent:true});},

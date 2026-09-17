@@ -536,7 +536,7 @@ def delete_document(actor, document, request=None):
 def archive(actor, document, request=None):
     _require_manage(actor, document.subject)
     if document.status == DocumentStatus.ARCHIVED:
-        raise Conflict("Already archived.", code="INVALID_STATE")
+        return document
     if document.status == DocumentStatus.PROCESSING:
         raise Conflict("Wait for processing to finish before archiving.", code="INVALID_STATE")
     document.status = DocumentStatus.ARCHIVED

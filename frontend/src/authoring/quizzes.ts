@@ -32,7 +32,7 @@ export class LocalQuizzes{
  }
  async generate(id:string,signal:AbortSignal,progress:(s:string)=>void){
   const key=this.key(id);requireThat(!active.has(key),'This quiz is already generating.');active.add(key);
-  try{const row=await this.read(id);requireThat(row.state==='draft','This draft is already approved.');requireThat((await(await device()).status()).installed,'Install a model in Offline AI first.');
+  try{const row=await this.read(id);for(const source of row.sources)requireThat(!await this.authoring.isRemoved(source.document_id),'A source book was removed or archived.');requireThat(row.state==='draft','This draft is already approved.');requireThat((await(await device()).status()).installed,'Install a model in Offline AI first.');
    for(let i=row.done;i<row.parts.length;i++){
     requireThat(!signal.aborted,'Generation cancelled. Saved questions are retained.');const part=row.parts[i];progress(`Preparing questions ${row.questions.length+1}–${row.questions.length+part.count} of ${row.count}`);
     const result=await this.authoring.library.generateQuiz(row.book,part.section,part.count,signal,()=>{},progress);
@@ -45,7 +45,8 @@ export class LocalQuizzes{
  async approve(id:string){requireThat(!active.has(this.key(id)),'Wait for generation to finish.');const row=await this.read(id);requireThat(row.done===row.parts.length&&row.questions.length===row.count,'Finish and review every question first.');if(row.state==='synced')return row;row.state='pending';await this.save(row);return this.flush(id);}
  flush(id:string){const key=this.key(id),old=sending.get(key);if(old)return old;const run=this.send(id).finally(()=>sending.delete(key));sending.set(key,run);return run;}
  private async send(id:string){const row=await this.read(id);if(row.state!=='pending')return row;
-  try{const response=await api<{quiz_id:string}>('/faculty/local-quizzes/',{method:'POST',body:{id:row.id,title:row.title,reviewed:true,sources:row.sources.map(s=>({module_id:s.remote_id||s.module_id,revision:s.revision})),questions:row.questions}});row.quizId=response.quiz_id;row.state='synced';row.error=undefined;}
+  for(const source of row.sources)if(await this.authoring.isRemoved(source.document_id)){row.state='conflict';row.error='A source book was removed or archived. This draft will not synchronize.';await this.save(row);return row;}
+  try{for(const source of row.sources)requireThat(!await this.authoring.isRemoved(source.document_id),'A source book was removed or archived.');const response=await api<{quiz_id:string}>('/faculty/local-quizzes/',{method:'POST',body:{id:row.id,title:row.title,reviewed:true,sources:row.sources.map(s=>({module_id:s.remote_id||s.module_id,revision:s.revision})),questions:row.questions}});row.quizId=response.quiz_id;row.state='synced';row.error=undefined;}
   catch(e){row.state=e instanceof ApiError&&[400,403,404,409].includes(e.status)?'conflict':'pending';row.error=e instanceof Error?e.message:String(e);}await this.save(row);return row;
  }
  async flushAll(){for(const row of await this.list())if(row.state==='pending')await this.flush(row.id);}
