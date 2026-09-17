@@ -707,3 +707,31 @@ test('books list confirms removal and stays on the list when cancelled',async({p
  await expect(page).toHaveURL(/\/manage\/books$/);
  await expect(row).toBeVisible();
 });
+
+test('protected book removal offers archive and hides it from the default list',async({page})=>{
+ let archived=false;
+ await page.route('**/api/faculty/documents/',async route=>{
+  const response=await route.fetch();const data=await response.json();
+  const rows=Array.isArray(data)?data:data.results;
+  if(archived)for(const row of rows)if(row.id===fixture().document)row.status='archived';
+  await route.fulfill({response,json:data});
+ });
+ await page.route(`**/api/faculty/documents/${fixture().document}/`,async route=>{
+  if(route.request().method()==='DELETE')await route.fulfill({status:409,json:{error:{code:'STUDY_HISTORY_IN_USE',message:'Protected source history'}}});
+  else await route.continue();
+ });
+ await page.route(`**/api/faculty/documents/${fixture().document}/archive/`,async route=>{archived=true;await route.fulfill({json:{id:fixture().document,status:'archived'}});});
+ await signIn(page,'faculty','/manage/books');
+ await page.getByLabel('Search books',{exact:true}).fill('Faculty Biology');
+ await page.getByRole('button',{name:'Remove book',exact:true}).click();
+ await page.getByRole('button',{name:'Remove book',exact:true,disabled:false}).click();
+ await expect(page.getByText('Archive this book instead?',{exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Cancel',exact:true}).click();
+ expect(archived).toBe(false);
+ await expect(page.getByText('Faculty Biology',{exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Remove book',exact:true}).click();
+ await page.getByRole('button',{name:'Remove book',exact:true,disabled:false}).click();
+ await page.getByRole('button',{name:'Archive book',exact:true}).click();
+ await expect(page.getByText('Faculty Biology',{exact:true})).toHaveCount(0);
+ expect(archived).toBe(true);
+});

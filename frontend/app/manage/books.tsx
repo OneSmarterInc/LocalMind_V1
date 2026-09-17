@@ -1,5 +1,6 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
+import { removeBook } from "@/documents/remove";
 import { manage } from "@/api/endpoints";
 import type { Document } from "@/api/types";
 import { useFilterChoices } from "@/hooks/useChoices";
@@ -18,13 +19,13 @@ export default function Books() {
   const remove = useAction(async (d: Document) => {
     const confirmed = await confirmDeleteAsync("Remove this book?", "This permanently removes the book, its chapters and modules, and any quiz or assignment built from them, along with student attempts and submissions. It cannot be undone.", { detail: `${d.title} · ${d.original_name}`, okLabel: "Remove book" });
     if (!confirmed) return;
-    await manage.deleteDocument(d.id);
+    if (!(await removeBook(d.id))) return;
     await q.reload();
   });
   const busy = q.data?.some((d) => d.status === "processing") ?? false;
   useEffect(() => { if (!busy) return; const t = setInterval(q.reload, 4000); return () => clearInterval(t); }, [busy, q.reload]);
   const code = (d: Document) => d.subject_code ?? subjects.data?.find((s) => s.id === d.subject_id)?.code ?? "";
-  const rows = useMemo(() => (q.data ?? []).filter((d) => `${d.title} ${d.original_name} ${code(d)}`.toLowerCase().includes(search.trim().toLowerCase())), [q.data, search, subjects.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  const rows = useMemo(() => (q.data ?? []).filter((d) => (status || d.status !== "archived") && `${d.title} ${d.original_name} ${code(d)}`.toLowerCase().includes(search.trim().toLowerCase())), [q.data, search, subjects.data, status]); // eslint-disable-line react-hooks/exhaustive-deps
   const action = (d: Document) => (d.status === "under_review" ? "Review outline" : d.status === "processing" ? "View progress" : d.status === "error" ? "See problem" : "Open book");
   const columns: Column<Document>[] = [
     { key: "t", label: "Book", flex: 2.2, render: (d) => <CellText icon="book-outline" title={d.title} sub={code(d) || d.original_name} /> },

@@ -1,3 +1,4 @@
+import { removeBook } from "@/documents/remove";
 import {prepareAutomatically,preparation,type PreparationMap} from '@/authoring/automatic';
 import {device} from '@/private/device';
 import {useAuth} from "@/auth/AuthContext";
@@ -119,7 +120,7 @@ export default function DocumentScreen() {
     if (!d) return;
     const ok = await confirmDeleteAsync("Delete this book?", "This permanently removes the book, its chapters and modules, and any quiz or assignment built from them, along with student attempts and submissions. It cannot be undone.", { detail: `${d.title} · ${d.original_name}`, okLabel: "Delete book" });
     if (!ok) return;
-    await manage.deleteDocument(id);
+    if (!(await removeBook(id))) return;
     router.replace("/manage/books");
   });
 
