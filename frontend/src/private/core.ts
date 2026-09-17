@@ -144,7 +144,7 @@ export function groundedSchema(base: object, source: string): object {
 // Older, longer saved lessons remain valid; these bounds apply only to new generation.
 export const COMPACT_LESSON_SCHEMA=schema({
   introduction:{type:'string',maxLength:160},
-  sections:{type:'array',minItems:1,maxItems:1,items:schema({heading:{type:'string',maxLength:80},content:{type:'string',maxLength:600},quote:str})},
+  sections:{type:'array',minItems:1,maxItems:1,items:schema({heading:{type:'string',maxLength:80},content:{type:'string',maxLength:1000},quote:str})},
   takeaways:{type:'array',minItems:1,maxItems:1,items:{type:'string',maxLength:120}},
 });
 export const COMPACT_MCQ_SCHEMA=schema({question:{type:'string',maxLength:240},options:{type:'array',items:{type:'string',maxLength:100},minItems:4,maxItems:4},answer:{type:'integer',minimum:0,maximum:3},explanation:{type:'string',maxLength:300},quote:str});

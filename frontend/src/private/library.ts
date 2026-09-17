@@ -83,11 +83,14 @@ export class Library {
   async quizzes(bookId: string, sectionId: string) { await this.book(bookId); const rows = await (await device()).list<QuizVersion>(`${this.work(bookId)}quiz:${sectionId}:`); this.guard(); return rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt)); }
   async generateLesson(bookId: string, sectionId: string, signal: AbortSignal, progress?: (message:string)=>void) {
     const book = await this.book(bookId); const section = book.sections.find(s => s.id === sectionId); requireThat(section, 'Choose a module in this book');
-    // Larger passages mean far fewer sequential on-device model calls per module.
-    // Each call still teaches one consecutive passage; the schema bounds the output.
-    const passages=lessonPassages(pageSource(book.sections, sectionId), 2000);requireThat(passages.length,'This module has no readable text.');
+    const sourceText=pageSource(book.sections, sectionId);
+    let passages=lessonPassages(sourceText,1600);requireThat(passages.length,'This module has no readable text.');
     const d=await device(), model=await d.status();
-    const key=`${this.work(bookId)}checkpoint:lesson:${sectionId}:${fingerprint(JSON.stringify({version:1,passages,title:section.title,model:model.hash||model.name}))}:`;
+    const lessonKey=(parts:string[])=>`${this.work(bookId)}checkpoint:lesson:${sectionId}:${fingerprint(JSON.stringify({version:1,passages:parts,title:section.title,model:model.hash||model.name}))}:`;
+    // Finish existing 800-character checkpoints before using larger passages.
+    const legacyPassages=lessonPassages(sourceText);
+    if(await d.get(lessonKey(legacyPassages)))passages=legacyPassages;
+    const key=lessonKey(passages);
     const checkpoint=await d.get<Checkpoint<Lesson>>(key)||{id:randomUUID(),parts:[]};
     const parts=await resumeParts({checkpoint,total:passages.length,signal,
       save:async row=>{this.guard();await d.put(key,row);this.guard();},
@@ -103,41 +106,47 @@ export class Library {
     const version:LessonVersion={id:checkpoint.id,sectionId,createdAt:new Date().toISOString(),lesson};
     await d.put(`${this.work(bookId)}lesson:${sectionId}:${version.id}`,version);this.guard();await d.removePrefix(key);return version;
   }
-  async generateQuiz(bookId: string, sectionId: string, count: number, signal: AbortSignal, progress: (done: number) => void, detail?: (message:string)=>void, excluded: string[] = []) {
+  async generateQuiz(bookId: string, sectionId: string, count: number, signal: AbortSignal, progress: (done: number) => void, detail?: (message:string)=>void, excluded: string[] = [], moduleSource?: string) {
     requireThat(Number.isInteger(count) && count >= 1 && count <= 10, 'Choose between 1 and 10 questions');
     const book = await this.book(bookId); const section = book.sections.find(s => s.id === sectionId); requireThat(section, 'Choose a module');
     const sources=lessonPassages(pageSource(book.sections,sectionId),2400); requireThat(sources.length,'No readable source was extracted. Check the original page and import it again.');
     const d = await device(), model=await d.status();
     const key=`${this.work(bookId)}checkpoint:quiz:${sectionId}:${fingerprint(JSON.stringify({version:1,sources,count,model:model.hash||model.name,...(excluded.length?{excluded}:{})}))}:`;
-    const checkpoint=await d.get<Checkpoint<MCQ>>(key)||{id:randomUUID(),parts:[]};
+    const checkpoint=await d.get<Checkpoint<MCQ>&{retryCursor?:number}>(key)||{id:randomUUID(),parts:[]};
+    const primary=sources.flatMap(source=>lessonPassages(source,900));
+    // A section quota must not trap authoring on a heading or exhausted passage.
+    // Callers may provide the rest of this SAME module, never another module.
+    const alternatives=moduleSource?lessonPassages(moduleSource,900):[];
+    const focuses=[...new Set([...primary,...alternatives])].filter(source=>source.trim().length>=8);
+    requireThat(focuses.length,'This module has too little readable text for a grounded quiz.');
     const questions=checkpoint.parts;progress(questions.length);
     for (let n = questions.length; n < count; n++) {
       let lastError: unknown;
+      const retryStart=checkpoint.retryCursor||0;
       for (let attempt = 0; attempt < 4; attempt++) {
         this.guard(); requireThat(!signal.aborted, 'Cancelled. Your earlier quizzes are unchanged.');
         try {
-          const source=sources[(n + attempt) % sources.length];
-          const focuses=lessonPassages(source,700);
-          const focus=focuses[(Math.floor(n/sources.length)+attempt)%focuses.length];
+          const offset=Math.floor(n*focuses.length/count)+retryStart+attempt;
+          const unused=focuses.filter(source=>!questions.some(q=>source.includes(q.quote)));
+          const candidates=unused.length?unused:focuses;
+          const source=candidates[offset%candidates.length];
           const avoid = [...excluded,...questions.map(q => q.question)].map(q => q.slice(0, 160)).join('\n');
-          const raw = await d.complete({ system: GROUNDING, prompt: `Write ONE useful multiple-choice practice question. Exactly four distinct options; answer is a zero-based index (0–3). Include a short explanation (at most 40 words) and an exact source quote. Keep the question and choices concise. Do not simply test whether a sentence appears in the book. Test a different fact or relationship from this focus passage: ${focus}\nDo not repeat these questions already accepted in THIS quiz:\n${avoid}\nSTORED BOOK REFERENCE:\n${source}\nQuestion ${n + 1}; attempt ${attempt + 1}.`, schema: groundedSchema(COMPACT_MCQ_SCHEMA, source), maxTokens: 520, temperature: 0.25 + attempt * 0.15, signal, progress:message=>detail?.(`Question ${n+1}/${count} · ${message}`) });
+          const raw = await d.complete({ system: GROUNDING, prompt: `Write ONE useful multiple-choice practice question. Exactly four distinct options; answer is a zero-based index (0–3). Include a short explanation (at most 40 words) and an exact source quote. Keep the question and choices concise. Do not simply test whether a sentence appears in the book. Choose a specific fact from the supplied reference that has not been tested. Ask about that fact, not the module title or chapter objectives.\nDo not repeat these questions already accepted in THIS quiz:\n${avoid}\nSTORED BOOK REFERENCE:\n${source}\nQuestion ${n + 1}; attempt ${retryStart + attempt + 1}.`, schema: groundedSchema(COMPACT_MCQ_SCHEMA, source), maxTokens: 520, temperature: 0.25 + attempt * 0.15, signal, progress:message=>detail?.(`Question ${n+1}/${count} · ${message}`) });
           const question = validateMCQ(raw, source, sectionId, randomUUID());
           requireThat(! [...excluded,...questions.map(q=>q.question)].some(q => q.toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim() === question.question.toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim()), `The model could not produce another distinct question. ${questions.length} of ${count} questions are saved. Select Generate quiz again to resume.`);
           this.guard();cancelled(signal);
           await d.put(key,{id:checkpoint.id,parts:[...questions,question]});this.guard();
-          questions.push(question); lastError = undefined; break;
-        } catch (e) { lastError = e; if (signal.aborted || /timed out|storage|quota/i.test(String(e))) throw e; }
+          questions.push(question); checkpoint.retryCursor=0; lastError = undefined; break;
+        } catch (e) {
+          lastError = e; if (signal.aborted || /timed out|storage|quota/i.test(String(e))) throw e;
+          checkpoint.retryCursor=retryStart+attempt+1;
+          this.guard();await d.put(key,checkpoint);this.guard();
+          detail?.(`Question ${n+1}/${count}: retrying with another passage (${attempt+1}/4).`);
+        }
       }
-      if (lastError) {
-        // A small on-device model often cannot reach the requested count on short
-        // or content-light modules. Keep the distinct questions already produced
-        // rather than discarding a usable quiz; only fail when none were produced.
-        if (questions.length > 0) break;
-        throw lastError;
-      }
-      progress(n + 1);
+      if (lastError) throw lastError; progress(n + 1);
     }
-    requireThat(questions.length >= 1, 'No usable question could be generated from this module. Open the module to view and edit its source text, or try a longer module.'); await this.book(bookId); this.guard(); requireThat(!signal.aborted, 'Cancelled');
+    requireThat(questions.length === count, 'Incomplete quiz: no playable quiz was saved. Completed questions are retained'); await this.book(bookId); this.guard(); requireThat(!signal.aborted, 'Cancelled');
     const version: QuizVersion = { id: checkpoint.id, bookId, sectionId, createdAt: new Date().toISOString(), questions };
     await d.put(`${this.work(bookId)}quiz:${sectionId}:${version.id}`, version); this.guard();await d.removePrefix(key); return version;
   }
