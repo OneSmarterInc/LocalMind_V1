@@ -37,11 +37,13 @@ export function QuizListPage() {
   const router = useRouter();
   const [status, setStatus] = useState("");
   const [subject, setSubject] = useState("");
+  const [book, setBook] = useState("");
+  const books = useAsync(() => manage.documents({subject: subject || undefined}), [subject]);
   const [search, setSearch] = useState("");
   const needle = useDebounced(search, 150).trim().toLowerCase();
   const list = useAsync(() => manage.quizzes({ status: status && status !== "held" ? status : undefined, subject: subject || undefined }), [status, subject]);
   const subjects = useAsync(() => manage.subjects(), []);
-  const rows = useMemo(() => (list.data ?? []).filter((z) => (status !== "held" || z.held_for_review) && (!needle || z.title.toLowerCase().includes(needle))), [list.data, needle, status]);
+  const rows = useMemo(() => (list.data ?? []).filter((z) => (status !== "held" || z.held_for_review) && (!book || z.document_ids?.includes(book)) && (!needle || z.title.toLowerCase().includes(needle))).sort((a,b)=>b.created_at.localeCompare(a.created_at)), [list.data, needle, status, book]);
   const code = (z: Quiz) => subjects.data?.find((s) => s.id === z.subject_id)?.code ?? "";
   const action = (z: Quiz) => (z.held_for_review ? "Review quiz" : (z.attempt_count ?? 0) > 0 ? "View results" : z.status === "draft" ? "Edit quiz" : "Open quiz");
   const open = (z: Quiz) => router.push({ pathname: "/manage/quiz/[id]", params: action(z) === "View results" ? { id: z.id, tab: "attempts" } : { id: z.id } });
@@ -60,7 +62,8 @@ export function QuizListPage() {
       <ErrorBanner message={list.error} onRetry={list.reload} />
       <Card flush>
         <TableToolbar right={<>
-          <Dropdown value={subject} onChange={setSubject} accessibilityLabel="Filter by subject" options={[{ value: "", label: "All subjects" }, ...(subjects.data ?? []).map((s) => ({ value: s.id, label: s.code }))]} />
+          <Dropdown value={subject} onChange={v=>{setSubject(v);setBook('');}} accessibilityLabel="Filter by subject" options={[{ value: "", label: "All subjects" }, ...(subjects.data ?? []).map((s) => ({ value: s.id, label: s.code }))]} />
+          <Dropdown value={book} onChange={setBook} accessibilityLabel="Filter by book" options={[{value:"",label:"All books"},...(books.data??[]).map(b=>({value:b.id,label:b.title}))]} />
           <Dropdown value={status} onChange={setStatus} accessibilityLabel="Filter by status" options={[{ value: "", label: "All statuses" }, { value: "published", label: "Published" }, { value: "draft", label: "Draft" }, { value: "held", label: "Held for review" }, { value: "closed", label: "Closed" }]} />
         </>}>
           <Input icon="search" compact value={search} onChangeText={setSearch} placeholder="Search this list…" accessibilityLabel="Search quizzes" />

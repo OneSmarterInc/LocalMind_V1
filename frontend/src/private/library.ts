@@ -101,24 +101,26 @@ export class Library {
     const version:LessonVersion={id:checkpoint.id,sectionId,createdAt:new Date().toISOString(),lesson};
     await d.put(`${this.work(bookId)}lesson:${sectionId}:${version.id}`,version);this.guard();await d.removePrefix(key);return version;
   }
-  async generateQuiz(bookId: string, sectionId: string, count: number, signal: AbortSignal, progress: (done: number) => void, detail?: (message:string)=>void) {
+  async generateQuiz(bookId: string, sectionId: string, count: number, signal: AbortSignal, progress: (done: number) => void, detail?: (message:string)=>void, excluded: string[] = []) {
     requireThat(Number.isInteger(count) && count >= 1 && count <= 10, 'Choose between 1 and 10 questions');
     const book = await this.book(bookId); const section = book.sections.find(s => s.id === sectionId); requireThat(section, 'Choose a module');
     const sources=lessonPassages(pageSource(book.sections,sectionId),2400); requireThat(sources.length,'No readable source was extracted. Check the original page and import it again.');
     const d = await device(), model=await d.status();
-    const key=`${this.work(bookId)}checkpoint:quiz:${sectionId}:${fingerprint(JSON.stringify({version:1,sources,count,model:model.hash||model.name}))}:`;
+    const key=`${this.work(bookId)}checkpoint:quiz:${sectionId}:${fingerprint(JSON.stringify({version:1,sources,count,model:model.hash||model.name,...(excluded.length?{excluded}:{})}))}:`;
     const checkpoint=await d.get<Checkpoint<MCQ>>(key)||{id:randomUUID(),parts:[]};
-    const questions=checkpoint.parts;progress(questions.length);const previous = (await this.quizzes(bookId, sectionId))[0];
+    const questions=checkpoint.parts;progress(questions.length);
     for (let n = questions.length; n < count; n++) {
-      const source=sources[n % sources.length];
       let lastError: unknown;
-      for (let attempt = 0; attempt < 2; attempt++) {
+      for (let attempt = 0; attempt < 4; attempt++) {
         this.guard(); requireThat(!signal.aborted, 'Cancelled. Your earlier quizzes are unchanged.');
         try {
-          const avoid = [...questions.map(q => q.question), ...(previous?.questions.map(q => q.question) || [])].slice(-12).map(q => q.slice(0, 100)).join('\n');
-          const raw = await d.complete({ system: GROUNDING, prompt: `Write ONE useful multiple-choice practice question. Exactly four distinct options; answer is a zero-based index (0–3). Include a short explanation (at most 40 words) and an exact source quote. Keep the question and choices concise. Do not simply test whether a sentence appears in the book. Avoid repeating these earlier questions:\n${avoid}\nSTORED BOOK REFERENCE:\n${source}\nQuestion ${n + 1}; attempt ${attempt + 1}.`, schema: groundedSchema(COMPACT_MCQ_SCHEMA, source), maxTokens: 520, temperature: 0.2, signal, progress:message=>detail?.(`Question ${n+1}/${count} · ${message}`) });
+          const source=sources[(n + attempt) % sources.length];
+          const focuses=lessonPassages(source,700);
+          const focus=focuses[(Math.floor(n/sources.length)+attempt)%focuses.length];
+          const avoid = [...excluded,...questions.map(q => q.question)].map(q => q.slice(0, 160)).join('\n');
+          const raw = await d.complete({ system: GROUNDING, prompt: `Write ONE useful multiple-choice practice question. Exactly four distinct options; answer is a zero-based index (0–3). Include a short explanation (at most 40 words) and an exact source quote. Keep the question and choices concise. Do not simply test whether a sentence appears in the book. Test a different fact or relationship from this focus passage: ${focus}\nDo not repeat these questions already accepted in THIS quiz:\n${avoid}\nSTORED BOOK REFERENCE:\n${source}\nQuestion ${n + 1}; attempt ${attempt + 1}.`, schema: groundedSchema(COMPACT_MCQ_SCHEMA, source), maxTokens: 520, temperature: 0.25 + attempt * 0.15, signal, progress:message=>detail?.(`Question ${n+1}/${count} · ${message}`) });
           const question = validateMCQ(raw, source, sectionId, randomUUID());
-          requireThat(![...questions,...(previous?.questions || [])].some(q => q.question.toLowerCase().trim() === question.question.toLowerCase().trim()), 'The AI repeated a question. Try fewer questions or another module.');
+          requireThat(! [...excluded,...questions.map(q=>q.question)].some(q => q.toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim() === question.question.toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim()), `The model could not produce another distinct question. ${questions.length} of ${count} questions are saved. Select Generate quiz again to resume.`);
           this.guard();cancelled(signal);
           await d.put(key,{id:checkpoint.id,parts:[...questions,question]});this.guard();
           questions.push(question); lastError = undefined; break;

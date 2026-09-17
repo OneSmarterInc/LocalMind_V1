@@ -19,6 +19,11 @@ window.__LM_WLLAMA__=class {
   else if(properties.introduction)data={introduction:'A local lesson about photosynthesis.',sections:[{heading:'How leaves use light',content:'Leaves use chlorophyll to absorb light.',quote}],takeaways:['Photosynthesis happens in chloroplasts.']};
   else if(properties.question)data={question:`Practice ${++sequence}: where does photosynthesis happen?`,options:['Chloroplasts','Roots','Bark','Flowers'],answer:0,explanation:'The stored book describes chloroplasts in green leaves.',quote};
   else data={answer:'The local model explains that photosynthesis happens in chloroplasts.',quote,supported:true};
+  if(properties.question){
+   if(window.__LM_TEST_LAST_QUIZ__ && window.__LM_TEST_REPEAT_AT__ <= window.__LM_TEST_CALLS__ && window.__LM_TEST_REPEAT_TIMES__ > 0){
+    data={...window.__LM_TEST_LAST_QUIZ__,quote};window.__LM_TEST_REPEAT_TIMES__--;
+   }else window.__LM_TEST_LAST_QUIZ__=data;
+  }
   return {choices:[{finish_reason:'stop',message:{content:JSON.stringify(data)}}]};
  }
 };

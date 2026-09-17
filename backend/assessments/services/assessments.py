@@ -25,7 +25,7 @@ RELEASE_FIELDS = ("instructions", "max_attempts", "time_limit_minutes", "availab
 
 def manageable(user):
     from academics.models import Subject
-    return Assessment.objects.filter(subject__in=Subject.objects.visible_to(user)).select_related("subject", "module", "chapter", "created_by")
+    return Assessment.objects.filter(subject__in=Subject.objects.visible_to(user)).select_related("subject", "module__chapter", "chapter", "created_by").prefetch_related("source_modules__chapter")
 
 
 def student_visible(student):
@@ -44,7 +44,7 @@ def student_visible(student):
         source_modules__in=Module.objects.exclude(pk__in=open_modules.values("pk")),
     ).values("pk")
     qs = qs.exclude(pk__in=incomplete)
-    return qs.select_related("module", "chapter", "subject").distinct()
+    return qs.select_related("module__chapter", "chapter", "subject").prefetch_related("source_modules__chapter").order_by("-created_at", "id").distinct()
 
 
 def models_q_module_or_chapter(open_modules):

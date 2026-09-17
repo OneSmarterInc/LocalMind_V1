@@ -80,6 +80,7 @@ export interface Question {
   source_module_id?: string | null;
 }
 export interface Quiz {
+  document_ids?: string[];
   id: string; title: string; instructions?: string; kind: "module" | "chapter" | "selection"; subject_id: string; module_id: string | null;
   chapter_id: string | null; status: "draft" | "published" | "closed" | "superseded"; generator: "ai" | "fallback" | "manual";
   pass_percentage: number; max_attempts: number | null; time_limit_minutes: number | null; available_from: string | null; due_at: string | null;

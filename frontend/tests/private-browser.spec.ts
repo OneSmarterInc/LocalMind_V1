@@ -860,3 +860,67 @@ for (const role of ['admin', 'faculty']) test(`${role} automatically saves unsee
   expect(errors).toEqual([]);
   await context.setOffline(false);
 });
+
+test('quiz generation recovers from repeated questions and resumes saved progress', async ({page}) => {
+ await signIn(page);await model(page);await importBook(page,'Duplicate recovery book');
+ await page.getByRole('tab',{name:'Practice quiz',exact:true}).click();
+ await page.getByRole('button',{name:'Questions',exact:true}).click();await page.getByRole('menuitem',{name:'3',exact:true}).click();
+ await page.evaluate(()=>{Object.assign(window,{__LM_TEST_REPEAT_AT__:2,__LM_TEST_REPEAT_TIMES__:2});});
+ await page.getByRole('button',{name:'Generate quiz',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Check my answers',exact:true})).toBeVisible();
+ expect(await page.evaluate(()=>(window as any).__LM_TEST_CALLS__)).toBe(5);
+ // Exhausting retries must keep accepted questions, never save duplicates.
+ await page.evaluate(()=>{Object.assign(window,{__LM_TEST_REPEAT_AT__:(window as any).__LM_TEST_CALLS__+2,__LM_TEST_REPEAT_TIMES__:4});});
+ await page.getByRole('button',{name:'Generate another quiz',exact:true}).click();
+ await expect(page.getByText(/1 of 3 questions are saved/).filter({visible:true}).first()).toBeVisible();
+ await page.reload();
+ await page.getByRole('tab',{name:'Practice quiz',exact:true}).click();
+ await page.getByRole('button',{name:'Questions',exact:true}).click();await page.getByRole('menuitem',{name:'3',exact:true}).click();
+ await page.getByRole('button',{name:'Generate another quiz',exact:true}).click();
+ await expect.poll(()=>page.evaluate(()=>(window as any).__LM_TEST_CALLS__)).toBe(2);
+ await expect(page.getByRole('button',{name:'Generate another quiz',exact:true})).toBeEnabled();
+ await page.getByRole('button',{name:'Saved quiz',exact:true}).click();
+ await expect(page.getByRole('menuitem',{name:/Version /}).first()).toContainText('Version 2');
+ await page.getByRole('menuitem',{name:/Version 2/}).click();
+ await expect(page.getByRole('button',{name:'Saved quiz'})).toContainText('Version 2');
+});
+
+for(const role of ['admin','faculty','student'])test(`${role} filters quizzes by book and sees newest first offline`,async({page,context})=>{
+ const login=await page.request.post('/api/auth/login/admin/',{data:{email:'browser-admin@example.edu',password:fixture().password}});
+ const headers={Authorization:`Bearer ${(await login.json()).access}`};
+ const existing=await(await page.request.get(`/api/faculty/quizzes/${fixture().quizImmediate}/`,{headers})).json();
+ for(const [module_id,title] of [[fixture().autoModule,`${role} catalog older`],[fixture().module,`${role} catalog newest`]]){
+  const response=await page.request.post('/api/faculty/quizzes/',{headers,data:{module_id,title,questions:existing.questions}});expect(response.ok(),await response.text()).toBeTruthy();
+  const quiz=await response.json();const published=await page.request.post(`/api/faculty/quizzes/${quiz.id}/status/`,{headers,data:{status:'published'}});expect(published.ok()).toBeTruthy();
+ }
+ const area=role==='student'?'student':'manage';
+ await signIn(page,role,`/${area}/quizzes`);
+ await expect(page.getByText(`${role} catalog newest`,{exact:true})).toBeVisible();
+ expect(await page.getByText(new RegExp(`^${role} catalog (newest|older)$`)).allTextContents()).toEqual([`${role} catalog newest`,`${role} catalog older`]);
+ await page.getByRole('button',{name:'Filter by subject',exact:true}).click();await page.getByRole('menuitem',{name:'WEBTEST',exact:true}).click();
+ await page.getByRole('button',{name:'Filter by book',exact:true}).click();await page.getByRole('menuitem',{name:'Faculty Biology',exact:true}).click();
+ await expect(page.getByText(`${role} catalog older`,{exact:true})).toHaveCount(0);
+ await expect(page.getByText(`${role} catalog newest`,{exact:true})).toBeVisible();
+ await context.setOffline(true);
+ await page.getByRole('button',{name:'Filter by book',exact:true}).click();await page.getByRole('menuitem',{name:'All books',exact:true}).click();
+ await expect(page.getByText(`${role} catalog older`,{exact:true})).toBeVisible();
+ await page.screenshot({path:`test-results/${role}-quiz-book-filter.png`,fullPage:true});
+});
+
+test('local quiz drafts show the most recently created draft first',async({page})=>{
+ await signIn(page,'faculty','/manage/quiz/new');
+ for(const title of ['Earlier local draft','Latest local draft']){
+  await page.goto('/manage/quiz/new');
+  await page.getByLabel('Quiz title',{exact:true}).fill(title);
+  await page.getByRole('checkbox',{name:'Leaf science',exact:true}).click();
+  await page.getByLabel('Multiple-choice questions',{exact:true}).fill('1');
+  await page.getByRole('button',{name:'Continue to questions',exact:true}).click();
+  await expect(page.getByRole('heading',{name:title,exact:true})).toBeVisible();
+ }
+ await page.goto('/manage/local-quizzes');
+ await expect(page.getByRole('heading',{name:'Latest local draft',exact:true})).toBeVisible();
+ expect(await page.getByRole('heading',{name:/^(Latest|Earlier) local draft$/}).allTextContents()).toEqual(['Latest local draft','Earlier local draft']);
+ await page.reload();
+ await expect(page.getByRole('heading',{name:'Latest local draft',exact:true})).toBeVisible();
+ expect(await page.getByRole('heading',{name:/^(Latest|Earlier) local draft$/}).allTextContents()).toEqual(['Latest local draft','Earlier local draft']);
+});

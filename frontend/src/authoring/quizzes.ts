@@ -4,13 +4,13 @@ import {device} from '@/private/device';
 import {fingerprint} from '@/private/library';
 import {makeSections,requireThat,type MCQ} from '@/private/core';
 import {LocalAuthoring,type Snapshot} from './local';
-export type QuizDraft={id:string;title:string;count:number;book:string;sources:Snapshot[];parts:{section:string;module:string;count:number}[];done:number;questions:(MCQ&{module_id:string})[];state:'draft'|'pending'|'synced'|'conflict';quizId?:string;error?:string};
+export type QuizDraft={id:string;createdAt?:string;title:string;count:number;book:string;sources:Snapshot[];parts:{section:string;module:string;count:number}[];done:number;questions:(MCQ&{module_id:string})[];state:'draft'|'pending'|'synced'|'conflict';quizId?:string;error?:string};
 const active=new Set<string>(),sending=new Map<string,Promise<QuizDraft>>();
 export class LocalQuizzes{
  readonly authoring:LocalAuthoring;
  constructor(owner:string){this.authoring=new LocalAuthoring(owner);}
  private key(id:string){return this.authoring.library.prefix+'quiz-draft:'+id;}
- async list(){const rows=await(await device()).list<QuizDraft>(this.key(''));this.authoring.library.guard();return rows;}
+ async list(){const rows=await(await device()).list<QuizDraft>(this.key(''));this.authoring.library.guard();for(const row of rows)if(!row.createdAt){const book=await this.authoring.library.book(row.book).catch(()=>null);if(book){row.createdAt=book.importedAt;await this.save(row);}}return rows.sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));}
  async read(id:string){const row=await(await device()).get<QuizDraft>(this.key(id));this.authoring.library.guard();requireThat(row,'Quiz draft is unavailable.');return row;}
  private async save(row:QuizDraft){this.authoring.library.guard();await(await device()).put(this.key(row.id),row);this.authoring.library.guard();}
  async create(ids:string[],title:string,count:number){
@@ -28,14 +28,14 @@ export class LocalQuizzes{
    }
   }
   await this.authoring.library.seed({id:book,title:title.trim()||'Practice quiz',originalName:'Selected modules',origin:'personal',importedAt:new Date().toISOString(),warnings:[],sections});
-  const row:QuizDraft={id,title:title.trim()||sources.map(s=>s.title).join(', ').slice(0,300),count,book,sources,parts,done:0,questions:[],state:'draft'};await this.save(row);return row;
+  const row:QuizDraft={id,createdAt:new Date().toISOString(),title:title.trim()||sources.map(s=>s.title).join(', ').slice(0,300),count,book,sources,parts,done:0,questions:[],state:'draft'};await this.save(row);return row;
  }
  async generate(id:string,signal:AbortSignal,progress:(s:string)=>void){
   const key=this.key(id);requireThat(!active.has(key),'This quiz is already generating.');active.add(key);
   try{const row=await this.read(id);for(const source of row.sources)requireThat(!await this.authoring.isRemoved(source.document_id),'A source book was removed or archived.');requireThat(row.state==='draft','This draft is already approved.');requireThat((await(await device()).status()).installed,'Install a model in Offline AI first.');
    for(let i=row.done;i<row.parts.length;i++){
     requireThat(!signal.aborted,'Generation cancelled. Saved questions are retained.');const part=row.parts[i];progress(`Preparing questions ${row.questions.length+1}–${row.questions.length+part.count} of ${row.count}`);
-    const result=await this.authoring.library.generateQuiz(row.book,part.section,part.count,signal,()=>{},progress);
+    const result=await this.authoring.library.generateQuiz(row.book,part.section,part.count,signal,()=>{},progress,row.questions.map(q=>q.question));
     const questions=result.questions.map(q=>({...q,module_id:part.module}));
     requireThat(new Set([...row.questions,...questions].map(q=>q.question.toLowerCase().trim())).size===row.questions.length+questions.length,'The model repeated a question. Completed work is retained; prepare a new draft if retrying repeats it.');
     row.questions.push(...questions);row.done=i+1;await this.save(row);

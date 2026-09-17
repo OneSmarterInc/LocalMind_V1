@@ -187,3 +187,26 @@ persistence of generated lessons/quizzes across reload, interrupted refresh
 retention, student offline reading/quiz events, and account separation. These
 workflow tests use disposable Django data and a deterministic model adapter;
 they do not measure Qwen generation quality or laptop speed.
+
+## Quiz generation and catalog
+
+Quiz generation now retries up to four times per missing question, rotating
+source passages and the fact to focus on. Accepted questions are checkpointed.
+Duplicate comparisons ignore case and punctuation and apply within the current
+quiz, including earlier parts of a multi-module draft. Reusing a valid question
+from an older quiz version no longer makes a new generation fail. Exact-source
+quote checks, answer validation and the requirement to finish the requested count
+remain in place. If retries are exhausted, the message reports saved progress;
+generating again resumes the missing questions.
+
+The teaching and student quiz lists provide a book filter scoped to the selected
+subject. Multi-book quizzes appear under each associated book. Both lists show
+newest quizzes first; local quiz drafts now have creation timestamps and recover
+older draft timestamps from their existing local source-book records. Private
+quiz versions were already listed newest first; the current selection is retained
+so generating another version does not interrupt answering the current one.
+
+Validation covers forced duplicate output, saved-progress recovery, multi-module
+generation, book filtering online/offline for all roles, and newest-first local
+draft ordering across reload. Browser inference is a deterministic test adapter;
+these tests do not promise that every real-model request will succeed.
