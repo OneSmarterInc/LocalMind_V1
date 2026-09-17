@@ -44,5 +44,5 @@ test('real GGUF: offline restart, new doubt, lesson and generated quiz',async({p
  await expect(page.getByText(/^[01] of 1 correct$/)).toBeVisible();
  await expect(page.getByText(/From the book:/)).toBeVisible();
  await page.screenshot({path:'test-results/real-browser-offline-quiz.png',fullPage:true});
- fs.writeFileSync('test-results/real-model-timings.json',JSON.stringify({model:'Qwen3-0.6B-Q8_0',modelSetup:process.env.LM_E2E_MODEL_FILE?'Imported verified local file':'Downloaded in browser',runner:'Linux Chromium; not a target phone',doubtMs,lessonMs,oneQuestionMs:quizMs},null,2));
+ fs.writeFileSync('test-results/real-model-timings.json',JSON.stringify({model:'Qwen3-1.7B-Q4_K_M',modelSetup:process.env.LM_E2E_MODEL_FILE?'Imported verified local file':'Downloaded in browser',runner:'Linux Chromium; not a target phone',doubtMs,lessonMs,oneQuestionMs:quizMs},null,2));
 });
