@@ -133,7 +133,7 @@ export default function DocumentScreen() {
   const missingSource = d?.missing_source_modules?.length ?? 0;
   const statusBadge = d ? <Badge value={d.status === "under_review" ? "Under review" : d.status} /> : null;
   const subtitle = d ? `${code ? `${code} · ` : ""}${d.outline_quality?.content_chapters ?? d.chapter_count ?? 0} chapters${d.outline_quality?.introductory_group ? ' + introductory material' : ''} · ${d.module_count ?? 0} modules · Version ${d.content_version}` : null;
-  const backToBooks = <Row><Button title="Back to books" icon="arrow-back" variant="secondary" onPress={() => { void confirmLeave().then(ok => { if (ok) router.push("/manage/books"); }); }} /></Row>;
+  const backToBooks = <Button title="Back to books" icon="arrow-back" variant="secondary" onPress={() => { void confirmLeave().then(ok => { if (ok) router.push("/manage/books"); }); }} />;
   const stepper = (active: number) => <Stepper steps={["Upload a book", "Review the outline", "Publish to students"]} active={active} />;
 
   if (!editable) {
@@ -144,8 +144,7 @@ export default function DocumentScreen() {
         {doc.loading && !d ? <Loading /> : null}
         {d ? (
           <>
-            <PageHeading eyebrow="BOOK PROCESSING" title={d.status === "error" ? "This book could not be processed." : "Your book is taking shape."} subtitle={d.original_name} right={statusBadge} />
-            {backToBooks}
+            <PageHeading eyebrow="BOOK PROCESSING" title={d.status === "error" ? "This book could not be processed." : "Your book is taking shape."} subtitle={d.original_name} right={<Row style={{ gap: 8, alignItems: "center" }}>{backToBooks}{statusBadge}</Row>} />
             {stepper(0)}
             {d.status === "processing" ? <ProcessingCard doc={d} onOpen={() => { void doc.reload(); }} /> : null}
             {d.status === "error" ? <Notice tone="danger" title="Processing failed" message={`${d.error_message || "Unknown error"}. Check the file and try again, or delete it and upload a better copy.`} /> : null}
@@ -169,8 +168,7 @@ export default function DocumentScreen() {
     const moduleTotal = (d.chapters ?? []).reduce((n, c) => n + c.modules.length, 0);
     return (
       <Screen refreshing={doc.loading} onRefresh={doc.reload}>
-        <PageHeading eyebrow="BOOKS & MODULES" title={`${d.title} is archived.`} subtitle={subtitle} right={<Badge value="Archived" tone="neutral" />} />
-        {backToBooks}
+        <PageHeading eyebrow="BOOKS & MODULES" title={`${d.title} is archived.`} subtitle={subtitle} right={<Row style={{ gap: 8, alignItems: "center" }}>{backToBooks}<Badge value="Archived" tone="neutral" /></Row>} />
         <ErrorBanner message={doc.error ?? remove.error} onRetry={doc.error ? doc.reload : undefined} />
         <Notice title="This book is read-only." message="Archived books are hidden from students and cannot be edited, processed or published again. Student records that refer to it are kept." />
         <Grid min={320} gap={20}>
@@ -219,8 +217,7 @@ export default function DocumentScreen() {
   if (tab === "live" && live) {
     return (
       <Screen refreshing={doc.loading} onRefresh={doc.reload}>
-        <PageHeading eyebrow="BOOKS & MODULES" title={`${d!.title} is published.`} subtitle={subtitle} right={statusBadge} />
-      {backToBooks}
+        <PageHeading eyebrow="BOOKS & MODULES" title={`${d!.title} is published.`} subtitle={subtitle} right={<Row style={{ gap: 8, alignItems: "center" }}>{backToBooks}{statusBadge}</Row>} />
         <ErrorBanner message={doc.error ?? act.error ?? remove.error} onRetry={doc.error ? doc.reload : undefined} />
         <Notice tone="success" title="Students can now find this book." message="Enrolled students see its open modules, ready lessons and published quizzes." />
         <Grid min={320} gap={20}>
@@ -254,8 +251,7 @@ export default function DocumentScreen() {
   return (
     <Screen>
       {jobNotice}<ErrorBanner message={retryJob.error}/>
-      <PageHeading eyebrow="BOOKS & MODULES" title={d!.title} subtitle={subtitle} right={statusBadge} />
-      {backToBooks}
+      <PageHeading eyebrow="BOOKS & MODULES" title={d!.title} subtitle={subtitle} right={<Row style={{ gap: 8, alignItems: "center" }}>{backToBooks}{statusBadge}</Row>} />
       {!live ? stepper(tab === "publish" ? 2 : 1) : null}
       <ErrorBanner message={tabError ?? doc.error ?? act.error ?? remove.error} onRetry={doc.error ? doc.reload : undefined} />
       <PageTabs<DocTab> value={tab} onChange={setTab} tabs={[
@@ -353,10 +349,25 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
     ) },
   ];
   const heldCount = a?.enabled ? a.held ?? 0 : 0;
+  // Count what the table below actually shows. A device draft moves through
+  // "Ready for review", then "Awaiting synchronization", then "Synchronized";
+  // doc.lessons.ready only counts the last stage, so a book full of drafts
+  // waiting for the reviewer read "0 of 41 ready" even though every row was
+  // prepared. Count lessons that are prepared on this device (any stage past
+  // generation) so the headline matches the rows.
+  const lessonState = (m: ModuleRow) => status(m, "lesson");
+  const teachable = modules.filter((m) => !m.source_missing && m.source_text?.trim());
+  const preparedLocally = teachable.filter((m) => {
+    const st = lessonState(m);
+    return st === "Ready for review" || st === "Awaiting synchronization" || st === "Synchronized" || st === "Ready";
+  }).length;
+  const syncedLessons = l?.ready ?? 0;
+  const ready = Math.max(preparedLocally, syncedLessons);
+  const allReady = total > 0 && ready >= total;
   return (
     <>
-      <Notice tone={heldCount || (l && l.ready < total) ? "warning" : "success"}
-        title={`${l ? `${l.ready} of ${total} institution lessons are ready.` : "Lesson status is not available."}${heldCount ? ` ${heldCount === 1 ? "One quiz needs" : `${heldCount} quizzes need`} your review.` : ""}`}
+      <Notice tone={heldCount || !allReady ? "warning" : "success"}
+        title={`${ready} of ${total} lesson${total === 1 ? "" : "s"} prepared${syncedLessons < ready ? ` \u00b7 ${syncedLessons} synchronized to the institution` : ""}.${heldCount ? ` ${heldCount === 1 ? "One quiz needs" : `${heldCount} quizzes need`} your review.` : ""}`}
         message={modelInstalled?"Lessons and quizzes prepare automatically on this device. Keep the app open; you can navigate while it works. Open each module to review and approve saved drafts for synchronization. Failed modules do not stop the rest of the book.":"Set up a model in Offline AI to start automatic lesson and quiz generation. The extracted source text is already saved."} />
       <ErrorBanner message={error} />
       <Card flush>
@@ -393,7 +404,7 @@ function PublishTab({ doc, onAct, busy, onDelete, deleting, onTab }: { doc: Docu
   const checks: { icon: IconName; title: string; text: string; badge: string; tone: Tone }[] = [
     { icon: "document-text-outline", title: "Source text", text: missing ? `${missing} module${missing === 1 ? " has" : "s have"} no source text and stay hidden.` : `${modules.length} modules have readable source text.`, badge: missing ? "Check text" : "Ready", tone: missing ? "amber" : "green" },
     { icon: "list-outline", title: "Outline reviewed", text: `${doc.chapter_count ?? 0} chapters with ${modules.length} modules, ${open} open to students.`, badge: doc.status === "under_review" ? "Review needed" : "Ready", tone: doc.status === "under_review" ? "amber" : "green" },
-    { icon: "sparkles-outline", title: "Guided lessons", text: l ? `${l.ready} ready · ${total - l.ready} not yet shared.` : "Lesson status is not available.", badge: l && l.ready === total ? "Ready" : "Optional to wait", tone: l && l.ready === total ? "green" : "amber" },
+    { icon: "sparkles-outline", title: "Guided lessons", text: l ? (l.ready === total ? `All ${total} lessons are synchronized and will be shared.` : `${l.ready} of ${total} synchronized to the institution${total - l.ready ? ` · ${total - l.ready} still preparing or awaiting review in Lessons & quizzes` : ""}.`) : "Lesson status is not available.", badge: l && l.ready === total ? "Ready" : "Optional to wait", tone: l && l.ready === total ? "green" : "amber" },
     autoQuizCheck(a),
   ];
   return (
@@ -1076,6 +1087,17 @@ function PicturesTab({ documentId }: { documentId: string }) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const first = chapters.flatMap((c) => c.modules).find((m) => m.count > 0)?.id;
   useEffect(() => { if (first) setOpen((v) => (v[first] ? v : { ...v, [first]: true })); }, [first]);
+  // Extraction finishes a little after processing, so a book can briefly report
+  // zero pictures. Re-check a few times before concluding there are none, rather
+  // than showing four zeros for the minute extraction takes.
+  const { reload } = index;
+  const [tries, setTries] = useState(0);
+  const settling = !!data && data.total === 0 && tries < 12;
+  useEffect(() => {
+    if (!settling) return;
+    const t = setTimeout(() => { setTries((n) => n + 1); void reload(); }, 4000);
+    return () => clearTimeout(t);
+  }, [settling, reload]);
   const warnings = data?.warnings ?? [];
   return (
     <View style={{ gap: 14 }}>
@@ -1090,7 +1112,7 @@ function PicturesTab({ documentId }: { documentId: string }) {
           <Card><Text style={{ fontSize: 26, fontWeight: "700", color: colors.ink }}>{warnings.length}</Text><Text style={{ fontSize: 11, color: colors.muted }}>Extraction warnings</Text></Card>
         </Grid>
         {warnings.length ? <Notice tone="warning" title="Extraction notes" message={warnings.join("\n")} /> : null}
-        {!data.total ? <Empty icon="image-outline" title="No picture was extracted" text="This book may be text only, or its figures may be the page furniture that is deliberately left out. The source text is unaffected." /> : null}
+        {!data.total ? (settling ? <Row style={{ gap: 10, alignItems: "center", padding: 6 }}><Loading /><Text style={{ color: colors.muted }}>Still extracting pictures from this book\u2026</Text></Row> : <Empty icon="image-outline" title="No picture was extracted" text="This book may be text only, or its figures may be the page furniture that is deliberately left out. The source text is unaffected." />) : null}
         {chapters.map((chapter) => (
           <Card key={chapter.id}>
             <CardHead title={chapter.title} subtitle={`${chapter.modules.reduce((n, m) => n + m.count, 0)} picture(s) across ${chapter.modules.length} module(s)`} />

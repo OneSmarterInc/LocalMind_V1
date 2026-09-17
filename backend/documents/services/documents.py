@@ -99,7 +99,7 @@ def upload_document(actor, subject, uploaded_file, title="", request=None, *, ou
     document = Document(
         subject=subject, uploaded_by=actor,
         original_name=Path(uploaded_file.name).name[:300],
-        title=(title or Path(uploaded_file.name).stem)[:300], outline_strategy=outline_strategy,
+        title=(title.strip() or Path(uploaded_file.name).stem)[:300], title_is_custom=bool(title.strip()), outline_strategy=outline_strategy,
         file_type=ext.lstrip("."), file_size=uploaded_file.size, content_hash=digest,
     )
     document.file = uploaded_file  # upload_to uses document.id, which exists already

@@ -22,7 +22,6 @@ export default function StudentModule() {
   const focused=useIsFocused();
   const [tab, setTab] = useState<Tab>(tabParam === "lesson" || tabParam === "ask" ? tabParam : "read");
   useEffect(() => { if (tabParam === "lesson" || tabParam === "ask" || tabParam === "read") setTab(tabParam); }, [tabParam, id]);
-  const [large, setLarge] = useState(false);
   const mod = useAsync(() => student.module(id), [id]);
   const quizzes = useAsync(() => student.quizzes({ module: id }), [id]);
   const m = mod.data;
@@ -88,7 +87,7 @@ export default function StudentModule() {
           <PageHeading eyebrow={eyebrow} title={m.title} subtitle={`${trail ? `${trail} / ` : ""}Module ${number}`}
             right={m.document_id ? <Button title="Back to book" variant="secondary" icon="arrow-back" onPress={() => router.push(`/student/document/${m.document_id}`)} /> : null} />
           <PageTabs<Tab> value={tab} onChange={setTab} tabs={[{ key: "read", label: "Read" }, { key: "lesson", label: "Lesson" }, { key: "ask", label: "Ask a doubt" }]} />
-          {tab === "read" ? <Split main={<ReadCard module={m} large={large} onToggleSize={() => setLarge((v) => !v)} onLesson={() => setTab("lesson")} />} side={side} /> : null}
+          {tab === "read" ? <Split main={<ReadCard module={m} onLesson={() => setTab("lesson")} />} side={side} /> : null}
           {tab === "lesson" && teach.loading && !teach.data ? <Loading /> : null}
           {tab === "lesson" ? <ErrorBanner message={teach.error} onRetry={teach.reload} /> : null}
           {tab === "lesson" && lessonState === "preparing" ? (
@@ -147,18 +146,15 @@ function LockedHeading({ moduleId }: { moduleId: string }) {
   return <PageHeading eyebrow="YOUR LEARNING PATH" title={f?.title ?? "Locked module"} subtitle={f ? `${f.book} · Module ${f.number}` : null} />;
 }
 
-function ReadCard({ module, large, onToggleSize, onLesson }: { module: ModuleFull; large: boolean; onToggleSize: () => void; onLesson?: () => void }) {
+function ReadCard({ module, onLesson }: { module: ModuleFull; onLesson?: () => void }) {
   return (
     <Card style={{ paddingHorizontal: 20, paddingVertical: 24 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 6 }}>
-        <Text style={{ fontSize: 11, color: colors.muted }}>Reading view · Your faculty’s source material</Text>
-        <Button title={large ? "Normal text" : "Text size"} small variant="secondary" onPress={onToggleSize} accessibilityLabel={large ? "Use normal text size" : "Use larger text"} />
-      </View>
+      <Text style={{ fontSize: 11, color: colors.muted, marginBottom: 6 }}>Reading view · Your faculty’s source material</Text>
       <View style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 18 }}>
         <Eyebrow>{`${module.document_title ?? "Module"} · Module ${String(module.module_number ?? module.order).padStart(2, "0")}`}</Eyebrow>
       </View>
       <View style={{ maxWidth: 750, gap: 15, marginTop: 6 }}>
-        <SourceContent text={module.source_text} large={large} />
+        <SourceContent text={module.source_text} />
       </View>
       {onLesson ? <FormFooter note="Continue at your own pace."><Button title="Explore the lesson" icon="arrow-forward" onPress={onLesson} /></FormFooter> : null}
     </Card>

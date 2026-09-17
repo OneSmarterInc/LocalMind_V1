@@ -150,6 +150,29 @@ class ParserAndOutlineTests(TestCase):
         self.assertEqual(ctx.exception.code, "EMPTY_SOURCE_TEXT")
         self.assertFalse(Module.objects.filter(chapter__document=doc).exists())
 
+    def test_a_custom_title_survives_processing(self):
+        """A title the person typed at upload must not be replaced by the
+        outline's file-name-derived title once the book is processed."""
+        subject = make_subject()
+        doc = Document.objects.create(subject=subject, original_name="leph101.pdf",
+                                      title="Electric Charges and Fields", title_is_custom=True, file_type="pdf")
+        parsed = fake_parse(None)
+        persist_outline(doc, source_hierarchy_outline("leph101.pdf", parsed["sections"]), parsed["sections"])
+        doc.refresh_from_db()
+        self.assertEqual(doc.title, "Electric Charges and Fields")
+
+    def test_an_auto_derived_title_is_still_replaced_by_the_outline(self):
+        """When the person gave no title, the outline may still name the book."""
+        subject = make_subject()
+        doc = Document.objects.create(subject=subject, original_name="leph101.pdf",
+                                      title="leph101", title_is_custom=False, file_type="pdf")
+        parsed = fake_parse(None)
+        outline = source_hierarchy_outline("leph101.pdf", parsed["sections"])
+        outline["document_title"] = "Chapter One"
+        persist_outline(doc, outline, parsed["sections"])
+        doc.refresh_from_db()
+        self.assertEqual(doc.title, "Chapter One")
+
     def test_persist_outline_reconciles_existing_ids(self):
         doc = self._doc()
         parsed = fake_parse(None)
@@ -182,9 +205,12 @@ class DocumentLifecycleTests(TestCase):
         assign(self.other_faculty, self.other_subject)
         enroll(self.student, self.subject)
 
-    def upload(self, client=None, subject=None, **kw):
+    def upload(self, client=None, subject=None, title=None, **kw):
         client = client or client_for(self.faculty)
-        return client.post("/api/faculty/documents/", {"subject_id": str((subject or self.subject).id), "file": pdf_upload(**kw)}, format="multipart")
+        body = {"subject_id": str((subject or self.subject).id), "file": pdf_upload(**kw)}
+        if title is not None:
+            body["title"] = title
+        return client.post("/api/faculty/documents/", body, format="multipart")
 
     def test_student_cannot_upload(self, _):
         res = client_for(self.student).post("/api/faculty/documents/", {"subject_id": str(self.subject.id), "file": pdf_upload()}, format="multipart")
@@ -202,6 +228,19 @@ class DocumentLifecycleTests(TestCase):
         res = self.upload(name="fake.pdf", content=b"not a pdf at all")
         self.assertEqual(res.status_code, 400)
         self.assertEqual(res.data["error"]["code"], "FILE_CONTENT_MISMATCH")
+
+    def test_a_typed_title_is_kept_and_marked_custom(self, _):
+        res = self.upload(title="Electric Charges and Fields", name="leph101.pdf")
+        self.assertEqual(res.status_code, 201, res.content)
+        doc = Document.objects.get(pk=res.data["id"])
+        self.assertEqual(doc.title, "Electric Charges and Fields")
+        self.assertTrue(doc.title_is_custom)
+
+    def test_no_title_falls_back_to_the_file_name_and_is_not_custom(self, _):
+        res = self.upload(name="leph101.pdf")
+        doc = Document.objects.get(pk=res.data["id"])
+        self.assertEqual(doc.title, "leph101")
+        self.assertFalse(doc.title_is_custom)
 
     def test_upload_stores_under_document_id_not_client_name(self, _):
         res = self.upload(name="../../evil.pdf")

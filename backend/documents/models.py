@@ -82,6 +82,9 @@ class Document(TimeStampedUUIDModel):
     subject = models.ForeignKey("academics.Subject", on_delete=models.PROTECT, related_name="documents")
     uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="uploaded_documents")
     title = models.CharField(max_length=300, blank=True)
+    # True when a person typed the title at upload. Processing then keeps it;
+    # only an auto-derived title (the file name) may be replaced by the outline.
+    title_is_custom = models.BooleanField(default=False)
     original_name = models.CharField(max_length=300)
     file = models.FileField(upload_to=document_upload_path)
     file_type = models.CharField(max_length=10)

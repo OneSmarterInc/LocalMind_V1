@@ -699,8 +699,11 @@ def persist_outline(document, outline, sections, user_edited=False):
                                code="CHAPTER_IN_USE", details={"chapter_id": cid})
             chapter.delete()
 
-    document.title = clean_title(outline.get("document_title")) or document.title
-    document.save(update_fields=["title", "updated_at"])
+    # A title the person typed at upload is authoritative. Only replace an
+    # auto-derived title (the file name) with the outline's derived title.
+    if not document.title_is_custom:
+        document.title = clean_title(outline.get("document_title")) or document.title
+        document.save(update_fields=["title", "updated_at"])
     return report
 
 

@@ -19,7 +19,7 @@ export default function TeachingSubject() {
   return (
     <Screen refreshing={summary.loading} onRefresh={summary.reload}>
       <PageHeading eyebrow="MY SUBJECTS" title={s?.subject.name ?? "Subject"} subtitle={s ? `${s.subject.code} · Your subject workspace` : null}
-        right={<Button title="Upload a book" icon="cloud-upload-outline" onPress={() => router.push({ pathname: "/manage/document/upload", params: { subject: id } })} />} />
+        right={<Button title="Back to subjects" variant="secondary" icon="arrow-back" onPress={() => router.push("/manage/subjects")} />} />
       <ErrorBanner message={summary.error} onRetry={summary.reload} />
       <PageTabs<Tab> value={tab} onChange={setTab} tabs={[{ key: "overview", label: "Overview" }, { key: "students", label: "Students" }, { key: "modules", label: "Modules & progress" }]} />
       {tab === "overview" ? (summary.loading && !s ? <Loading /> : s ? <OverviewTab s={s} subjectId={id} onStudents={() => setTab("students")} /> : null) : null}

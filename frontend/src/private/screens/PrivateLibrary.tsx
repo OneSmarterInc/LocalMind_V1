@@ -8,6 +8,8 @@ import {useLibrary} from '../useLibrary';
 import {useTask} from '../useTask';
 import {device} from '../device';
 import {sharedBooks,downloadShared,type SharedBook} from '../catalogue';
+/** A readable file size rather than a raw byte count. */
+function fileSize(bytes:number){if(!bytes)return '';const u=['B','KB','MB','GB'];let n=bytes,i=0;while(n>=1024&&i<u.length-1){n/=1024;i++;}return `${n>=10||i===0?Math.round(n):n.toFixed(1)} ${u[i]}`;}
 export default function PrivateLibrary(){
  const router=useRouter(), library=useLibrary(),online=useOnline(),task=useTask();
  const [tab,setTab]=useState<'device'|'institution'>('device'),[search,setSearch]=useState('');
@@ -54,7 +56,7 @@ export default function PrivateLibrary(){
    <ErrorBanner message={available.error} onRetry={available.reload}/>
    {available.loading?<Loading/>:null}
    {online&&!available.loading&&!available.error&&!available.data?.length?<Empty title="No shared books yet" text="Your admin or faculty can upload one in Books for private study. Published books from enrolled subjects also appear here."/>:null}
-   {(available.data||[]).filter(b=>b.title.toLowerCase().includes(search.toLowerCase())).map(b=>{const added=isAdded(b);return <ListRow key={`${b.kind}:${b.id}`} title={b.title} subtitle={`${b.subject} · ${(b.file_size/1024/1024).toFixed(1)} MB${added?' · Already in your library':''}`} icon={added?'checkmark-circle-outline':'cloud-download-outline'} right={added?<Badge value="Already added" tone="green" icon="checkmark-circle-outline"/>:<Button title="Add to my library" small disabled={task.busy} onPress={()=>add(b)}/>}/>;})}
+   {(available.data||[]).filter(b=>b.title.toLowerCase().includes(search.toLowerCase())).map(b=>{const added=isAdded(b);return <ListRow key={`${b.kind}:${b.id}`} title={b.title} subtitle={`${b.subject}${b.file_size?` · ${fileSize(b.file_size)}`:''}${added?' · Already in your library':''}`} icon={added?'checkmark-circle-outline':'cloud-download-outline'} right={added?<Badge value="Already added" tone="green" icon="checkmark-circle-outline"/>:<Button title="Add to my library" small disabled={task.busy} onPress={()=>add(b)}/>}/>;})}
   </Card>}
   <Notice title="Private means on this device" message="Personal books and practice are not sent to faculty or used as course grades. Keep the same app/browser profile; clearing its storage removes the saved library. AI output is unreviewed practice—check it against your book."/>
  </Screen>;

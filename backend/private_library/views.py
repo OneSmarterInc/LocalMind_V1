@@ -125,6 +125,19 @@ class StaffBookDetail(APIView):
         data=ActiveSerializer(data=request.data); data.is_valid(raise_exception=True)
         book.active=data.validated_data["active"]; book.save(update_fields=["active", "updated_at"])
         return no_cache(Response(record(book,"shared")))
+    @extend_schema(responses=OpenApiTypes.OBJECT)
+    def delete(self, request, book_id):
+        # Removes only a shared private-study book the caller manages. Course
+        # books are published documents and are never touched here. Copies a
+        # student already downloaded to their own device are not remotely
+        # deleted; this stops any new download and removes the stored file.
+        book = shared_for(request.user, True).filter(pk=book_id).first()
+        if not book: raise NotFound("Book not found.")
+        name = book.file.name
+        book.delete()
+        if name:
+            book.file.storage.delete(name)
+        return no_cache(Response({"id": str(book_id), "deleted": True}))
 
 class StudentBooks(APIView):
     permission_classes = [IsStudent]

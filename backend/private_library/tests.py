@@ -50,6 +50,26 @@ class SharedLibraryTests(TestCase):
         self.assertEqual(res.status_code,200)
         self.assertEqual(self.sc.get("/api/student/private-library/").data,[])
         self.assertEqual(self.sc.get(f"/api/student/private-library/shared/{b['id']}/download/").status_code,404)
+    def test_delete_removes_a_shared_book_and_its_file(self):
+        b = self.upload(subject_id=str(self.subject.id)).data
+        stored = Path(SharedBook.objects.get(pk=b["id"]).file.path)
+        self.assertTrue(stored.is_file())
+        res = self.ac.delete(f"/api/faculty/private-library/{b['id']}/")
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertFalse(SharedBook.objects.filter(pk=b["id"]).exists())
+        self.assertFalse(stored.is_file())
+        # A removed book no longer appears for students and cannot be downloaded.
+        self.assertEqual(self.sc.get("/api/student/private-library/").data, [])
+        self.assertEqual(self.sc.get(f"/api/student/private-library/shared/{b['id']}/download/").status_code, 404)
+
+    def test_only_the_managing_staff_can_delete_and_students_never_can(self):
+        b = self.upload(subject_id=str(self.subject.id)).data
+        self.assertEqual(self.sc.delete(f"/api/faculty/private-library/{b['id']}/").status_code, 403)
+        other = make_faculty()
+        self.assertEqual(client_for(other).delete(f"/api/faculty/private-library/{b['id']}/").status_code, 404)
+        self.assertTrue(SharedBook.objects.filter(pk=b["id"]).exists())
+        self.assertEqual(self.fc.delete(f"/api/faculty/private-library/{b['id']}/").status_code, 200)
+
     def test_course_books_follow_enrollment_not_progression(self):
         doc=make_published_document(self.subject)
         doc.file.save("course.txt",SimpleUploadedFile("course.txt",b"Chapter one. This is the actual course book."))
