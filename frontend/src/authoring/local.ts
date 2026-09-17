@@ -104,7 +104,7 @@ export class LocalAuthoring {
    if(signal.aborted)throw Error('Generation cancelled. Completed work is retained.');
    const section=kind==='quiz'?book.sections.find(s=>s.id===run.sectionIds![index])!:book.sections[index];progress(`Module part ${index+1} of ${book.sections.length}`);
    if(kind==='lesson'){const result=await this.library.generateLesson(book.id,section.id,signal,progress);run.lessonParts.push(result.lesson);}
-   else {const used=Math.min(book.sections.length,run.quizCount||6);const count=run.quizCount?Math.floor(run.quizCount/used)+(index<run.quizCount%used?1:0):1;const result=await this.library.generateQuiz(book.id,section.id,count,signal,done=>progress(`${done} questions saved`),progress,run.questions.map(q=>q.question));run.questions.push(...result.questions);}
+   else {const used=Math.min(book.sections.length,run.quizCount||6);const count=run.quizCount?Math.floor(run.quizCount/used)+(index<run.quizCount%used?1:0):1;const result=await this.library.generateQuiz(book.id,section.id,count,signal,done=>progress(`${done} questions saved`),progress,run.questions.map(q=>q.question),draft.snapshot.source);run.questions.push(...result.questions);}
    run.done=index+1;await this.save(id,draft);
    if(kind==='quiz'&&run.questions.length>=6)break;
   }

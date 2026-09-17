@@ -106,14 +106,18 @@ export class Library {
     const version:LessonVersion={id:checkpoint.id,sectionId,createdAt:new Date().toISOString(),lesson};
     await d.put(`${this.work(bookId)}lesson:${sectionId}:${version.id}`,version);this.guard();await d.removePrefix(key);return version;
   }
-  async generateQuiz(bookId: string, sectionId: string, count: number, signal: AbortSignal, progress: (done: number) => void, detail?: (message:string)=>void, excluded: string[] = []) {
+  async generateQuiz(bookId: string, sectionId: string, count: number, signal: AbortSignal, progress: (done: number) => void, detail?: (message:string)=>void, excluded: string[] = [], moduleSource?: string) {
     requireThat(Number.isInteger(count) && count >= 1 && count <= 10, 'Choose between 1 and 10 questions');
     const book = await this.book(bookId); const section = book.sections.find(s => s.id === sectionId); requireThat(section, 'Choose a module');
     const sources=lessonPassages(pageSource(book.sections,sectionId),2400); requireThat(sources.length,'No readable source was extracted. Check the original page and import it again.');
     const d = await device(), model=await d.status();
     const key=`${this.work(bookId)}checkpoint:quiz:${sectionId}:${fingerprint(JSON.stringify({version:1,sources,count,model:model.hash||model.name,...(excluded.length?{excluded}:{})}))}:`;
     const checkpoint=await d.get<Checkpoint<MCQ>&{retryCursor?:number}>(key)||{id:randomUUID(),parts:[]};
-    const focuses=sources.flatMap(source=>lessonPassages(source,900)).filter(source=>source.trim().length>=8);
+    const primary=sources.flatMap(source=>lessonPassages(source,900));
+    // A section quota must not trap authoring on a heading or exhausted passage.
+    // Callers may provide the rest of this SAME module, never another module.
+    const alternatives=moduleSource?lessonPassages(moduleSource,900):[];
+    const focuses=[...new Set([...primary,...alternatives])].filter(source=>source.trim().length>=8);
     requireThat(focuses.length,'This module has too little readable text for a grounded quiz.');
     const questions=checkpoint.parts;progress(questions.length);
     for (let n = questions.length; n < count; n++) {
@@ -122,9 +126,12 @@ export class Library {
       for (let attempt = 0; attempt < 4; attempt++) {
         this.guard(); requireThat(!signal.aborted, 'Cancelled. Your earlier quizzes are unchanged.');
         try {
-          const source=focuses[(Math.floor(n*focuses.length/count)+retryStart+attempt)%focuses.length];
+          const offset=Math.floor(n*focuses.length/count)+retryStart+attempt;
+          const unused=focuses.filter(source=>!questions.some(q=>source.includes(q.quote)));
+          const candidates=unused.length?unused:focuses;
+          const source=candidates[offset%candidates.length];
           const avoid = [...excluded,...questions.map(q => q.question)].map(q => q.slice(0, 160)).join('\n');
-          const raw = await d.complete({ system: GROUNDING, prompt: `Write ONE useful multiple-choice practice question. Exactly four distinct options; answer is a zero-based index (0–3). Include a short explanation (at most 40 words) and an exact source quote. Keep the question and choices concise. Do not simply test whether a sentence appears in the book. Test a different fact or relationship from the supplied reference\nDo not repeat these questions already accepted in THIS quiz:\n${avoid}\nSTORED BOOK REFERENCE:\n${source}\nQuestion ${n + 1}; attempt ${retryStart + attempt + 1}.`, schema: groundedSchema(COMPACT_MCQ_SCHEMA, source), maxTokens: 520, temperature: 0.25 + attempt * 0.15, signal, progress:message=>detail?.(`Question ${n+1}/${count} · ${message}`) });
+          const raw = await d.complete({ system: GROUNDING, prompt: `Write ONE useful multiple-choice practice question. Exactly four distinct options; answer is a zero-based index (0–3). Include a short explanation (at most 40 words) and an exact source quote. Keep the question and choices concise. Do not simply test whether a sentence appears in the book. Choose a specific fact from the supplied reference that has not been tested. Ask about that fact, not the module title or chapter objectives.\nDo not repeat these questions already accepted in THIS quiz:\n${avoid}\nSTORED BOOK REFERENCE:\n${source}\nQuestion ${n + 1}; attempt ${retryStart + attempt + 1}.`, schema: groundedSchema(COMPACT_MCQ_SCHEMA, source), maxTokens: 520, temperature: 0.25 + attempt * 0.15, signal, progress:message=>detail?.(`Question ${n+1}/${count} · ${message}`) });
           const question = validateMCQ(raw, source, sectionId, randomUUID());
           requireThat(! [...excluded,...questions.map(q=>q.question)].some(q => q.toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim() === question.question.toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim()), `The model could not produce another distinct question. ${questions.length} of ${count} questions are saved. Select Generate quiz again to resume.`);
           this.guard();cancelled(signal);

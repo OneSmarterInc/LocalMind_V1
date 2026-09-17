@@ -35,7 +35,7 @@ export class LocalQuizzes{
   try{const row=await this.read(id);for(const source of row.sources)requireThat(!await this.authoring.isRemoved(source.document_id),'A source book was removed or archived.');requireThat(row.state==='draft','This draft is already approved.');requireThat((await(await device()).status()).installed,'Install a model in Offline AI first.');
    for(let i=row.done;i<row.parts.length;i++){
     requireThat(!signal.aborted,'Generation cancelled. Saved questions are retained.');const part=row.parts[i];progress(`Preparing questions ${row.questions.length+1}–${row.questions.length+part.count} of ${row.count}`);
-    const result=await this.authoring.library.generateQuiz(row.book,part.section,part.count,signal,()=>{},progress,row.questions.map(q=>q.question));
+    const result=await this.authoring.library.generateQuiz(row.book,part.section,part.count,signal,()=>{},progress,row.questions.map(q=>q.question),row.sources.find(source=>(source.remote_id||source.module_id)===part.module)?.source);
     const questions=result.questions.map(q=>({...q,module_id:part.module}));
     requireThat(new Set([...row.questions,...questions].map(q=>q.question.toLowerCase().trim())).size===row.questions.length+questions.length,'The model repeated a question. Completed work is retained; prepare a new draft if retrying repeats it.');
     row.questions.push(...questions);row.done=i+1;await this.save(row);

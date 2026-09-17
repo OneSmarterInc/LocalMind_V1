@@ -55,3 +55,24 @@ test('existing small-passage lesson checkpoints resume without regenerating save
  assert.equal(requests.length,0);assert.equal(result.lesson.introduction,'Saved');
 });
 process.on('exit',()=>fs.rmSync(tmp,{recursive:true,force:true}));
+
+test('an exhausted section can recover using other text from its own module',async()=>{
+ const opening='Chapter objectives describe the topics to learn.';
+ const other='Ransomware encrypts files and demands payment for recovery.';
+ const lib=await setup(opening);
+ respond=req=>req.prompt.includes(other)?mcq(req,'What does ransomware do?'):mcq(req,'What are the chapter objectives?');
+ const quiz=await lib.generateQuiz(bookId,'s1',1,new AbortController().signal,()=>{},()=>{},['What are the chapter objectives?'],opening+'\n'+other);
+ assert.equal(quiz.questions.length,1);
+ assert.equal(quiz.questions[0].question,'What does ransomware do?');
+ assert.equal(requests.length,2);
+});
+
+test('private quizzes never borrow another module automatically',async()=>{
+ const opening='Chapter objectives describe the topics to learn.';
+ const lib=await setup(opening);
+ const book=await lib.book(bookId);book.sections.push({id:'s2',title:'Other module',source:'UNRELATED SECRET TOPIC'});await lib.seed(book);
+ respond=req=>mcq(req,'Repeated question');
+ await assert.rejects(lib.generateQuiz(bookId,'s1',1,new AbortController().signal,()=>{},()=>{},['Repeated question']),/distinct/);
+ assert.ok(requests.every(r=>!r.prompt.includes('UNRELATED SECRET TOPIC')));
+ assert.equal((await lib.quizzes(bookId,'s1')).length,0);
+});
