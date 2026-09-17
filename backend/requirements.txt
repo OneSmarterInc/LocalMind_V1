@@ -20,3 +20,6 @@ waitress>=3.0,<4
 # Publisher signature and safe raster-figure normalization.
 cryptography>=44,<47
 Pillow>=11,<13
+
+# Original PDF figure/table crops, independent of text and module outlining.
+PyMuPDF>=1.26,<2

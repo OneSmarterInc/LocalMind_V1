@@ -72,6 +72,17 @@ with tempfile.TemporaryDirectory(prefix='localmind-browser-') as folder:
         'title':'Automatic sync lesson','learning_objectives':['Understand plants'],
         'sections':[{'heading':'Photosynthesis','explanation':'This lesson was prepared by the institution before download.','source_reference':'Saved lesson acceptance'}],
         'key_terms':[],'summary':'Plants use sunlight.'})
+    # Real raster bytes in a manifest exercise the same delivery as imported books.
+    from PIL import Image
+    figure_dir=work/'media'/'processed'/str(auto_doc.pk)
+    (figure_dir/'visuals').mkdir(parents=True)
+    Image.new('RGB',(240,120),(40,110,70)).save(figure_dir/'visuals'/'leaf.png')
+    (figure_dir/'visuals'/'manifest.json').write_text(json.dumps({'visuals':[{
+        'id':'p1-leaf','filename':'leaf.png','kind':'figure','page':1,'width':240,'height':120,
+        'caption':'Figure 1: Leaf structure','context_text':'This lesson was prepared by the institution before download.',
+        'caption_origin':'source','heading_path':[]}]}))
+    auto_doc.processed_markdown_path=str(figure_dir/'source.md');auto_doc.save()
+    auto_module.start_page=auto_module.end_page=1;auto_module.save()
     readiness_doc=make_published_document(subject,title='Readiness acceptance',modules=(('Readiness leaves',source),('Readiness practice',source)))
     readiness_module=Module.objects.filter(chapter__document=readiness_doc).order_by('order').first()
     ModuleLesson.objects.create(module=readiness_module,status='ready',source_hash=source_hash(readiness_module.source_text),lesson=ModuleLesson.objects.get(module=auto_module).lesson)

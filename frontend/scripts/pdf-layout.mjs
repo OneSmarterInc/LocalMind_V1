@@ -36,3 +36,29 @@ export function imageRectangles(ops,OPS,transform){
   }
  }return rects;
 }
+
+/** Group vector strokes into source figure/table regions. Never change text items. */
+export function vectorRectangles(ops,OPS,transform){
+ let matrix=[1,0,0,1,0,0];const stack=[],regions=[];
+ for(let i=0;i<ops.fnArray.length;i++){
+  const fn=ops.fnArray[i],args=ops.argsArray[i];
+  if(fn===OPS.save)stack.push([...matrix]);
+  else if(fn===OPS.restore)matrix=stack.pop()||[1,0,0,1,0,0];
+  else if(fn===OPS.transform)matrix=transform(matrix,args);
+  else if(fn===OPS.constructPath&&args?.[2]?.length===4&&args[2].every(Number.isFinite)){
+   const [x0,y0,x1,y1]=args[2],points=[[x0,y0],[x0,y1],[x1,y0],[x1,y1]].map(([x,y])=>[matrix[0]*x+matrix[2]*y+matrix[4],matrix[1]*x+matrix[3]*y+matrix[5]]);
+   regions.push([Math.min(...points.map(p=>p[0])),Math.min(...points.map(p=>p[1])),Math.max(...points.map(p=>p[0])),Math.max(...points.map(p=>p[1]))]);
+  }
+ }
+ const groups=[];
+ for(const rect of regions){let merged=rect,count=1;for(let i=0;i<groups.length;){const g=groups[i];if(merged[0]<=g.rect[2]+14&&merged[2]>=g.rect[0]-14&&merged[1]<=g.rect[3]+14&&merged[3]>=g.rect[1]-14){merged=[Math.min(merged[0],g.rect[0]),Math.min(merged[1],g.rect[1]),Math.max(merged[2],g.rect[2]),Math.max(merged[3],g.rect[3])];count+=g.count;groups.splice(i,1);i=0;}else i++;}groups.push({rect:merged,count});}
+ return groups.filter(g=>g.count>=3&&g.rect[2]-g.rect[0]>=45&&g.rect[3]-g.rect[1]>=35).map(g=>g.rect);
+}
+
+export function sourceFigureContext(items,rect){
+ const [x0,y0,x1,y1]=rect;
+ const nearby=items.filter(i=>i.str?.trim()&&i.transform).filter(i=>{const x=i.transform[4],y=i.transform[5];return x+(i.width||0)>=x0-25&&x<=x1+25&&y>=y0-80&&y<=y1+80;});
+ const text=readablePdfText(nearby);
+ const caption=text.split(/\n+/).find(l=>/^(?:fig(?:ure)?\.?|diagram|table|chart)\s+[\w.-]+/i.test(l.trim()));
+ return {context_text:text.slice(0,1800),...(caption?{caption:caption.slice(0,300)}:{})};
+}

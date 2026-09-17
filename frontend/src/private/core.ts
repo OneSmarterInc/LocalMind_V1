@@ -2,7 +2,7 @@
 export const MAX_BOOK_BYTES = 100 * 1024 * 1024;
 export const MAX_TEXT_CHARS = 2_000_000;
 export const MAX_SECTION_CHARS = 3200;
-export type SourceVisual = { id: string; dataUrl: string; width: number; height: number; caption: string; kind?: 'page'|'figure'; page?: number };
+export type SourceVisual = { id: string; dataUrl: string; width: number; height: number; caption: string; kind?: 'page'|'figure'; page?: number; context_text?: string; heading_path?: string[] };
 export type SourceItem = { title: string; text: string; page?: number; visualIds?: string[]; ocr?: boolean };
 export type Section = { id: string; title: string; source: string; page?: number; visualIds?: string[]; ocr?: boolean };
 export type PrivateBook = { importVersion?: number; assetSet?: string; id: string; title: string; originalName: string; importedAt: string; origin: 'personal'|'shared'; sourceId?: string; sections: Section[]; warnings: string[] };

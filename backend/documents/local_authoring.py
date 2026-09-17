@@ -1,4 +1,6 @@
 """Ingest reviewed device-generated work; this endpoint never invokes AI."""
+from .services.visual_delivery import module_visuals, enrich_lesson
+
 import hashlib
 import json
 import unicodedata
@@ -98,7 +100,8 @@ class LocalAuthoringView(APIView):
         quiz = job.assessment if job else None
         return Response({'module_id': str(module.pk), 'title': module.title, 'source': module.source_text,
                          'revision': revision(module), 'document_id': str(module.chapter.document_id),
-                         'institution': {'lesson': lesson.lesson if lesson and lesson.source_hash == source_hash(module.source_text) else None,
+                         'source_visuals': module_visuals(module),
+                         'institution': {'lesson': enrich_lesson(lesson.lesson, module) if lesson and lesson.source_hash == source_hash(module.source_text) else None,
                                          'quiz': {'id': str(quiz.pk), 'status': quiz.status, 'questions': quiz.questions} if quiz else None}})
 
 

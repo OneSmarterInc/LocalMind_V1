@@ -158,3 +158,24 @@ test('book jobs block overlapping manual generation and cancel all book work',as
  assert.equal(aborted,true);assert.equal(jobs.snapshot()[0].state,'cancelled');
  release();
 });
+
+test('vector figure regions respect graphics transforms and reject isolated rules',async()=>{
+ const {vectorRectangles}=await import('../frontend/scripts/pdf-layout.mjs');
+ const OPS={save:1,restore:2,transform:3,constructPath:4};
+ const transform=(m,n)=>[m[0]*n[0]+m[2]*n[1],m[1]*n[0]+m[3]*n[1],m[0]*n[2]+m[2]*n[3],m[1]*n[2]+m[3]*n[3],m[0]*n[4]+m[2]*n[5]+m[4],m[1]*n[4]+m[3]*n[5]+m[5]];
+ const ops={fnArray:[1,3,4,4,4,2,4],argsArray:[null,[1,0,0,1,100,200],[[1],[],[0,0,50,50]],[[1],[],[60,0,110,50]],[[1],[],[50,25,60,25]],null,[[1],[],[0,700,500,701]]]};
+ assert.deepEqual(vectorRectangles(ops,OPS,transform),[[100,200,210,250]]);
+});
+
+test('lesson image placement uses source evidence and retains ambiguous originals',()=>{
+ const ts=require(path.join(root,'frontend/node_modules/typescript'));
+ const input=fs.readFileSync(path.join(root,'frontend/src/private/figurePlacement.ts'),'utf8');
+ const js=ts.transpileModule(input,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
+ const filename=path.join(tmp,'figurePlacement.js');fs.writeFileSync(filename,js);
+ const {figurePlacement}=require(filename);
+ const sections=[{heading:'Leaves',content:'Chlorophyll absorbs sunlight and supports photosynthesis in green leaves.'},{heading:'Roots',content:'Roots absorb water from the surrounding soil.'}];
+ const figure={id:'v1',kind:'figure',dataUrl:'data:image/png;base64,original',context_text:sections[0].content};
+ const placed=figurePlacement(sections,[figure]);assert.equal(placed.groups[0][0],figure);assert.equal(placed.remaining.length,0);
+ const ambiguous=figurePlacement([sections[0],sections[0]],[figure]);assert.equal(ambiguous.remaining[0],figure);assert.deepEqual(ambiguous.groups,[[],[]]);
+ assert.deepEqual(figurePlacement(sections,[{...figure,kind:'page'}]).groups,[[],[]]);
+});

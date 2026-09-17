@@ -1,7 +1,7 @@
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { WorkerMessageHandler } from 'pdfjs-dist/legacy/build/pdf.worker.mjs';
 import { unzipSync } from 'fflate';
-import { readablePdfText, imageRectangles } from './pdf-layout.mjs';
+import { readablePdfText, imageRectangles, vectorRectangles, sourceFigureContext } from './pdf-layout.mjs';
 import { OCR_WORKER } from './generated-ocr.mjs';
 globalThis.pdfjsWorker={WorkerMessageHandler};
 const LIMIT=2_000_000;
@@ -48,10 +48,10 @@ async function parse(bytes,name,signal,progress=()=>{},saveVisual){
  try {
  check(signal);assert(bytes.length>0 && bytes.length<=100*1024*1024,'Choose a book up to 100 MB.');
  const ext=name.split('.').pop().toLowerCase(), warnings=[],visuals=[];let items=[],visualCount=0;
- const capture=async(canvas,caption,page,kind='figure')=>{
+ const capture=async(canvas,caption,page,kind='figure',context={})=>{
   check(signal);
   const id=`v${++visualCount}`;
-  const visual={id,dataUrl:canvas.toDataURL('image/png'),kind,width:canvas.width,height:canvas.height,caption,...(page?{page}:{})};
+  const visual={id,dataUrl:canvas.toDataURL('image/png'),kind,width:canvas.width,height:canvas.height,caption,...context,...(page?{page}:{})};
   // Await durable storage before rendering the next image. Never accumulate a book of bitmaps.
   if(saveVisual)await saveVisual(visual);else visuals.push(visual);
   check(signal);return id;
@@ -76,14 +76,16 @@ async function parse(bytes,name,signal,progress=()=>{},saveVisual){
      // Mixed pages (a selectable header above a scanned body) also need OCR.
      const ops=await page.getOperatorList();const hasImage=ops.fnArray.some(op=>[pdfjs.OPS.paintImageXObject,pdfjs.OPS.paintInlineImageXObject,pdfjs.OPS.paintImageMaskXObject].includes(op));
      // Crop embedded illustrations from the rendered page, retaining surrounding labels.
-     for(const rect of imageRectangles(ops,pdfjs.OPS,pdfjs.Util.transform)){
+     const raster=imageRectangles(ops,pdfjs.OPS,pdfjs.Util.transform);
+     const vectors=vectorRectangles(ops,pdfjs.OPS,pdfjs.Util.transform).filter(r=>!raster.some(a=>r[0]>=a[0]-10&&r[1]>=a[1]-10&&r[2]<=a[2]+10&&r[3]<=a[3]+10));
+     for(const rect of [...raster,...vectors]){
       const r=view.convertToViewportRectangle(rect);const left=Math.min(r[0],r[2]),top=Math.min(r[1],r[3]),width=Math.abs(r[2]-r[0]),height=Math.abs(r[3]-r[1]);
       if(width<40||height<40||width*height>canvas.width*canvas.height*0.65||left>=canvas.width||top>=canvas.height||left+width<=0||top+height<=0)continue;
       const x=Math.max(0,Math.floor(left-16)),y=Math.max(0,Math.floor(top-16));
       const crop=document.createElement('canvas');crop.width=Math.min(canvas.width-x,Math.ceil(width+32));crop.height=Math.min(canvas.height-y,Math.ceil(height+32));
       if(crop.width<=0||crop.height<=0)continue;
       crop.getContext('2d').drawImage(canvas,x,y,crop.width,crop.height,0,0,crop.width,crop.height);
-      visualIds.push(await capture(crop,`Illustration from page ${p}`,p));crop.width=0;crop.height=0;
+      visualIds.push(await capture(crop,`Illustration from page ${p}`,p,'figure',sourceFigureContext(c.items,rect)));crop.width=0;crop.height=0;
      }
      const readableChars=text.replace(/\s/g,'').length;
      // Preserve illustrations without re-recognising substantial selectable text.
@@ -105,7 +107,7 @@ async function parse(bytes,name,signal,progress=()=>{},saveVisual){
     }finally{canvas.width=0;canvas.height=0;page.cleanup();}
    }
   } finally {signal?.removeEventListener('abort',abort);if(doc)await doc.destroy();else await task.destroy();}
-  warnings.unshift('Embedded raster illustrations are cropped where possible; scanned-page and vector diagrams may require the original page. Original PDF pages are preserved as images. OCR runs locally in English; check numbers, formulas and table reading order against the original. Diagrams are displayed, not interpreted by the text model.');
+  warnings.unshift('Raster illustrations and grouped vector diagrams/tables are cropped where detectable; complex or scanned-page figures may require the original page. Original PDF pages are preserved as images. OCR runs locally in English; check numbers, formulas and table reading order against the original. Diagrams are displayed, not interpreted by the text model.');
  } else if(ext==='docx') {
   let size=0,count=0;
   const entries=unzipSync(bytes,{filter:f=>{size+=f.originalSize;count++;assert(size<=100*1024*1024&&count<=3000,'DOCX expanded content is too large.');return /^(word\/(document\.xml|_rels\/document.xml.rels|media\/[^/]+)|\[Content_Types\]\.xml)$/.test(f.name);}});
@@ -142,7 +144,7 @@ async function parse(bytes,name,signal,progress=()=>{},saveVisual){
     try{
      await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(Error('An embedded Word image could not be decoded. Export this document as PDF.'));img.src=url;});
      check(signal);const canvas=document.createElement('canvas'),scale=Math.min(1,2400/Math.max(img.naturalWidth,img.naturalHeight));canvas.width=Math.max(1,Math.round(img.naturalWidth*scale));canvas.height=Math.max(1,Math.round(img.naturalHeight*scale));canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
-     current.visualIds.push(await capture(canvas,`Original illustration — ${current.title}`));
+     current.visualIds.push(await capture(canvas,`Original illustration — ${current.title}`,undefined,'figure',{heading_path:[current.title],context_text:content(node).slice(0,1800)}));
      ocr||=await recognizer(signal);const read=await ocr.read(canvas);if(read.text.trim())current.text+=`\n[Text recognised from illustration]\n${read.text}\n`;canvas.width=0;canvas.height=0;
     }finally{URL.revokeObjectURL(url);}
    }

@@ -7,7 +7,7 @@ import {Library,fingerprint} from '@/private/library';
 import {device} from '@/private/device';
 import {generationJobs} from '@/private/jobs';
 import {makeSections,requireThat,type Lesson,type MCQ} from '@/private/core';
-export type Snapshot={module_id:string;document_id:string;title:string;source:string;revision:string;remote_id?:string;institution?:{lesson:CourseLesson|null;quiz:{id:string;status:string;questions:Question[]}|null}};
+export type Snapshot={source_visuals?:import('@/ui/SourceFigures').Figure[];module_id:string;document_id:string;title:string;source:string;revision:string;remote_id?:string;institution?:{lesson:CourseLesson|null;quiz:{id:string;status:string;questions:Question[]}|null}};
 type Operation={id:string;revision:string;kind:'lesson'|'quiz';reviewed:true;lesson?:Lesson;questions?:MCQ[]};
 export type Draft={snapshot:Snapshot;localBook?:string;sourceBook?:string;sourceSection?:string;lesson?:Lesson;questions?:MCQ[];run?:{kind:'lesson'|'quiz';book:string;done:number;quizCount?:number;sectionIds?:string[];lessonParts:Lesson[];questions:MCQ[]};pausedRuns?:Partial<Record<'lesson'|'quiz',NonNullable<Draft['run']>>>;operation?:Operation;state?:'pending'|'synced'|'conflict';error?:string;quiz_id?:string;shared?:Partial<Record<'lesson'|'quiz',string>>};
 export type ArchivedDraft={id:string;archivedAt:string;draft:Draft};
@@ -55,7 +55,7 @@ export class LocalAuthoring {
  async loadInstitution(id:string){
   const old=await this.read(id);if(!old||old.localBook&&!old.snapshot.remote_id)return old;
   const remote=await api<Snapshot>(`/faculty/modules/${old.snapshot.remote_id||id}/local-authoring/`);
-  return this.exclusive(id,async()=>{const current=await this.read(id);requireThat(current,'Module unavailable.');current.snapshot.institution=remote.institution;await this.save(id,current);return current;});
+  return this.exclusive(id,async()=>{const current=await this.read(id);requireThat(current,'Module unavailable.');current.snapshot.institution=remote.institution;if(current.snapshot.revision===remote.revision)current.snapshot.source_visuals=remote.source_visuals;await this.save(id,current);return current;});
  }
  async history(id:string){
   this.library.guard();const rows=await(await device()).list<ArchivedDraft>(this.library.prefix+'history:'+id+':');this.library.guard();

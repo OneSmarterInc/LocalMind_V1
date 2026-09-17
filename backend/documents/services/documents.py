@@ -223,6 +223,13 @@ def run_processing(document_id, *, guard=None, run_id=None, raise_errors=False):
             document.processed_at = timezone.now()
             document.error_message = ""
             document.save()
+        # Optional source imagery is independent of the established text/outline pipeline.
+        # A damaged picture must not discard a successfully imported book.
+        try:
+            from .visual_delivery import prepare_visuals
+            prepare_visuals(document)
+        except Exception:
+            logger.exception("Source image extraction failed for document %s", document_id)
         clear_progress(document_id)
         audit.record(None, "document.processed", document, {
             "outline_source": source, "chapters": document.chapters.count(),

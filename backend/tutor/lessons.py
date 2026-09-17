@@ -29,6 +29,8 @@ Rules that keep this correct under edits, restarts and several processes:
 """
 from __future__ import annotations
 
+from documents.services.visual_delivery import enrich_lesson
+
 import hashlib
 import logging
 import threading
@@ -200,7 +202,7 @@ def lesson_for_student(module) -> dict:
     state = state_for(module, row)
     base = {"module_id": str(module.id), "state": state}
     if state == LessonStatus.READY and row and row.lesson:
-        return {**base, "status": "ready", "lesson": row.lesson, "generator": "ai", "cached": True,
+        return {**base, "status": "ready", "lesson": enrich_lesson(row.lesson, module), "generator": "ai", "cached": True,
                 "model": row.model_name, "generated_at": row.generated_at}
     if (device_authoring_only() or module.chapter.document.parse_mode == "device-local"):
         return {**base, "status": "unavailable", "lesson": None, "generator": None, "cached": False,
@@ -211,7 +213,7 @@ def lesson_for_student(module) -> dict:
         return {**base, "status": "preparing", "lesson": None, "generator": None, "cached": False,
                 "queue_position": queue_position(row) if row else None}
     reason = "ai_disabled" if not ai_on else (row.last_error if row else "not_generated")
-    return {**base, "status": "unavailable", "lesson": fallback_lesson(module), "generator": "fallback", "cached": False,
+    return {**base, "status": "unavailable", "lesson": enrich_lesson(fallback_lesson(module), module), "generator": "fallback", "cached": False,
             "ai_error": reason, "retry_scheduled": bool(row and row.next_attempt_at)}
 
 
@@ -249,7 +251,7 @@ def detail_for_faculty(module) -> dict:
     row = ModuleLesson.objects.filter(module=module).first()
     state = state_for(module, row)
     return {"module_id": str(module.id), "status": state,
-            "lesson": row.lesson if (row and state == LessonStatus.READY) else None,
+            "lesson": enrich_lesson(row.lesson, module) if (row and state == LessonStatus.READY) else None,
             "model": row.model_name if row else "", "generated_at": row.generated_at if row else None,
             "attempts": row.attempts if row else 0, "last_error": row.last_error if row else "",
             "next_attempt_at": row.next_attempt_at if row else None,

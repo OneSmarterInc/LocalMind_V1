@@ -134,8 +134,8 @@ export interface Submission {
   results_released_at?: string | null;
 }
 
-export interface LessonSection { heading: string; explanation: string; source_reference: string }
-export interface Lesson { title: string; learning_objectives: string[]; sections: LessonSection[]; key_terms: { term: string; definition: string }[]; summary: string }
+export interface LessonSection { visual_ids?: string[]; heading: string; explanation: string; source_reference: string }
+export interface Lesson { source_visuals?: import("@/ui/SourceFigures").Figure[]; title: string; learning_objectives: string[]; sections: LessonSection[]; key_terms: { term: string; definition: string }[]; summary: string }
 /**
  * The Lesson tab. Lessons are generated in the background and stored, so this
  * never waits for the model. ready: the tutor's lesson. preparing: queued or

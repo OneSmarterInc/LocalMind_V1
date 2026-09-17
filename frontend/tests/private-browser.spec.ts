@@ -764,3 +764,36 @@ test('automatic book work disables module generation and can be cancelled there'
  await page.getByRole('button',{name:'Cancel generation',exact:true}).click();
  await expect(page.getByRole('button',{name:/^(Generate|Regenerate) quiz$/})).toBeEnabled({timeout:30000});
 });
+
+
+test('original lesson image survives offline reload and enlarges for students',async({page,context})=>{
+ await signIn(page);await model(page);
+ await page.goto(`/student/module/${fixture().autoModule}?tab=lesson`);
+ await expect(page.getByRole('img',{name:'Figure 1: Leaf structure',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Enlarge image',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Close image',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Close image',exact:true}).click();
+ await context.setOffline(true);await page.reload();
+ await expect(page.getByRole('img',{name:'Figure 1: Leaf structure',exact:true})).toBeVisible();
+});
+
+test('faculty sees original image with the existing institution lesson',async({page})=>{
+ await signIn(page,'faculty',`/manage/local-authoring/${fixture().autoModule}`);
+ await expect(page.getByRole('heading',{name:'Institution lesson',exact:true})).toBeVisible();
+ await expect(page.getByRole('img',{name:'Figure 1: Leaf structure',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Enlarge image',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Close image',exact:true})).toBeVisible();
+});
+
+test('private generated lessons retain original illustrations offline',async({page,context})=>{
+ await signIn(page);await model(page);await page.goto('/student/private-library');
+ await pick(page,'Upload my book',{name:'Original figures.pdf',mimeType:'application/pdf',buffer:fs.readFileSync('test-results/illustrated-text.pdf')});
+ await page.getByText('Original figures',{exact:true}).click();
+ await page.getByRole('button',{name:'Generate a lesson',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Key takeaways',exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'Enlarge image',exact:true}).first()).toBeVisible();
+ await context.setOffline(true);await page.reload();
+ await expect(page.getByRole('heading',{name:'Key takeaways',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Enlarge image',exact:true}).first().click();
+ await expect(page.getByRole('button',{name:'Close image',exact:true})).toBeVisible();
+});
