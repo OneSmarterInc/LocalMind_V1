@@ -203,8 +203,8 @@ export function CardHead({ title, subtitle, action, icon }: { title: string; sub
 /* Controls                                                            */
 /* ------------------------------------------------------------------ */
 
-export function Button({ title, onPress, variant = "primary", disabled, busy, small, icon, full, accessibilityLabel }: {
-  title: string; onPress: () => void; variant?: "primary" | "secondary" | "danger" | "ghost"; disabled?: boolean; busy?: boolean; small?: boolean; icon?: IconName; full?: boolean; accessibilityLabel?: string;
+export function Button({ title, onPress, variant = "primary", disabled, busy, small, icon, full, accessibilityLabel, iconPosition = "left" }: {
+  iconPosition?: "left" | "right"; title: string; onPress: () => void; variant?: "primary" | "secondary" | "danger" | "ghost"; disabled?: boolean; busy?: boolean; small?: boolean; icon?: IconName; full?: boolean; accessibilityLabel?: string;
 }) {
   const off = disabled || busy;
   const fg = variant === "primary" ? "#FFFFFF" : variant === "danger" ? colors.danger : variant === "ghost" ? colors.primary : colors.ink;
@@ -212,7 +212,7 @@ export function Button({ title, onPress, variant = "primary", disabled, busy, sm
     <Pressable onPress={onPress} disabled={off} accessibilityRole="button" accessibilityLabel={accessibilityLabel ?? title} accessibilityState={{ disabled: !!off, busy: !!busy }} style={full ? { alignSelf: "stretch" } : undefined}>
       {(st: PressState) => (
         <View style={[
-          s.btn, small && s.btnSmall,
+          s.btn, small && s.btnSmall, iconPosition === "right" && { flexDirection: "row-reverse" },
           variant === "primary" && { backgroundColor: st.hovered ? colors.primaryDark : colors.primary, borderColor: colors.primary },
           variant === "secondary" && { backgroundColor: st.hovered ? "#F4F7F1" : "#FFFFFF", borderColor: st.hovered ? "#BDCDBF" : colors.border },
           variant === "danger" && { backgroundColor: st.hovered ? "#FFF6F4" : "#FFFFFF", borderColor: "#EBC9C5" },

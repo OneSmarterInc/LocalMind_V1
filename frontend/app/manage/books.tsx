@@ -4,7 +4,7 @@ import { manage } from "@/api/endpoints";
 import type { Document } from "@/api/types";
 import { useFilterChoices } from "@/hooks/useChoices";
 import { useAction, useAsync } from "@/hooks/useAsync";
-import { Badge, Button, Card, CellText, Column, Dropdown, Empty, ErrorBanner, Input, Loading, PageHeading, Screen, Table, TableToolbar, fmtDay, RequestFailed, Row, confirmDeleteAsync } from "@/ui";
+import { Badge, Button, Card, CellText, Column, Dropdown, Empty, ErrorBanner, Input, Loading, PageHeading, Screen, Table, TableToolbar, fmtDay, RequestFailed, confirmDeleteAsync } from "@/ui";
 
 export default function Books() {
   const router = useRouter();
@@ -32,7 +32,8 @@ export default function Books() {
     { key: "s", label: "Status", flex: 1, render: (d) => <Badge value={d.status === "under_review" ? "Under review" : d.status} /> },
     { key: "l", label: "Lessons", flex: 0.9, render: (d) => (d.lessons ? `${d.lessons.ready} of ${d.lessons.total} ready` : "—") },
     { key: "u", label: "Updated", flex: 0.9, render: (d) => fmtDay((d as Document & { updated_at?: string; created_at?: string }).updated_at ?? (d as Document & { created_at?: string }).created_at) },
-    { key: "x", label: "Actions", flex: 1.7, render: (d) => <Row><Button title={action(d)} small icon={d.status === "under_review" ? "arrow-forward" : undefined} variant={d.status === "under_review" ? "primary" : "secondary"} onPress={() => router.push(`/manage/document/${d.id}`)} /><Button title="Remove book" small variant="danger" icon="trash-outline" disabled={remove.busy} onPress={() => remove.run(d)} /></Row> },
+    { key: "x", label: "Open", width: 170, align: "center", render: (d) => <Button title={action(d)} small icon="arrow-forward" iconPosition="right" variant={d.status === "under_review" ? "primary" : "secondary"} onPress={() => router.push(`/manage/document/${d.id}`)} /> },
+    { key: "remove", label: "Remove", width: 150, align: "center", render: (d) => <Button title="Remove book" small variant="danger" icon="trash-outline" disabled={remove.busy} onPress={() => remove.run(d)} /> },
   ];
   return (
     <Screen refreshing={q.loading} onRefresh={q.reload}>

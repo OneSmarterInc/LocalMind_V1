@@ -683,12 +683,22 @@ test('module authoring returns to the selected book outline',async({page})=>{
  await page.getByRole('button',{name:'Back to outline',exact:true}).click();
  await expect(page).toHaveURL(new RegExp(`/manage/document/${fixture().document}\\?tab=outline&module=${fixture().module}`));
  await expect(page.getByLabel('Module title',{exact:true})).toHaveValue('Leaf science');
+ await expect(page.getByRole('button',{name:'Books for private study',exact:true})).toHaveCount(0);
+ await page.getByRole('button',{name:'Next: Lessons & quizzes',exact:true}).click();
+ await expect(page.getByRole('tab',{name:'Lessons & quizzes',exact:true})).toHaveAttribute('aria-selected','true');
+ await page.getByRole('button',{name:'Back to outline',exact:true}).click();
+ await expect(page.getByLabel('Module title',{exact:true})).toHaveValue('Leaf science');
+ await page.getByRole('button',{name:'Back to books',exact:true}).click();
+ await expect(page).toHaveURL(/\/manage\/books$/);
 });
 
 test('books list confirms removal and stays on the list when cancelled',async({page})=>{
  await signIn(page,'faculty','/manage/books');
  const row=page.getByText('Faculty Biology',{exact:true});
  await expect(row).toBeVisible();
+ const centers=await page.getByRole('button',{name:'Remove book',exact:true}).evaluateAll(buttons=>buttons.map(button=>{const r=button.getBoundingClientRect();return r.x+r.width/2;}));
+ expect(centers.length).toBeGreaterThan(1);
+ expect(Math.max(...centers)-Math.min(...centers)).toBeLessThan(1);
  await page.getByRole('button',{name:'Remove book',exact:true}).first().click();
  await expect(page.getByText('Remove this book?',{exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Cancel',exact:true}).click();

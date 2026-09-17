@@ -131,6 +131,7 @@ export default function DocumentScreen() {
   const missingSource = d?.missing_source_modules?.length ?? 0;
   const statusBadge = d ? <Badge value={d.status === "under_review" ? "Under review" : d.status} /> : null;
   const subtitle = d ? `${code ? `${code} · ` : ""}${d.chapter_count ?? 0} chapters · ${d.module_count ?? 0} modules · Version ${d.content_version}` : null;
+  const backToBooks = <Row><Button title="Back to books" icon="arrow-back" variant="secondary" onPress={() => { void confirmLeave().then(ok => { if (ok) router.push("/manage/books"); }); }} /></Row>;
   const stepper = (active: number) => <Stepper steps={["Upload a book", "Review the outline", "Publish to students"]} active={active} />;
 
   if (!editable) {
@@ -142,6 +143,7 @@ export default function DocumentScreen() {
         {d ? (
           <>
             <PageHeading eyebrow="BOOK PROCESSING" title={d.status === "error" ? "This book could not be processed." : "Your book is taking shape."} subtitle={d.original_name} right={statusBadge} />
+            {backToBooks}
             {stepper(0)}
             {d.status === "processing" ? <ProcessingCard doc={d} onOpen={() => { void doc.reload(); }} /> : null}
             {d.status === "error" ? <Notice tone="danger" title="Processing failed" message={`${d.error_message || "Unknown error"}. Check the file and try again, or delete it and upload a better copy.`} /> : null}
@@ -166,6 +168,7 @@ export default function DocumentScreen() {
     return (
       <Screen refreshing={doc.loading} onRefresh={doc.reload}>
         <PageHeading eyebrow="BOOKS & MODULES" title={`${d.title} is archived.`} subtitle={subtitle} right={<Badge value="Archived" tone="neutral" />} />
+        {backToBooks}
         <ErrorBanner message={doc.error ?? remove.error} onRetry={doc.error ? doc.reload : undefined} />
         <Notice title="This book is read-only." message="Archived books are hidden from students and cannot be edited, processed or published again. Student records that refer to it are kept." />
         <Grid min={320} gap={20}>
@@ -217,7 +220,7 @@ export default function DocumentScreen() {
     return (
       <Screen refreshing={doc.loading} onRefresh={doc.reload}>
         <PageHeading eyebrow="BOOKS & MODULES" title={`${d!.title} is published.`} subtitle={subtitle} right={statusBadge} />
-      <Button title="Books for private study" variant="secondary" onPress={() => { void confirmLeave().then(ok => { if (ok) router.push(`/manage/study/${id}`); }); }} />
+      {backToBooks}
         <ErrorBanner message={doc.error ?? act.error ?? remove.error} onRetry={doc.error ? doc.reload : undefined} />
         <Notice tone="success" title="Students can now find this book." message="Enrolled students see its open modules, ready lessons and published quizzes." />
         <Grid min={320} gap={20}>
@@ -252,7 +255,7 @@ export default function DocumentScreen() {
     <Screen>
       {jobNotice}<ErrorBanner message={retryJob.error}/>
       <PageHeading eyebrow="BOOKS & MODULES" title={d!.title} subtitle={subtitle} right={statusBadge} />
-      <Button title="Books for private study" variant="secondary" onPress={() => { void confirmLeave().then(ok => { if (ok) router.push(`/manage/study/${id}`); }); }} />
+      {backToBooks}
       {!live ? stepper(tab === "publish" ? 2 : 1) : null}
       <ErrorBanner message={tabError ?? doc.error ?? act.error ?? remove.error} onRetry={doc.error ? doc.reload : undefined} />
       <PageTabs<DocTab> value={tab} onChange={setTab} tabs={[
@@ -260,6 +263,10 @@ export default function DocumentScreen() {
         { key: "lessons", label: "Lessons & quizzes", count: d!.auto_quizzes?.held ? d!.auto_quizzes.held : null },
         live ? { key: "live", label: "Published book" } : { key: "publish", label: "Publish checklist" },
       ]} />
+      <Row>
+        {tab !== "outline" ? <Button title={tab === "lessons" ? "Back to outline" : "Back to lessons & quizzes"} icon="arrow-back" variant="secondary" onPress={() => { void setTab(tab === "lessons" ? "outline" : "lessons"); }} /> : null}
+        {tab !== "publish" ? <Button title={tab === "outline" ? "Next: Lessons & quizzes" : live ? "Next: Published book" : "Next: Publish checklist"} icon="arrow-forward" iconPosition="right" variant="secondary" onPress={() => { void setTab(tab === "outline" ? "lessons" : live ? "live" : "publish"); }} /> : null}
+      </Row>
       {tab === "outline" ? (
         <>
           <Notice title="One module at a time." message="Choose a module on the left. Edit its title and source on the right. Save explicitly before leaving." />
