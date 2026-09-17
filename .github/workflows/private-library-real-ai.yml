@@ -1,7 +1,7 @@
 name: Private library real AI and native bundles
 on:
   push:
-    branches: [feature/integrated-private-library]
+    branches: [feature/integrated-private-library, Image_Extraction]
     paths:
       - '.github/workflows/private-library-real-ai.yml'
       - 'frontend/tests/private-real-model.spec.ts'
