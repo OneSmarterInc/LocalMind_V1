@@ -131,7 +131,7 @@ export default function DocumentScreen() {
   const tab: DocTab = live && tabChoice === "publish" ? "live" : !live && tabChoice === "live" ? "publish" : tabChoice ?? (live ? "live" : "outline");
   const missingSource = d?.missing_source_modules?.length ?? 0;
   const statusBadge = d ? <Badge value={d.status === "under_review" ? "Under review" : d.status} /> : null;
-  const subtitle = d ? `${code ? `${code} · ` : ""}${d.chapter_count ?? 0} chapters · ${d.module_count ?? 0} modules · Version ${d.content_version}` : null;
+  const subtitle = d ? `${code ? `${code} · ` : ""}${d.outline_quality?.content_chapters ?? d.chapter_count ?? 0} chapters${d.outline_quality?.introductory_group ? ' + introductory material' : ''} · ${d.module_count ?? 0} modules · Version ${d.content_version}` : null;
   const backToBooks = <Row><Button title="Back to books" icon="arrow-back" variant="secondary" onPress={() => { void confirmLeave().then(ok => { if (ok) router.push("/manage/books"); }); }} /></Row>;
   const stepper = (active: number) => <Stepper steps={["Upload a book", "Review the outline", "Publish to students"]} active={active} />;
 
@@ -264,6 +264,7 @@ export default function DocumentScreen() {
       ]} />
       {tab === "outline" ? (
         <>
+          {d.outline_quality?.source_sections ? <Notice title={`${d.outline_quality.covered_sections} of ${d.outline_quality.source_sections} extracted sections accounted for`} message={[d.outline_quality.coverage_note,...(d.outline_quality.warnings||[])].filter(Boolean).join(' ')} tone={d.outline_quality.warnings?.length ? 'warning' : 'info'} /> : null}
           <Notice title="One module at a time." message="Choose a module on the left. Edit its title and source on the right. Save explicitly before leaving." />
           {missingSource ? <Notice tone="warning" title="Modules without text" message={`${missingSource} module${missingSource === 1 ? " has" : "s have"} no source text but ${missingSource === 1 ? "is" : "are"} kept because a quiz, an assignment or student work refers to ${missingSource === 1 ? "it" : "them"}. Students do not see ${missingSource === 1 ? "it" : "them"}. Paste text to bring ${missingSource === 1 ? "it" : "them"} back.`} /> : null}
           {live ? <Notice tone="warning" title="This book is live." message="Saved changes reach enrolled students immediately, and a module a student has already worked through cannot be removed." /> : null}
@@ -444,6 +445,11 @@ function PublishTab({ doc, onAct, busy, onDelete, deleting, onTab }: { doc: Docu
 function OutlineWorkspace({ documentId, published, onSaved, onState, lessonStatus, quizStatus, onReview, initialModuleId }: { onReview?: () => void; initialModuleId?: string; documentId: string; published: boolean; onSaved: () => void; onState: (s: { dirty: boolean; save: () => Promise<boolean> }) => void; lessonStatus: Record<string, LessonStatus>; quizStatus: Record<string, string> }) {
   const q = useAsync(() => manage.outline(documentId), [documentId]);
   const { data: outlineData, reload: reloadOutline } = q;
+  const [proposalVersion,setProposalVersion]=useState<number | null>(null);
+  const propose=useAction(async()=>{
+    const proposed=await manage.outline(documentId,true);
+    setChapters(proposed.chapters);setProposalVersion(proposed.content_version);setDirty(true);setSel({ci:0,mi:0});
+  });
   const [report, setReport] = useState<OutlineReport | null>(null);
   const [chapters, setChapters] = useState<OutlineChapter[] | null>(null);
   const [dirty, setDirtyState] = useState(false);
@@ -464,6 +470,7 @@ function OutlineWorkspace({ documentId, published, onSaved, onState, lessonStatu
     if (!q.data) return;
     // A background reload (for example when the window regains focus) must not replace unsaved edits.
     if (dirtyRef.current) return;
+    setProposalVersion(null);
     setChapters(q.data.chapters.map((c) => ({ ...c, modules: c.modules.map((m) => ({ ...m })) })));
     setDirty(false);
     if (initialModuleId) {
@@ -516,16 +523,17 @@ function OutlineWorkspace({ documentId, published, onSaved, onState, lessonStatu
     const payload = chapters.map((c, ci) => ({ id: c.id, title: c.title, order: ci + 1, source_heading_index: c.source_heading_index ?? null,
       modules: c.modules.map((m, mi) => {
         const edited = m.source_text !== undefined && (!m.id || m.source_text !== loaded.get(m.id));
-        return { id: m.id, title: m.title, order: mi + 1, source_heading_index: m.source_heading_index ?? null, ...(edited ? { source_text: m.source_text } : {}) };
+        return { id: m.id, title: m.title, order: mi + 1, source_heading_index: m.source_heading_index ?? null, ...(edited ? { source_text: m.source_text, start_page:m.start_page, end_page:m.end_page } : {}) };
       }) }));
-    const saved = await manage.saveOutline(documentId, payload as OutlineChapter[]);
+    const saved = await manage.saveOutline(documentId, payload as OutlineChapter[], undefined, proposalVersion ?? outlineData?.content_version);
+    setProposalVersion(null);
     const r = saved.outline_report;
     setReport(r && (r.removed_empty_modules.length || r.removed_empty_chapters.length || r.hidden_empty_modules.length) ? r : null);
     setDirty(false);
     await reloadOutline(); onSaved();
     return true;
     } finally { setSaving(false); }
-  }, [chapters, documentId, outlineData, reloadOutline, onSaved]);
+  }, [chapters, proposalVersion, documentId, outlineData, reloadOutline, onSaved]);
   // Unsaved outline edits are guarded against in-app navigation too (Save / Discard / Stay).
   useEffect(() => {
     if (!dirty) return;
@@ -533,7 +541,7 @@ function OutlineWorkspace({ documentId, published, onSaved, onState, lessonStatu
       label: "this book’s outline",
       // The same save the button uses, so a failure is reported the same way wherever it happens.
       save: async () => { setSaveError(null); try { return await persist(); } catch (e) { setSaveError(errorMessage(e)); throw e; } },
-      discard: () => { setDirty(false); if (outlineData) setChapters(outlineData.chapters.map((c) => ({ ...c, modules: c.modules.map((m) => ({ ...m })) }))); },
+      discard: () => { setProposalVersion(null); setDirty(false); if (outlineData) setChapters(outlineData.chapters.map((c) => ({ ...c, modules: c.modules.map((m) => ({ ...m })) }))); },
     });
   }, [dirty, persist, outlineData]);
 
@@ -639,7 +647,7 @@ function OutlineWorkspace({ documentId, published, onSaved, onState, lessonStatu
     <OutlineTree
       chapters={chapters}
       selection={sel}
-      outlineSource={q.data?.outline_source}
+      outlineSource={proposalVersion!==null?'reading_units':q.data?.outline_source}
       onSelect={setSel}
       onCollapse={() => setSel(null)}
       onAddChapter={addChapter}
@@ -651,7 +659,9 @@ function OutlineWorkspace({ documentId, published, onSaved, onState, lessonStatu
 
   const pane = (
     <View style={ws.pane}>
-      <ErrorBanner message={save.error ?? avail.error} />
+      <ErrorBanner message={save.error ?? avail.error ?? propose.error} />
+      {!published && q.data?.outline_source !== 'reading_units' ? <Button small variant="secondary" title={proposalVersion!==null ? 'Discard proposed outline' : 'Preview reading outline'} busy={propose.busy} disabled={dirty && proposalVersion===null} onPress={()=>{if(proposalVersion!==null){setChapters(outlineData!.chapters);setProposalVersion(null);setDirty(false);setSel(null);}else void propose.run();}} /> : null}
+      {proposalVersion!==null ? <Notice title="Proposed outline — not saved" message="Rebuilt from the original extracted source. Review any previous manual corrections before saving. Existing student activity prevents replacement of affected modules." /> : null}
       {report ? <SaveReport report={report} onDismiss={() => setReport(null)} /> : null}
       {mod && chapter && sel ? (
         <ModulePane
@@ -713,6 +723,7 @@ function OutlineWorkspace({ documentId, published, onSaved, onState, lessonStatu
 /** How the outline came to be, in words rather than the stored token. */
 const OUTLINE_SOURCE: Record<string, string> = {
   ai: "outline planned by the tutor model",
+  reading_units: "reading units grouped from the source; all extracted sections accounted for",
   source_hierarchy: "outline taken from the book's own headings",
   edited: "outline edited by hand",
 };

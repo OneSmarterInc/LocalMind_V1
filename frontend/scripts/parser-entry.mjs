@@ -2,6 +2,7 @@ import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { WorkerMessageHandler } from 'pdfjs-dist/legacy/build/pdf.worker.mjs';
 import { unzipSync } from 'fflate';
 import { readablePdfText, imageRectangles, vectorRectangles, sourceFigureContext } from './pdf-layout.mjs';
+import { groupPdfPages } from './reading-outline.mjs';
 import { OCR_WORKER } from './generated-ocr.mjs';
 globalThis.pdfjsWorker={WorkerMessageHandler};
 const LIMIT=2_000_000;
@@ -63,7 +64,14 @@ async function parse(bytes,name,signal,progress=()=>{},saveVisual){
   const abort=()=>{void task.destroy();};signal?.addEventListener('abort',abort);
   let doc;
   try {
-   doc=await task.promise;assert(doc.numPages<=1500,'Import a chapter at a time (maximum 1,500 PDF pages).');let total=0;
+   doc=await task.promise;const bookmarks=[];
+   for(const entry of (await doc.getOutline())||[]){
+    try{const dest=typeof entry.dest==='string'?await doc.getDestination(entry.dest):entry.dest;
+     if(!dest?.length)continue;const index=Number.isInteger(dest[0])?dest[0]:await doc.getPageIndex(dest[0]);
+     bookmarks.push({title:entry.title,page:index+1});
+    }catch{warnings.push('A PDF outline destination could not be read. Review the chapter boundaries.');}
+   }
+   assert(doc.numPages<=1500,'Import a chapter at a time (maximum 1,500 PDF pages).');let total=0;
    for(let p=1;p<=doc.numPages;p++){
     check(signal);progress(`Preparing page ${p} of ${doc.numPages}`);
     const page=await doc.getPage(p), c=await page.getTextContent();
@@ -106,6 +114,7 @@ async function parse(bytes,name,signal,progress=()=>{},saveVisual){
      items.push({title:`Page ${p}`,text,page:p,visualIds,ocr:needsOCR});
     }finally{canvas.width=0;canvas.height=0;page.cleanup();}
    }
+   const grouped=groupPdfPages(items,bookmarks);items=grouped.items;warnings.push(...grouped.warnings);
   } finally {signal?.removeEventListener('abort',abort);if(doc)await doc.destroy();else await task.destroy();}
   warnings.unshift('Raster illustrations and grouped vector diagrams/tables are cropped where detectable; complex or scanned-page figures may require the original page. Original PDF pages are preserved as images. OCR runs locally in English; check numbers, formulas and table reading order against the original. Diagrams are displayed, not interpreted by the text model.');
  } else if(ext==='docx') {
@@ -124,13 +133,13 @@ async function parse(bytes,name,signal,progress=()=>{},saveVisual){
    for(const r of relDom.getElementsByTagName('Relationship'))if(r.getAttribute('TargetMode')!=='External')rels.set(r.getAttribute('Id'),r.getAttribute('Target'));
   }
   let current={title:'Introduction',text:'',visualIds:[]},total=0;
-  const push=()=>{if(current.text.trim()||current.visualIds.length)items.push(current);};
+  const push=()=>{if(current.text.trim()||current.visualIds.length||current.level)items.push(current);};
   const body=children(dom,'body')[0];assert(body,'Missing Word document body.');
   for(const [index,node] of Array.from(body.children).entries()){
    check(signal);progress(`Reading Word content ${index+1} of ${body.children.length}`);
    if(node.localName==='p'){
     const s=content(node),style=val(children(node,'pStyle')[0]),level=val(children(node,'outlineLvl')[0]);
-    if((/^(heading|title)[ _-]?\d*/i.test(style)||(level!==''&&Number(level)<9))&&s.trim()){push();current={title:s.slice(0,300),text:'',visualIds:[]};}
+    if((/^(heading|title)[ _-]?\d*/i.test(style)||(level!==''&&Number(level)<9))&&s.trim()){push();current={title:s.slice(0,300),text:'',visualIds:[],level:level!==''?Math.min(6,Number(level)+1):Number(/\d+/.exec(style)?.[0]||1)};}
     else current.text+=(children(node,'numPr').length?'• ':'')+s+'\n\n';
    }else if(node.localName==='tbl'){
     const rows=children(node,'tr').map(r=>children(r,'tc').map(c=>content(c).replace(/\|/g,'\\|')));
@@ -156,8 +165,9 @@ async function parse(bytes,name,signal,progress=()=>{},saveVisual){
  } else {
   assert(ext==='txt'||ext==='md','Supported files: PDF (including English scans), DOCX, TXT and Markdown.');
   const source=decode(bytes);assert(source.length<=LIMIT&&!source.includes('\0'),'Unsupported or oversized text.');let current={title:'Introduction',text:''};
-  for(const line of source.split(/\r?\n/)){const h=/^#{1,6}\s+(.+)$/.exec(line);if(h){if(current.text.trim())items.push(current);current={title:h[1],text:''};}else current.text+=line+'\n';}if(current.text.trim())items.push(current);
+  for(const line of source.split(/\r?\n/)){const h=/^(#{1,6})\s+(.+)$/.exec(line);if(h){if(current.text.trim()||current.level)items.push(current);current={title:h[2],text:'',level:h[1].length};}else current.text+=line+'\n';}if(current.text.trim()||current.level)items.push(current);
  }
+ let chapter;items=items.map(item=>{if(item.level===1)chapter=item.title;return item.level?{...item,chapter:chapter||'Reading',text:`${'#'.repeat(item.level)} ${item.title}\n${item.text}`} : item;});
  check(signal);assert(items.some(i=>i.text.trim()||i.visualIds?.length),'No readable source content found.');
  return {items,visuals,warnings:[...new Set(warnings)].slice(0,30)};
  }finally{try{await ocr?.close();}finally{running=false;}}

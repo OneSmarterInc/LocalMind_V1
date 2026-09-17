@@ -217,6 +217,7 @@ def run_processing(document_id, *, guard=None, run_id=None, raise_errors=False):
             report = outline_service.persist_outline(document, outline, parsed["sections"], user_edited=False)
             document.processed_markdown_path = parsed["markdown_path"]
             document.extracted_headings = parsed["headings"]
+            document.outline_quality = outline.get("_quality", {})
             document.outline_source = source
             document.parse_mode = parsed["parse_mode"]
             document.status = DocumentStatus.UNDER_REVIEW
@@ -326,6 +327,10 @@ def _outline_fingerprint(document):
 @transaction.atomic
 def replace_outline(actor, document, outline, request=None):
     _require_manage(actor, document.subject)
+    document = Document.objects.select_for_update().get(pk=document.pk)
+    expected = outline.get("expected_content_version")
+    if expected is not None and expected != document.content_version:
+        raise Conflict("The book changed since this outline was loaded. Reload it before saving.", code="OUTLINE_CHANGED")
     if document.status not in EDITABLE_STATUSES:
         raise Conflict(f"The outline cannot be edited while the document is '{document.status}'.", code="INVALID_STATE")
     # A published book stays editable. Structure changes reach students on
@@ -336,9 +341,10 @@ def replace_outline(actor, document, outline, request=None):
     before = _outline_fingerprint(document)
     report = outline_service.persist_outline(document, outline, sections, user_edited=True)
     document.outline_source = "edited"
+    document.outline_quality = {}
     if document.status == DocumentStatus.READY:
         document.status = DocumentStatus.UNDER_REVIEW
-    document.save(update_fields=["outline_source", "status", "updated_at"])
+    document.save(update_fields=["outline_source", "outline_quality", "status", "updated_at"])
     # The content version keys every cached lesson, tutor answer and chunk set
     # for the book. A save that changed nothing students read must not throw
     # all of that away: on a CPU host each lesson costs tens of seconds to
@@ -379,6 +385,7 @@ def edit_chapter(actor, chapter, title=None, source_text=None, request=None):
         changes["title"] = [chapter.title, outline_service.clean_title(title)]
         chapter.title = outline_service.clean_title(title)
     if source_text is not None:
+        Document.objects.filter(pk=document.pk).update(outline_quality={})
         changes["source_text"] = True
         chapter.source_text = source_text
     if changes:
@@ -406,6 +413,7 @@ def edit_module(actor, module, title=None, source_text=None, request=None):
             # here rather than stored.
             raise ValidationFailed("A module needs source text. To take it out of the book, remove the module instead.",
                                    code="EMPTY_SOURCE_TEXT")
+        Document.objects.filter(pk=document.pk).update(outline_quality={})
         changes["source_text"] = True
         module.source_text = source_text
         module.source_missing = False

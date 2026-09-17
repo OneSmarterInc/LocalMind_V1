@@ -47,7 +47,7 @@ export class LocalBooks {
   const row=await this.read(id);if(row.state==='synced')return row;
   if(!row.manifest){const book=await this.authoring.library.book(row.bookId);
    // The original parser hash is the book ID for new authoring imports.
-   row.manifest={id:row.id,subject_id:row.subjectId,title:row.title,sha256:book.id,reviewed:true,sections:book.sections.map(s=>({id:s.id,title:s.title,source:s.source,...(s.page?{page:s.page}:{})}))};
+   row.manifest={id:row.id,subject_id:row.subjectId,title:row.title,sha256:book.sourceHash||book.id,reviewed:true,sections:book.sections.map(s=>({id:s.id,title:s.title,source:s.source,...(s.page?{page:s.page}:{})}))};
   }
   row.state='pending';await this.save(row);return this.flush(id);
  }

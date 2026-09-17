@@ -29,7 +29,7 @@ class OutlineIntegrationTests(TestCase):
         sections = extract_sections_from_markdown('# Original name\nSmall introduction.\n## Actual module\nContent.')
         result, source = build_proposed_outline(doc, sections, _extract_headings(sections))
         gw.assert_not_called()
-        self.assertEqual(source, 'source_hierarchy')
+        self.assertEqual(source, 'reading_units')
         self.assertEqual(result['chapters'][0]['title'], 'Original name')
         self.assertEqual(result['chapters'][0]['modules'][-1]['title'], 'Actual module')
 
@@ -41,7 +41,7 @@ class OutlineIntegrationTests(TestCase):
         gw.return_value.generate.return_value = AIResult(ok=True, data={
             'document_title': 'Incomplete', 'chapters': [{'title': 'First', 'source_heading_index': 0, 'modules': []}]})
         result, source = build_proposed_outline(doc, sections, _extract_headings(sections))
-        self.assertEqual(source, 'source_hierarchy')
+        self.assertEqual(source, 'reading_units')
         self.assertEqual(len(result['chapters']), 2)
         gw.return_value.generate.assert_called_once()
 
@@ -52,7 +52,7 @@ class OutlineIntegrationTests(TestCase):
         persist_outline(doc, outline, sections)
         intro = Module.objects.get(chapter__document=doc, title='Introduction')
         self.assertIsNone(intro.source_heading_index)
-        self.assertEqual(intro.source_text, 'Important opening context.')
+        self.assertEqual(intro.source_text, '# Introduction\nImportant opening context.')
         chapter = doc.chapters.get(title='Chapter')
         self.assertEqual(chapter.source_heading_index, 0)
 
@@ -67,12 +67,13 @@ class OutlineIntegrationTests(TestCase):
                 {'id': str(module.id), 'title': module.title, 'source_heading_index': None, 'source_text': '   '}]}]}, sections, user_edited=True)
         self.assertEqual(error.exception.code, 'EMPTY_SOURCE_TEXT')
         module.refresh_from_db()
-        self.assertEqual(module.source_text, 'Stored source.')
+        self.assertEqual(module.source_text, '# Chapter\nStored source.')
 
     def test_existing_hidden_module_can_be_round_tripped_unchanged(self):
         doc = self.document()
         sections = extract_sections_from_markdown('# C\n## A\nAlpha.\n## B\nBeta.')
-        outline, _ = build_proposed_outline(doc, sections, _extract_headings(sections))
+        from documents.services.outline_policy import source_hierarchy_outline
+        outline = source_hierarchy_outline(doc.original_name, sections)
         persist_outline(doc, outline, sections)
         a, b = list(Module.objects.filter(chapter__document=doc).order_by('order'))
         a.source_text = ''; a.source_missing = True; a.source_heading_index = None; a.save()

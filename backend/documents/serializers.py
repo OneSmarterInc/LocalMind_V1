@@ -75,7 +75,7 @@ class DocumentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Document
         fields = ["id", "subject_id", "subject_code", "title", "original_name", "file_type", "file_size", "status",
-                  "outline_strategy", "outline_source", "parse_mode", "error_message", "uploaded_by_id", "uploaded_by_name", "published_by_name",
+                  "outline_strategy", "outline_source", "outline_quality", "parse_mode", "error_message", "uploaded_by_id", "uploaded_by_name", "published_by_name",
                   "processed_at", "reviewed_at", "published_at", "unpublished_at", "archived_at",
                   "content_version", "last_edited_at", "chapter_count", "module_count", "progress", "lessons",
                   "processing_started_at", "created_at", "updated_at"]
@@ -138,6 +138,8 @@ class UploadSerializer(serializers.Serializer):
 
 
 class OutlineModuleInSerializer(serializers.Serializer):
+    start_page = serializers.IntegerField(min_value=1, required=False, allow_null=True)
+    end_page = serializers.IntegerField(min_value=1, required=False, allow_null=True)
     id = serializers.UUIDField(required=False)
     title = serializers.CharField(max_length=300)
     source_heading_index = serializers.IntegerField(required=False, allow_null=True)
@@ -153,6 +155,7 @@ class OutlineChapterInSerializer(serializers.Serializer):
 
 
 class OutlineInSerializer(serializers.Serializer):
+    expected_content_version = serializers.IntegerField(min_value=1, required=False)
     document_title = serializers.CharField(max_length=300, required=False, allow_blank=True)
     chapters = OutlineChapterInSerializer(many=True)
 

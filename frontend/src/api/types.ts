@@ -40,6 +40,7 @@ export interface Chapter { id: string; title: string; order: number; modules: Mo
 export type DocumentStatus = "uploaded" | "processing" | "under_review" | "ready" | "published" | "unpublished" | "archived" | "error";
 export interface Document {
   background_job?: { id: string; status: string; attempts: number; error: string } | null;
+  outline_quality?: {content_chapters?:number; introductory_group?:boolean; source_sections?:number; covered_sections?:number; coverage_note?:string; warnings?:string[]};
   outline_strategy?: "source" | "ai";
   id: string; title: string; original_name: string; subject_id: string; subject_code?: string; status: DocumentStatus;
   file_type: string; file_size?: number; error_message?: string; content_version: number;
@@ -61,6 +62,7 @@ export interface Document {
 export interface DocumentTree { id: string; title: string; subject_id: string; content_version: number; chapters: Chapter[] }
 export interface Heading { index: number; level: number; title: string; start_page?: number; end_page?: number }
 export interface OutlineModule {
+  start_page?: number | null; end_page?: number | null;
   id?: string; title: string; order: number; source_heading_index: number | null; source_text?: string;
   source_missing?: boolean; availability?: ModuleAvailability; lesson_status?: LessonStatus;
   /** The module's automatic quiz: ready, checking (waiting for the AI monitor), held (flagged; needs review), pending,
@@ -68,7 +70,7 @@ export interface OutlineModule {
   quiz_status?: string; auto_quiz_id?: string | null;
 }
 export interface OutlineChapter { id?: string; title: string; order: number; source_heading_index?: number | null; modules: OutlineModule[] }
-export interface Outline { document_id: string; status: DocumentStatus; content_version: number; headings: Heading[]; outline_source?: string; document_title: string; chapters: OutlineChapter[] }
+export interface Outline { outline_quality?: Document["outline_quality"]; document_id: string; status: DocumentStatus; content_version: number; headings: Heading[]; outline_source?: string; document_title: string; chapters: OutlineChapter[] }
 
 export interface QuizOption { key: string; text: string }
 export interface Question {

@@ -59,7 +59,7 @@ class LocalBookTests(TestCase):
         for field, value in [('reviewed', False), ('sections', []), ('sha256', 'x')]:
             data = {**self.data, field: value}
             self.assertEqual(self.post(data).status_code, 400)
-        for change in [{'source': ''}, {'page': True}, {'source': 'x' * 3201}]:
+        for change in [{'source': ''}, {'page': True}, {'source': 'x' * 60001}]:
             data = {**self.data, 'sections': [{**self.data['sections'][0], **change}]}
             self.assertEqual(self.post(data).status_code, 400)
         data = {**self.data, 'sections': [self.data['sections'][0]] * 2}

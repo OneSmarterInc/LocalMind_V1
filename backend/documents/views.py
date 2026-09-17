@@ -124,9 +124,19 @@ class OutlineView(APIView):
 
     def get(self, request, document_id):
         document = _doc(request.user, document_id)
+        if request.query_params.get("suggest") == "reading":
+            from .services.reading_outline import suggest_for_document
+            from core.exceptions import ValidationFailed
+            try:
+                plan = suggest_for_document(document)
+            except (ValueError, OSError) as exc:
+                raise ValidationFailed(str(exc)) from exc
+            return Response({"document_id": str(document.pk), "content_version": document.content_version,
+                             "status": document.status, "outline_source": "reading_units", "headings": [],
+                             "outline_quality": plan.pop("_quality"), **plan})
         chapters = document.chapters.prefetch_related("modules__lesson", "modules__auto_quiz_job")
         return Response({"document_id": str(document.id), "document_title": document.title, "status": document.status,
-                         "outline_source": document.outline_source, "headings": document.extracted_headings,
+                         "outline_source": document.outline_source, "content_version": document.content_version, "headings": document.extracted_headings,
                          "chapters": ChapterSerializer(chapters, many=True).data})
 
     def put(self, request, document_id):

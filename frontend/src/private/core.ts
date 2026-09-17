@@ -2,10 +2,11 @@
 export const MAX_BOOK_BYTES = 100 * 1024 * 1024;
 export const MAX_TEXT_CHARS = 2_000_000;
 export const MAX_SECTION_CHARS = 3200;
+export const MAX_READING_CHARS = 60000;
 export type SourceVisual = { id: string; dataUrl: string; width: number; height: number; caption: string; kind?: 'page'|'figure'; page?: number; context_text?: string; heading_path?: string[] };
-export type SourceItem = { title: string; text: string; page?: number; visualIds?: string[]; ocr?: boolean };
-export type Section = { id: string; title: string; source: string; page?: number; visualIds?: string[]; ocr?: boolean };
-export type PrivateBook = { importVersion?: number; assetSet?: string; id: string; title: string; originalName: string; importedAt: string; origin: 'personal'|'shared'; sourceId?: string; sections: Section[]; warnings: string[] };
+export type SourceItem = { title: string; text: string; page?: number; visualIds?: string[]; ocr?: boolean; chapter?: string; level?: number; readingUnit?: boolean };
+export type Section = { id: string; title: string; source: string; page?: number; visualIds?: string[]; ocr?: boolean; chapter?: string; level?: number; readingUnit?: boolean };
+export type PrivateBook = { sourceHash?: string; importVersion?: number; assetSet?: string; id: string; title: string; originalName: string; importedAt: string; origin: 'personal'|'shared'; sourceId?: string; sections: Section[]; warnings: string[] };
 export type Lesson = { introduction: string; sections: {heading: string; content: string; quote: string}[]; takeaways: string[] };
 export type MCQ = { id: string; sectionId: string; question: string; options: string[]; answer: number; explanation: string; quote: string };
 export function requireThat(value: unknown, message: string): asserts value { if (!value) throw new Error(message); }
@@ -22,7 +23,7 @@ export function validateBook(value: unknown): PrivateBook {
   requireThat(Array.isArray(b.sections) && b.sections.length > 0 && b.sections.length <= 10000,'The book has no readable modules');
   const ids=new Set<string>(); let size=0;
   for(const raw of b.sections) { const s=obj(raw); const id=text(s.id,100,'module ID'); requireThat(!ids.has(id),'Duplicate module ID'); ids.add(id); text(s.title,300,'module title');
-    requireThat(typeof s.source==='string' && s.source.length<=MAX_SECTION_CHARS,'Invalid module source');
+    requireThat(typeof s.source==='string' && s.source.length<=(s.readingUnit === true ? MAX_READING_CHARS : MAX_SECTION_CHARS),'Invalid module source');
     if(s.visualIds!==undefined)requireThat(Array.isArray(s.visualIds)&&s.visualIds.length<=300&&s.visualIds.every(v=>typeof v==='string'&&/^v\d+$/.test(v)),'Invalid source visuals');
     requireThat(s.source.trim() || (Array.isArray(s.visualIds)&&s.visualIds.length),'The module has no source content');size+=s.source.length;
   }
@@ -54,7 +55,7 @@ export function markQuiz(questions: MCQ[], answers: Record<string,number>) {
   return {correct,total:questions.length,percentage:Math.round(correct/questions.length*100),checks};
 }
 /** Lossless splitting: source order is retained, no AI reorganisation and no progress locks. */
-export function makeSections(items: SourceItem[]): Section[] {
+export function makeSections(items: SourceItem[], maxChars=MAX_SECTION_CHARS): Section[] {
   const result:Section[]=[]; let total=0;
   for(const item of items) {
     const source=item.text.replace(/\r\n?/g,'\n').trim();
@@ -63,7 +64,7 @@ export function makeSections(items: SourceItem[]): Section[] {
     total+=source.length; requireThat(total<=MAX_TEXT_CHARS,'Book exceeds the 2-million-character limit. Import a chapter at a time.');
     let remaining=source, part=0;
     while(remaining) {
-      let end=Math.min(remaining.length,MAX_SECTION_CHARS);
+      let end=Math.min(remaining.length,maxChars);
       if(end<remaining.length) { if(remaining.length-end<500)end=Math.floor(remaining.length/2); const boundary=Math.max(remaining.lastIndexOf('\n',end),remaining.lastIndexOf('. ',end)); if(boundary>end/2) end=boundary+1; }
       const s=remaining.slice(0,end).trim(); remaining=remaining.slice(end).trim(); if(!s) continue;
       result.push({id:`s${result.length+1}`,title:`${item.title.slice(0,260) || 'Reading'}${part || remaining ? ` · Part ${++part}` : ''}`,source:s,...provenance});
@@ -71,10 +72,39 @@ export function makeSections(items: SourceItem[]): Section[] {
   }
   requireThat(result.length>0,'No source content was found in this book.'); return result;
 }
+/** Visible reading units are independent of the small inference passages. */
+export function makeReadingSections(items:SourceItem[]):Section[]{
+ const result:Section[]=[];let pending:SourceItem[]=[];let length=0;
+ const flush=()=>{
+  if(!pending.length)return;
+  const first=pending[0],source=pending.map(i=>i.text.replace(/\r\n?/g,'\n').trim()).join('\n\n');
+  const visualIds=[...new Set(pending.flatMap(i=>i.visualIds||[]))];
+  requireThat(visualIds.length<=300,'This reading unit contains too many images. Import a smaller chapter.');
+  result.push({id:`s${result.length+1}`,title:(first.chapter||first.title||'Reading').slice(0,300),source,
+   readingUnit:true,...(first.page?{page:first.page}:{}),...(visualIds.length?{visualIds}:{}),
+   ...(pending.some(i=>i.ocr)?{ocr:true}:{})});pending=[];length=0;
+ };
+ for(const item of items){
+  // Keep authored sections together. Page boundaries alone do not create modules.
+  const pageItem=/^Page \d+$/.test(item.title);
+  if(pending.length&&(item.chapter!==pending[0].chapter||(!pageItem&&!item.chapter)||length+item.text.length>12000))flush();
+  if(item.text.length>MAX_READING_CHARS){
+   flush();const pieces=makeSections([item],12000);
+   for(const piece of pieces)result.push({...piece,id:`s${result.length+1}`,readingUnit:true});
+  }else if(item.text.trim()||item.visualIds?.length){pending.push(item);length+=item.text.length+2;}
+ }
+ flush();requireThat(result.length>0,'No source content was found in this book.');
+ const total=result.reduce((n,s)=>n+s.source.length,0);requireThat(total<=MAX_TEXT_CHARS,'Book exceeds the 2-million-character limit.');
+ const expected=items.map(i=>i.text).join('').replace(/\s/g,''),actual=result.map(i=>i.source).join('').replace(/\s/g,'');
+ requireThat(expected===actual,'The reading outline did not retain every source passage. Nothing was saved.');
+ const counts=new Map<string,number>();for(const s of result)counts.set(s.title,(counts.get(s.title)||0)+1);
+ const seen=new Map<string,number>();for(const s of result)if((counts.get(s.title)||0)>1){const title=s.title,n=(seen.get(title)||0)+1;seen.set(title,n);s.title=`${title.slice(0,270)} · Reading ${n}`;}
+ return result;
+}
 /** A split PDF page remains one source for learning; never borrow another book's text. */
 export function pageSource(sections: Section[], id: string): string {
  const selected=sections.find(s=>s.id===id); requireThat(selected,'Choose a module');
- return (selected.page ? sections.filter(s=>s.page===selected.page) : [selected]).map(s=>s.source).join('\n\n');
+ return (selected.page && !selected.readingUnit ? sections.filter(s=>s.page===selected.page) : [selected]).map(s=>s.source).join('\n\n');
 }
 export function retrieve(source: string, question: string, limit=MAX_SECTION_CHARS) {
   if(source.length<=limit) return source;

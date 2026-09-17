@@ -59,7 +59,7 @@ class LocalBookView(APIView):
             if key in ids:
                 raise ValidationFailed('Repeated local module ID.')
             ids.add(key)
-            source = string(section.get('source'), 3200, 'module source')
+            source = string(section.get('source'), 60000, 'module source')
             total += len(source)
             page = section.get('page')
             if page is not None and (type(page) is not int or not 1 <= page <= 100000):

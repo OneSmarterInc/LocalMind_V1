@@ -7,7 +7,7 @@ import { BASE_URL, currentSession, SessionChangedError } from '@/api/client';
 import { device } from './device';
 import { cancelled } from './busy';
 import type { LocalFile } from './device.types';
-import { ANSWER_SCHEMA, groundedSchema, GROUNDING, COMPACT_LESSON_SCHEMA, COMPACT_MCQ_SCHEMA, markQuiz, requireThat, bookReference, pageSource, lessonPassages, text, validateAnswer, validateBook, validateLesson, validateMCQ, type PrivateBook, type Lesson, type MCQ, type SourceVisual } from './core';
+import { MAX_READING_CHARS, MAX_SECTION_CHARS, ANSWER_SCHEMA, groundedSchema, GROUNDING, COMPACT_LESSON_SCHEMA, COMPACT_MCQ_SCHEMA, markQuiz, requireThat, bookReference, pageSource, lessonPassages, text, validateAnswer, validateBook, validateLesson, validateMCQ, type PrivateBook, type Lesson, type MCQ, type SourceVisual } from './core';
 export type QuizVersion = { id: string; bookId: string; sectionId: string; createdAt: string; questions: MCQ[] };
 export type LessonVersion = { id: string; sectionId: string; createdAt: string; lesson: Lesson };
 export type PracticeResult = { id: string; quizId: string; createdAt: string; answers: Record<string, number> } & ReturnType<typeof markQuiz>;
@@ -31,19 +31,20 @@ export class Library {
   async viewState(bookId: string, key: string) { await this.book(bookId); const row=await (await device()).get<string>(`${this.work(bookId)}view:${key}`); this.guard(); return row || ''; }
   async saveViewState(bookId: string, key: string, value: string) { await this.book(bookId); await (await device()).put(`${this.work(bookId)}view:${key}`,value); this.guard(); }
   async correctSource(bookId:string, sectionId:string, source:string) {
-    requireThat(!!source.trim()&&source.length<=3200,'Enter between 1 and 3200 source characters.');
-    await generationJobs.cancelBook(`${this.prefix}session:${currentSession()}`,bookId);
     const book=await this.book(bookId);const section=book.sections.find(s=>s.id===sectionId);requireThat(section,'Choose a module');
+    const limit=section.readingUnit?MAX_READING_CHARS:MAX_SECTION_CHARS;
+    requireThat(!!source.trim()&&source.length<=limit,`Enter between 1 and ${limit} source characters.`);
+    await generationJobs.cancelBook(`${this.prefix}session:${currentSession()}`,bookId);
     const d=await device();const key=`${this.work(bookId)}original-source:${sectionId}`;
     if(await d.get(key)===undefined)await d.put(key,section.source);
-    section.source=source.trim();this.guard();await d.put(this.key(bookId),book);this.guard();
+    section.source=source.trim();this.guard();await d.put(this.key(bookId),validateBook(book));this.guard();
   }
   async import(file: LocalFile, shared?: { id: string; title: string; sha256?: string }, signal?: AbortSignal, progress?: (message: string) => void) {
     cancelled(signal); this.guard(); progress?.("Reading book on this device…");
     const d = await device(), assetSet=randomUUID();let assetPrefix='';let committed=false;
     const resolveId=async(hash:string)=>{
       const original=await d.get<PrivateBook>(this.key(hash));this.guard();
-      return original&&original.importVersion!==4?fingerprint(`${hash}|source-layout-v4`):hash;
+      return original&&original.importVersion!==5?fingerprint(`${hash}|source-layout-v5`):hash;
     };
     try {
       const parsed=await d.parse(file,signal,progress,async(visual,hash)=>{
@@ -57,7 +58,7 @@ export class Library {
       const id=await resolveId(parsed.hash), upgraded=id!==parsed.hash;
       const existing=await d.get<PrivateBook>(this.key(id));this.guard();
       if(existing)return {book:validateBook(existing),duplicate:true};
-      const book:PrivateBook={importVersion:4,assetSet,id,title:((shared?.title||file.name.replace(/\.[^.]+$/,''))+(upgraded?' · new extraction':'')).slice(0,300),originalName:file.name,importedAt:new Date().toISOString(),origin:shared?'shared':'personal',...(shared?{sourceId:shared.id}:{}),sections:parsed.sections,warnings:[...parsed.warnings,...(upgraded?['The earlier import and its practice history are unchanged. This copy uses the new extraction.']:[])]};
+      const book:PrivateBook={importVersion:5,sourceHash:parsed.hash,assetSet,id,title:((shared?.title||file.name.replace(/\.[^.]+$/,''))+(upgraded?' · new extraction':'')).slice(0,300),originalName:file.name,importedAt:new Date().toISOString(),origin:shared?'shared':'personal',...(shared?{sourceId:shared.id}:{}),sections:parsed.sections,warnings:[...parsed.warnings,...(upgraded?['The earlier import and its practice history are unchanged. This copy uses the new extraction.']:[])]};
       // Compatibility for parsers that return images instead of streaming them.
       assetPrefix ||= `${this.work(id)}visual:${assetSet}:`;
       for(const visual of parsed.visuals||[]){this.guard();cancelled(signal);await d.put(`${assetPrefix}${visual.id}`,visual);}

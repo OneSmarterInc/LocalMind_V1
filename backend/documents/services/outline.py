@@ -514,19 +514,21 @@ def tidy_existing_document(document, *, dry_run=False, actor=None, titles=True):
 
 
 def build_proposed_outline(document, sections, headings):
-    """Keep authored structure by default; AI regrouping is an explicit opt-in.
+    """Build coverage-checked reading units by default without central inference.
 
-    Invalid, incomplete or overlapping AI plans fall back to the whole source
-    hierarchy. No automatic title/fragment tidy is applied to authored mode.
+    Legacy server AI plans remain explicit opt-in; invalid plans fall back to
+    the deterministic reading outline. Existing saved rows are not migrated.
     """
     if device_authoring_only() or getattr(document, "outline_strategy", "source") != "ai":
-        return source_hierarchy_outline(document.original_name, sections), "source_hierarchy"
+        from .reading_outline import reading_outline
+        return reading_outline(document.original_name, sections), "reading_units"
     outline = ai_outline(document, headings)
     if outline and not _ai_plan_covers_source(outline, sections):
         logger.warning("AI outline did not cover every source section; using source hierarchy")
         outline = None
     if not outline:
-        return source_hierarchy_outline(document.original_name, sections), "source_hierarchy"
+        from .reading_outline import reading_outline
+        return reading_outline(document.original_name, sections), "reading_units"
     outline, report = tidy_outline(outline, sections)
     outline["_tidy_report"] = report
     return outline, "ai"

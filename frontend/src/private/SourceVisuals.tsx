@@ -6,14 +6,14 @@ import {useLibrary} from './useLibrary';
 import type {SourceVisual} from './core';
 import type {Library} from './library';
 /** Only stored source images: the model cannot supply image URLs. */
-export function SourceVisuals({bookId,sectionId,sourceLibrary}:{bookId:string;sectionId:string;sourceLibrary?:Library}){
+export function SourceVisuals({bookId,sectionId,sourceLibrary,pagesOnly=false}:{bookId:string;sectionId:string;sourceLibrary?:Library;pagesOnly?:boolean}){
  const privateLibrary=useLibrary(),library=sourceLibrary||privateLibrary;
  const visuals=useAsync(()=>library?library.visuals(bookId,sectionId):Promise.resolve([]),[library,bookId,sectionId]);
  const [expanded,setExpanded]=useState<SourceVisual|null>(null);
  return <View style={{gap:12,minWidth:0}}>
   <ErrorBanner message={visuals.error}/>
   {!!visuals.data?.length&&<><H2>Original source images</H2><P muted>Preserved from this module’s source. Tables and diagrams are shown as imported, alongside the explanation.</P></>}
-  {(visuals.data||[]).filter(v=>v.kind!=='page'&&!(v.kind===undefined&&v.caption.startsWith('Original page'))).map(v=><Card key={v.id}><P>{v.caption}</P><Image source={{uri:v.dataUrl}} accessibilityLabel={v.caption} resizeMode="contain" style={{width:'100%',aspectRatio:v.width/v.height,backgroundColor:'white'}}/><Button title="Enlarge illustration" variant="secondary" onPress={()=>setExpanded(v)}/></Card>)}
+  {(visuals.data||[]).filter(v=>!pagesOnly&&v.kind!=='page'&&!(v.kind===undefined&&v.caption.startsWith('Original page'))).map(v=><Card key={v.id}><P>{v.caption}</P><Image source={{uri:v.dataUrl}} accessibilityLabel={v.caption} resizeMode="contain" style={{width:'100%',aspectRatio:v.width/v.height,backgroundColor:'white'}}/><Button title="Enlarge illustration" variant="secondary" onPress={()=>setExpanded(v)}/></Card>)}
   {(visuals.data||[]).filter(v=>v.kind==='page'||(v.kind===undefined&&v.caption.startsWith('Original page'))).map(v=><Button key={v.id} title={`View original page ${v.page||''}`} variant="secondary" onPress={()=>setExpanded(v)}/>)}
   <Modal visible={!!expanded} animationType="fade" onRequestClose={()=>setExpanded(null)}>
    <View style={{flex:1,padding:20,paddingTop:48,gap:12,backgroundColor:colors.bg}}>

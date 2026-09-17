@@ -179,3 +179,18 @@ test('lesson image placement uses source evidence and retains ambiguous original
  const ambiguous=figurePlacement([sections[0],sections[0]],[figure]);assert.equal(ambiguous.remaining[0],figure);assert.deepEqual(ambiguous.groups,[[],[]]);
  assert.deepEqual(figurePlacement(sections,[{...figure,kind:'page'}]).groups,[[],[]]);
 });
+
+test('reading modules combine pages without combining inference budgets',()=>{
+ const items=Array.from({length:6},(_,i)=>({title:`Page ${i+1}`,text:`Unique page ${i+1}. `+source.repeat(8),page:i+1,chapter:i<3?'Chapter 1':'Chapter 2',visualIds:[`v${i+1}`]}));
+ const rows=c.makeReadingSections(items);assert.equal(rows.length,2);
+ assert.equal(rows.map(r=>r.source).join('').replace(/\s/g,''),items.map(i=>i.text).join('').replace(/\s/g,''));
+ assert.deepEqual(rows[0].visualIds,['v1','v2','v3']);
+ assert.equal(c.pageSource(rows,rows[0].id),rows[0].source);
+ assert.ok(c.lessonPassages(rows[0].source).length>1);
+ c.validateBook({id:'test',title:'Book',importedAt:'now',sections:rows,warnings:[]});
+});
+test('reading module retains image-only pages and long unbroken text',()=>{
+ const rows=c.makeReadingSections([{title:'One',text:'',visualIds:['v1']},{title:'Two',text:'x'.repeat(65000)}]);
+ assert.equal(rows[0].visualIds[0],'v1');assert.equal(rows.map(r=>r.source).join('').length,65000);
+ assert.ok(rows.every(r=>r.source.length<=c.MAX_READING_CHARS));
+});

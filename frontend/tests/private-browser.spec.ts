@@ -328,8 +328,8 @@ for(const kind of ['lesson','quiz'])test(`${kind} checkpoints survive offline re
 
 test('streamed import rolls back images on storage failure and saves successful images across reload',async({page})=>{
  await signIn(page);
- const manifest=await(await page.request.get('/offline-files.json')).json();
- await page.addScriptTag({url:manifest.files.find((f:string)=>/\/parser-[a-f0-9]+\.js$/.test(f)),type:'module'});
+ const activeParser=JSON.parse(fs.readFileSync('src/private/generated/parserAsset.ts','utf8').split('=')[1].trim().replace(/;$/,''));
+ await page.addScriptTag({url:activeParser,type:'module'});
  await page.evaluate(()=>{
   (window as any).__LM_PARSER__.parse=async(_bytes:any,_name:any,_signal:any,progress:any,save:any)=>{
    progress('Preparing page 1 of 2');
@@ -796,4 +796,32 @@ test('private generated lessons retain original illustrations offline',async({pa
  await expect(page.getByRole('heading',{name:'Key takeaways',exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Enlarge image',exact:true}).first().click();
  await expect(page.getByRole('button',{name:'Close image',exact:true})).toBeVisible();
+});
+
+test('reading outline preview can be discarded and explicitly saved without losing source',async({page})=>{
+ const tokens=await signIn(page,'faculty','/manage/books'),headers={Authorization:`Bearer ${tokens.access}`};
+ const upload=await page.request.post('/api/faculty/documents/',{headers,multipart:{subject_id:fixture().subject,title:'Reading preview regression',file:{name:'outline-upload.docx',mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',buffer:fs.readFileSync('test-results/outline-upload.docx')}}});
+ expect(upload.ok(),await upload.text()).toBeTruthy();const book=await upload.json();
+ await page.request.post(`/api/faculty/documents/${book.id}/process/`,{headers});
+ await expect.poll(async()=>{const r=await page.request.get(`/api/faculty/documents/${book.id}/`,{headers});return(await r.json()).status;},{timeout:60000}).toBe('under_review');
+ const url=`/api/faculty/documents/${book.id}/outline/`;
+ const before=await(await page.request.get(url,{headers})).json();
+ // Simulate an older saved outline label. The proposal and save use the real API.
+ await page.route(`**${url}`,async route=>{
+  if(route.request().method()!=='GET'){await route.continue();return;}
+  const r=await route.fetch(),data=await r.json();data.outline_source='source_hierarchy';await route.fulfill({response:r,json:data});
+ });
+ await page.goto(`/manage/document/${book.id}?tab=outline`);
+ await page.getByRole('button',{name:'Preview reading outline',exact:true}).click();
+ await expect(page.getByText('Proposed outline — not saved',{exact:true})).toBeVisible();
+ const unchanged=await(await page.request.get(url,{headers})).json();expect(unchanged.chapters).toEqual(before.chapters);
+ await page.getByRole('button',{name:'Discard proposed outline',exact:true}).click();
+ await expect(page.getByText('Proposed outline — not saved',{exact:true})).toHaveCount(0);
+ await page.getByRole('button',{name:'Preview reading outline',exact:true}).click();
+ await expect(page.getByText('Proposed outline — not saved',{exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Save changes',exact:true}).click();
+ await page.getByRole('button',{name:'Save outline',exact:true}).click();
+ await expect(page.getByText('No unsaved changes',{exact:true})).toBeVisible();
+ await expect(page.getByLabel('Source text',{exact:true})).toHaveValue(/restored upload regression/);
+ await page.screenshot({path:'test-results/reading-outline-reviewed.png',fullPage:true});
 });

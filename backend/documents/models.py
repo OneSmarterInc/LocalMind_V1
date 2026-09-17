@@ -96,6 +96,7 @@ class Document(TimeStampedUUIDModel):
     extracted_headings = models.JSONField(default=list, blank=True)
     outline_strategy = models.CharField(
         max_length=20, choices=[("source", "Keep source headings"), ("ai", "Suggest with AI")], default="source")
+    outline_quality = models.JSONField(default=dict, blank=True)
     outline_source = models.CharField(max_length=30, blank=True)  # ai | source_hierarchy | edited
     parse_mode = models.CharField(max_length=30, blank=True)
     error_message = models.TextField(blank=True)

@@ -194,6 +194,12 @@ def extract_sections_from_markdown(markdown: str):
             break
         own_text = _clean_source_text("\n".join(lines[heading["line_number"] + 1 : own_boundary]))
 
+        own_end_page = heading["start_page"]
+        if has_page_markers:
+            for line_index in range(own_boundary - 1, heading["line_number"], -1):
+                if lines[line_index].strip():
+                    own_end_page = line_pages[line_index]
+                    break
         end_page = heading["start_page"]
         if has_page_markers:
             # Walk back over the section's non-blank lines; the blank lines
@@ -210,6 +216,7 @@ def extract_sections_from_markdown(markdown: str):
                 "title": heading["title"],
                 "source_text": source_text,
                 "own_text": own_text,
+                "own_end_page": own_end_page,
                 "start_page": heading["start_page"],
                 "end_page": end_page,
             }
@@ -599,7 +606,7 @@ def _convert_pdf(source: Path, use_ocr: bool, full_page_ocr: bool = False):
     )
 
 
-def _pdf_text_layer(source: Path, max_pages: int = 400):
+def _pdf_text_layer(source: Path, max_pages: int | None = None):
     """Read the PDF's own text layer with pypdfium2 (a Docling dependency).
 
     Returns (markdown_with_page_breaks, meaningful_chars). Cheap, needs no
@@ -616,7 +623,7 @@ def _pdf_text_layer(source: Path, max_pages: int = 400):
     try:
         pdf = pdfium.PdfDocument(str(source))
         try:
-            for page_index in range(min(len(pdf), max_pages)):
+            for page_index in range(min(len(pdf), max_pages) if max_pages is not None else len(pdf)):
                 page = pdf[page_index]
                 try:
                     text = page.get_textpage().get_text_range() or ""
@@ -863,6 +870,12 @@ def _parse_pdf(source: Path, original_name: str):
             "produced nothing. Check that the pages are not blank, rotated, or scanned at a very low resolution."
         )
 
+    if parse_mode == "text_layer":
+        try:
+            from .reading_outline import apply_layout_hints
+            markdown = apply_layout_hints(markdown, source)
+        except Exception as exc:
+            logger.warning("Layout hints unavailable for %s: %s", original_name, exc)
     if _count_markdown_headings(markdown) < MIN_STRUCTURED_HEADINGS:
         markdown, inferred = infer_pdf_headings(markdown)
         if inferred:
@@ -871,6 +884,13 @@ def _parse_pdf(source: Path, original_name: str):
         else:
             logger.info("LocalMind: no heading structure in %s; sections will follow page groups", original_name)
 
+    try:
+        from .reading_outline import apply_pdf_bookmarks
+        markdown, verified = apply_pdf_bookmarks(markdown, source)
+        if verified:
+            parse_mode = "pdf_bookmarks"
+    except Exception as exc:
+        logger.warning("Could not verify PDF bookmarks for %s: %s", original_name, exc)
     return markdown, parse_mode
 
 

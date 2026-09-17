@@ -87,9 +87,9 @@ export const manage = {
   document: (id: string) => api<T.Document>(`/faculty/documents/${id}/`),
   upload: (form: FormData) => api<T.Document>("/faculty/documents/", { method: "POST", form }),
   process: (id: string) => api<T.Document>(`/faculty/documents/${id}/process/`, { method: "POST" }),
-  outline: (id: string) => api<T.Outline>(`/faculty/documents/${id}/outline/`),
-  saveOutline: (id: string, chapters: T.OutlineChapter[], document_title?: string) =>
-    api<T.Document & { outline_report?: T.OutlineReport }>(`/faculty/documents/${id}/outline/`, { method: "PUT", body: { chapters, document_title } }),
+  outline: (id: string, suggest = false) => api<T.Outline>(`/faculty/documents/${id}/outline/${suggest ? "?suggest=reading" : ""}`),
+  saveOutline: (id: string, chapters: T.OutlineChapter[], document_title?: string, expected_content_version?: number) =>
+    api<T.Document & { outline_report?: T.OutlineReport }>(`/faculty/documents/${id}/outline/`, { method: "PUT", body: { chapters, document_title, expected_content_version } }),
   moduleLesson: (id: string) => api<T.LessonDetail>(`/faculty/modules/${id}/lesson/`),
   regenerateLesson: (id: string) => api<T.LessonDetail>(`/faculty/modules/${id}/lesson/`, { method: "POST", body: {} }),
   /** Faculty-side incident review (their own subjects), used to release a held quiz as a false alarm. */

@@ -6,7 +6,7 @@ import { bytesToHex } from '@noble/hashes/utils';
 import { toByteArray } from 'base64-js';
 import { randomUUID } from 'expo-crypto';
 import { parseNative } from './parserBridge';
-import { MAX_BOOK_BYTES, makeSections, requireThat } from './core';
+import { MAX_BOOK_BYTES, makeReadingSections, requireThat } from './core';
 import { CONTEXT_TOKENS, MAX_MODEL_BYTES, MODEL } from './modelSpec';
 import { Exclusive, cancelled } from './busy';
 import type { Completion, Device, LocalFile } from './device.types';
@@ -63,7 +63,7 @@ const implementation:Device={...store,complete,
   const i=await info(f.uri);requireThat(i.size<=MAX_BOOK_BYTES,'Import a book up to 100 MB.');
   const base64=await FS.readAsStringAsync(f.uri,{encoding:FS.EncodingType.Base64});
   const hash=bytesToHex(sha256(toByteArray(base64)));const parsed=await parseNative(f.name,base64,signal,progress,saveVisual?visual=>saveVisual(visual,hash):undefined);
-  return {hash,sections:makeSections(parsed.items),warnings:parsed.warnings,visuals:parsed.visuals};
+  return {hash,sections:makeReadingSections(parsed.items),warnings:parsed.warnings,visuals:parsed.visuals};
  },
  async downloadBook(url,headers,name,signal){
   const uri=`${FS.cacheDirectory}private-book-${randomUUID()}`;

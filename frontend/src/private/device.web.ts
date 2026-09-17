@@ -1,6 +1,6 @@
 import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex } from '@noble/hashes/utils';
-import { MAX_BOOK_BYTES, makeSections, requireThat } from './core';
+import { MAX_BOOK_BYTES, makeReadingSections, requireThat } from './core';
 import { MODEL, MAX_MODEL_BYTES, CONTEXT_TOKENS } from './modelSpec';
 import { PARSER_ASSET } from './generated/parserAsset';
 import { inferenceThreads } from './performance';
@@ -126,7 +126,7 @@ const implementation:Device={...store, complete,
   const file=await fileOf(f); await script(PARSER_ASSET);requireThat(window.__LM_PARSER__,'Local book parser is missing.');
   const bytes=new Uint8Array(await file.arrayBuffer());const hash=bytesToHex(sha256(bytes));
   const parsed=await window.__LM_PARSER__.parse(bytes,f.name,signal,progress,saveVisual?visual=>saveVisual(visual,hash):undefined);
-  return {hash,sections:makeSections(parsed.items),warnings:parsed.warnings,visuals:parsed.visuals};
+  return {hash,sections:makeReadingSections(parsed.items),warnings:parsed.warnings,visuals:parsed.visuals};
  },
  async downloadBook(url,headers,name,signal) {
   const r=await fetch(url,{headers,signal,cache:'no-store'});requireThat(r.ok,`Book download failed (${r.status}). Refresh the available books.`);

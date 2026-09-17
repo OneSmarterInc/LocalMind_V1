@@ -221,10 +221,10 @@ class DocumentLifecycleTests(TestCase):
     def test_processing_creates_mapped_structure_and_review_state(self, _):
         client, doc = self._processed_doc()
         self.assertEqual(doc.status, DocumentStatus.UNDER_REVIEW)
-        self.assertEqual(doc.outline_source, "source_hierarchy")  # AI disabled in tests
+        self.assertEqual(doc.outline_source, "reading_units")  # deterministic, no central AI
         self.assertEqual(doc.chapters.count(), 2)
         module = Module.objects.get(chapter__document=doc, title="Process Management")
-        self.assertEqual(module.source_heading_index, 1)
+        self.assertIsNone(module.source_heading_index)  # grouped source is an exact materialized copy
         self.assertIn("Processes are programs", module.source_text)
         self.assertEqual(module.availability, "locked")
         self.assertTrue(AuditLog.objects.filter(action="document.processed", target_id=str(doc.id)).exists())
@@ -352,6 +352,9 @@ class DocumentLifecycleTests(TestCase):
         from learning.models import Chapter, Module
 
         client, doc = self._processed_doc()
+        # Exercise the editing guard against a saved legacy multi-module outline.
+        sections = fake_parse(None)["sections"]
+        persist_outline(doc, source_hierarchy_outline(doc.original_name, sections), sections)
         client.post(f"/api/faculty/documents/{doc.id}/publish/")
         outline = client.get(f"/api/faculty/documents/{doc.id}/outline/").data
         chapter = outline["chapters"][0]
@@ -377,6 +380,9 @@ class DocumentLifecycleTests(TestCase):
         from learning.models import Module, ModuleProgress
 
         client, doc = self._processed_doc()
+        # Exercise the editing guard against a saved legacy multi-module outline.
+        sections = fake_parse(None)["sections"]
+        persist_outline(doc, source_hierarchy_outline(doc.original_name, sections), sections)
         client.post(f"/api/faculty/documents/{doc.id}/publish/")
         outline = client.get(f"/api/faculty/documents/{doc.id}/outline/").data
         chapter = outline["chapters"][0]

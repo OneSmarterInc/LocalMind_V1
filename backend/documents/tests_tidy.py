@@ -173,10 +173,13 @@ class NewUploadTests(TestCase):
     @override_settings(LOCALMIND={**settings.LOCALMIND, "OUTLINE_MERGE_SMALL": True})
     def test_default_upload_preserves_authored_titles_and_text(self):
         doc_id = self.upload()
-        expected = [(s["title"], s["source_text"]) for s in extract_sections_from_markdown(NCERT_MD) if s["level"] == 2]
-        actual = list(Module.objects.filter(chapter__document_id=doc_id)
-                      .order_by("chapter__order", "order").values_list("title", "source_text"))
-        self.assertEqual(actual, expected)
+        from .services.reading_outline import block_text
+        rows = extract_sections_from_markdown(NCERT_MD)
+        actual = "\n\n".join(Module.objects.filter(chapter__document_id=doc_id)
+                            .order_by("chapter__order", "order").values_list("source_text", flat=True))
+        self.assertEqual(actual, "\n\n".join(block_text(s) for s in rows))
+        from .models import Document
+        self.assertEqual(Document.objects.get(pk=doc_id).outline_quality["covered_sections"], len(rows))
         from audit.models import AuditLog
         summary = AuditLog.objects.filter(action="document.processed").latest("created_at").summary
         self.assertEqual(summary["fragments_merged"], 0)
