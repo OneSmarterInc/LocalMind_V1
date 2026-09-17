@@ -17,7 +17,14 @@ window.__LM_WLLAMA__=class {
   let data;
   if(window.__LM_TEST_FAIL_ONCE__){window.__LM_TEST_FAIL_ONCE__=false;data={};}
   else if(properties.introduction)data={introduction:'A local lesson about photosynthesis.',sections:[{heading:'How leaves use light',content:'Leaves use chlorophyll to absorb light.',quote}],takeaways:['Photosynthesis happens in chloroplasts.']};
-  else if(properties.question)data={question:`Practice ${++sequence}: where does photosynthesis happen?`,options:['Chloroplasts','Roots','Bark','Flowers'],answer:0,explanation:'The stored book describes chloroplasts in green leaves.',quote};
+  else if(properties.question){
+   const prompt=JSON.stringify(request.messages),attempt=Number(prompt.match(/attempt (\d+)/i)?.[1]||1);
+   // Regression mode: after the first valid question, deliberately repeat the
+   // same question twice. The application must recover automatically instead
+   // of failing the quiz with a duplicate-question error.
+   const n=window.__LM_TEST_REPEAT_DUPLICATES__&&sequence>0&&attempt<3?sequence:++sequence;
+   data={question:`Practice ${n}: where does photosynthesis happen?`,options:['Chloroplasts','Roots','Bark','Flowers'],answer:0,explanation:'The stored book describes chloroplasts in green leaves.',quote};
+  }
   else data={answer:'The local model explains that photosynthesis happens in chloroplasts.',quote,supported:true};
   return {choices:[{finish_reason:'stop',message:{content:JSON.stringify(data)}}]};
  }
