@@ -91,7 +91,13 @@ def delete_subject(actor, subject, request=None):
     """
     from assessments.models import Assessment, AssessmentAttempt
     from assignments.models import Assignment, AssignmentSubmission
-    from documents.models import Document
+    from documents.models import Document, DocumentStatus
+    from private_library.models import SharedBook
+    from study.models import BlockRevision, ContentBlock, Observation, StudyAsset, StudyPackage, StudyQuestion
+
+    documents = list(Document.objects.filter(subject=subject))
+    if any(document.status == DocumentStatus.PROCESSING for document in documents):
+        raise Conflict("Wait for book processing to finish before deleting this subject.", code="INVALID_STATE")
 
     label = f"{subject.code} {subject.name}"
     scope = (
@@ -108,9 +114,19 @@ def delete_subject(actor, subject, request=None):
     AssessmentAttempt.objects.filter(assessment__in=assessments).delete()
     assessments.delete()
 
-    documents = list(Document.objects.filter(subject=subject))
-    for document in documents:
-        _discard_document_files(document)
+    # Permanent subject deletion explicitly includes versioned study history.
+    # Keep PROTECT on the models for ordinary book/module editing operations.
+    blocks = ContentBlock.objects.filter(module__chapter__document__subject=subject)
+    BlockRevision.objects.filter(block__in=blocks).delete()
+    blocks.delete()
+    packages = StudyPackage.objects.filter(document__subject=subject)
+    Observation.objects.filter(package__in=packages).delete()
+    packages.delete()
+    StudyQuestion.objects.filter(document__subject=subject).delete()
+    assets = list(StudyAsset.objects.filter(document__subject=subject))
+    StudyAsset.objects.filter(document__subject=subject).delete()
+    shared_books = list(SharedBook.objects.filter(subject=subject))
+    SharedBook.objects.filter(subject=subject).delete()
     Document.objects.filter(subject=subject).delete()
 
     audit.record(
@@ -118,6 +134,25 @@ def delete_subject(actor, subject, request=None):
         {"code": subject.code, "name": subject.name, "documents": len(documents)}, request,
     )
     subject.delete()
+
+    # Files cannot be rolled back: remove them only after every database delete
+    # and the audit write have committed successfully.
+    def cleanup_files():
+        import shutil
+        from pathlib import Path
+        from django.conf import settings
+
+        for document in documents:
+            _discard_document_files(document)
+            shutil.rmtree(Path(settings.MEDIA_ROOT) / "processed" / str(document.pk), ignore_errors=True)
+        for record in [*assets, *shared_books]:
+            try:
+                if record.file:
+                    record.file.delete(save=False)
+            except Exception:
+                pass
+
+    transaction.on_commit(cleanup_files)
     return label
 
 

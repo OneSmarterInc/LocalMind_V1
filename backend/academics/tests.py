@@ -228,3 +228,71 @@ class PortalSeparationTests(TestCase):
         self.assertEqual(ac.get("/api/student/subjects/").status_code, 403)
         self.assertEqual(sc.get("/api/student/subjects/").status_code, 200)
         self.assertEqual(sc.get("/api/faculty/subjects/").status_code, 403)
+
+
+class SubjectStudyDeletionTests(TestCase):
+    def setUp(self):
+        from documents.models import Document
+        from learning.models import Chapter, Module
+        from private_library.models import SharedBook
+        from study.models import (BlockRevision, ContentBlock, Observation, StudyAsset,
+                                  StudyPackage, StudyQuestion, TeachingAid)
+        self.admin = make_admin()
+        self.client = client_for(self.admin)
+        self.subject = make_subject(code="DELETE")
+        self.other = make_subject(code="KEEP")
+        self.records = {}
+        for subject in (self.subject, self.other):
+            document = Document.objects.create(subject=subject, original_name="book.pdf", file_type="pdf")
+            chapter = Chapter.objects.create(document=document, title="Chapter", order=1)
+            module = Module.objects.create(chapter=chapter, title="Module", order=1)
+            block = ContentBlock.objects.create(module=module, position=1)
+            revision = BlockRevision.objects.create(block=block, revision=1, kind="prose", text="Source", digest="a" * 64)
+            aid = TeachingAid.objects.create(block=block, block_revision=1)
+            package = StudyPackage.objects.create(document=document, version=1, digest="b" * 64, envelope="{}")
+            observation = Observation.objects.create(package=package, block_id=block.pk, block_revision=1,
+                                                     state="reading", move="read", outcome="done")
+            question = StudyQuestion.objects.create(document=document, body={}, references=[])
+            asset = StudyAsset.objects.create(document=document, digest="c" * 64)
+            shared = SharedBook.objects.create(subject=subject, title="Shared", original_name="shared.pdf",
+                                               sha256="d" * 64, file_size=0)
+            self.records[subject.pk] = [document, chapter, module, block, revision, aid,
+                                        package, observation, question, asset, shared]
+        self.url = f"/api/admin/subjects/{self.subject.pk}/"
+
+    def test_deletes_study_history_and_shared_books_only_for_selected_subject(self):
+        from unittest.mock import patch
+        with patch("academics.services._discard_document_files") as cleanup:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.delete(self.url)
+                self.assertEqual(response.status_code, 200, response.content)
+                cleanup.assert_not_called()
+            cleanup.assert_called_once()
+        for record in self.records[self.subject.pk]:
+            self.assertFalse(type(record).objects.filter(pk=record.pk).exists(), type(record).__name__)
+        for record in self.records[self.other.pk]:
+            self.assertTrue(type(record).objects.filter(pk=record.pk).exists(), type(record).__name__)
+        self.assertTrue(Subject.objects.filter(pk=self.other.pk).exists())
+
+    def test_failure_rolls_back_rows_and_never_removes_files(self):
+        from unittest.mock import patch
+        from .services import delete_subject
+        with patch("academics.services.audit.record", side_effect=RuntimeError("audit failed")):
+            with patch("academics.services._discard_document_files") as cleanup:
+                with self.captureOnCommitCallbacks(execute=True):
+                    with self.assertRaises(RuntimeError):
+                        delete_subject(self.admin, self.subject)
+                cleanup.assert_not_called()
+        for record in self.records[self.subject.pk]:
+            self.assertTrue(type(record).objects.filter(pk=record.pk).exists())
+        self.assertTrue(Subject.objects.filter(pk=self.subject.pk).exists())
+
+    def test_processing_book_returns_conflict_without_deleting_content(self):
+        document = self.records[self.subject.pk][0]
+        document.status = "processing"
+        document.save(update_fields=["status"])
+        response = self.client.delete(self.url)
+        self.assertEqual(response.status_code, 409, response.content)
+        self.assertEqual(response.data["error"]["code"], "INVALID_STATE")
+        for record in self.records[self.subject.pk]:
+            self.assertTrue(type(record).objects.filter(pk=record.pk).exists())
