@@ -1,3 +1,4 @@
+import {useSyncState, syncNow} from '@/offline/sync';
 import {useAppFilesStatus} from "@/offline/appFiles";
 import React, { useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
@@ -12,6 +13,7 @@ import type { ModelStatus } from '../device.types';
 export default function OfflineAI() {
   const router = useRouter();
   const appFilesStatus=useAppFilesStatus();
+  const contentSync=useSyncState();
   const {user}=useAuth();const student=user?.role==='student';
   const [status, setStatus] = useState<ModelStatus | null>(null);
   const [busy, setBusy] = useState(false), [progress, setProgress] = useState(0);
@@ -54,6 +56,13 @@ export default function OfflineAI() {
       <Row><Button title={status?.installed ? 'Download replacement model' : `Download model · ${MODEL.downloadSize}`} icon="download-outline" onPress={download} disabled={busy} /><Button title="Import a .gguf file" variant="secondary" icon="folder-open-outline" onPress={importModel} disabled={busy} /></Row>
       {busy && <><ProgressBar value={progress} /><P>{progress > 0 ? `${progress}% — downloading or verifying` : 'Preparing…'}</P><Button title="Cancel download" variant="secondary" onPress={() => controller.current?.abort()} /></>}
       {status?.installed && <Button title="Remove model only" variant="secondary" disabled={busy} onPress={() => { void run(async () => { if (await confirmAsync('Remove this local model?', 'Books, lessons and quizzes will remain. New AI work will require importing or downloading a model again.', 'Remove model', 'Keep model')) { await (await device()).removeModel(); if (alive.current) setNotice('Model removed. Your saved study material is unchanged.'); } }); }} />}
+    </Card>
+    <Card><H2>Content on this device</H2>
+      <P>{contentSync.running ? 'Saving content for offline use…' : contentSync.lastSync ? 'Your content copy is saved on this device.' : 'Preparing your first content copy. Keep LocalMind connected until this finishes.'}</P>
+      {contentSync.lastSync && <P muted>Last saved: {new Date(contentSync.lastSync).toLocaleString()}</P>}
+      <P muted>Books, lessons, quizzes and generation sources save automatically while connected to LocalMind. New content must reach this device once before it can open offline. Install the model above to generate new material offline.</P>
+      {contentSync.error && <P muted>Content refresh did not finish. {contentSync.lastSync ? 'Your previous saved copy is retained.' : 'Connect to LocalMind and retry.'}</P>}
+      <Button title="Refresh saved content" variant="secondary" busy={contentSync.running} onPress={()=>{void syncNow();}}/>
     </Card>
     <Card><H2>Scanned books and original visuals</H2><P>English OCR is included in the offline application files. Scanned PDF pages are recognised on this device; original pages, including tables and diagrams, are saved for reading and lessons. No OCR API key is needed.</P><P muted>OCR can misread numbers and formulas. Check the preserved page. The local text model uses recognised text; it does not interpret image-only diagrams.</P></Card>
     <Card><H2>Ready to reopen offline</H2><P>Use the same installed application or browser profile. Closing the app must not delete your books. Clearing app storage or browser site data will remove them.</P>

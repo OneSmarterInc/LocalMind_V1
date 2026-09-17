@@ -34,14 +34,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await tokenStore.set(null); setUser(null); setMustChange(false); setSessionId(null);
   }, []);
 
-  /** Remember who this device's offline copy belongs to, and keep it fresh for students. */
+  /** Remember who this device's offline copy belongs to, and keep it fresh for every role. */
   const adopt = useCallback(async (me: User) => {
     const owner = await readEntry<string>(META.owner);
     if (owner && owner !== me.id) { setOfflineScope(null); stopOfflineSync(); await clearAll(); }
     setOfflineScope(me.id);
     await writeEntry(META.owner, me.id);
     await writeEntry(META.me, me);
-    if (me.role === "student" && !me.must_change_password) void startOfflineSync(); else stopOfflineSync();
+    if (!me.must_change_password) void startOfflineSync(me.role); else stopOfflineSync();
   }, []);
 
   useEffect(() => {
@@ -56,7 +56,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // No server: carry on with the saved profile so a student can keep
           // studying what was downloaded. Only a real rejection signs out.
           const saved = e instanceof ApiError && e.code === "NETWORK" ? await readEntry<User>(META.me) : undefined;
-          if (saved) { setOfflineScope(saved.id); setUser(saved); setMustChange(saved.must_change_password); setSessionId(t.session_id ?? null); if (saved.role === "student") void startOfflineSync(); }
+          if (saved) { setOfflineScope(saved.id); setUser(saved); setMustChange(saved.must_change_password); setSessionId(t.session_id ?? null); if (!saved.must_change_password) void startOfflineSync(saved.role); }
           else await clear();
         }
       }
@@ -84,7 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const sub = AppState.addEventListener("change", (s) => {
       if (s === "active") {
         if (user) authApi.heartbeat(sessionId).catch(() => {});
-        if (user?.role === "student") void syncNow();  // back in the app: refresh the offline copy
+        if (user && !user.must_change_password) void syncNow();  // back in the app: refresh the offline copy
         start();
       } else stop();
     });

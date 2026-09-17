@@ -71,7 +71,7 @@ export class LocalAuthoring {
   // Fetch succeeds before any local mutation. A revoked permission or failed
   // connection leaves both the current draft and its operation unchanged.
   requireThat(!old?.localBook||old.snapshot.remote_id,"Synchronize the book draft first.");
-  const snapshot=await api<Snapshot>(`/faculty/modules/${old?.snapshot.remote_id||id}/local-authoring/`);this.library.guard();
+  const snapshot=await api<Snapshot>(`/faculty/modules/${old?.snapshot.remote_id||id}/local-authoring/`,{cacheOffline:false});this.library.guard();
   if(old?.snapshot.remote_id){snapshot.remote_id=snapshot.module_id;snapshot.module_id=id;}
   const archived:ArchivedDraft={id:randomUUID(),archivedAt:new Date().toISOString(),draft:old};
   await(await device()).put(this.library.prefix+'history:'+id+':'+archived.id,archived);this.library.guard();

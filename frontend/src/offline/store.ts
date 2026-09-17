@@ -87,11 +87,11 @@ async function scopedKeys(owner: string): Promise<string[]> {
  * download no longer contains (a module that was locked, a book that was unpublished) is removed.
  * Rejects on a storage failure; does nothing if `owner` signed out meanwhile.
  */
-export async function replaceEntries(entries: Record<string, unknown>, owner: string): Promise<void> {
+export async function replaceEntries(entries: Record<string, unknown>, owner: string, managedPrefixes?: string[]): Promise<void> {
   if (owner !== scope) return;
   const keep = new Set(Object.keys(entries).map((k) => `u:${owner}:${k}`));
   const meta = new Set([META.lastSync, META.version].map((k) => `u:${owner}:${k}`));
-  const stale = (await scopedKeys(owner)).filter((k) => !keep.has(k) && !meta.has(k));
+  const stale = (await scopedKeys(owner)).filter((k) => !keep.has(k) && !meta.has(k) && (!managedPrefixes || managedPrefixes.some(p => k.startsWith(`u:${owner}:${p}`))));
   if (owner !== scope) return;
   const db = await idb();
   if (db) {

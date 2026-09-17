@@ -1,5 +1,6 @@
 import {courseDocument,courseQuizzes,pendingResults,courseModule,startCourseAttempt,submitCourseAttempt,courseAttempt,recordCourseWork} from '@/offline/coursework';
-import { ApiError, api } from "./client";
+import {offlineScope, writeEntry} from "@/offline/store";
+import { ApiError, api, currentSession, SessionChangedError, offlineKey, isOfflineReadable } from "./client";
 import type * as T from "./types";
 
 type Q = Record<string, string | number | undefined | null>;
@@ -10,11 +11,11 @@ export type ListRows<X> = X[] & { incomplete?: { loaded: number; total: number |
 
 /**
  * Every row of a paginated list. The first page is requested exactly as before, so its offline copy still
- * answers without a connection. Later pages are fetched only while online; if one cannot be loaded (for
- * example the device went offline, where only the first page was saved), the rows already loaded are
+ * answers without a connection. Later pages and complete lists are also saved. If a page cannot be loaded, the rows already loaded are
  * returned and marked `incomplete` so the screen can say so, instead of the whole list failing.
  */
 async function allPages<X>(path: string, query: Q = {}): Promise<ListRows<X>> {
+  const owner = offlineScope(), session = currentSession();
   const first = await api<T.Paginated<X> | X[]>(path, { query });
   if (Array.isArray(first)) return first;
   const rows: ListRows<X> = [...first.results];
@@ -23,7 +24,7 @@ async function allPages<X>(path: string, query: Q = {}): Promise<ListRows<X>> {
   for (let page = 2; next; page += 1) {
     if (page > MAX_PAGES) { rows.incomplete = { loaded: rows.length, total: first.count ?? null, reason: "limit" }; break; }
     let more: T.Paginated<X>;
-    try { more = await api<T.Paginated<X>>(path, { query: { ...query, page }, cacheOffline: false }); }
+    try { more = await api<T.Paginated<X>>(path, { query: { ...query, page } }); }
     catch (e) {
       if (e instanceof ApiError && e.code === "NETWORK") { rows.incomplete = { loaded: rows.length, total: first.count ?? null, reason: "offline" }; break; }
       throw e;
@@ -31,6 +32,9 @@ async function allPages<X>(path: string, query: Q = {}): Promise<ListRows<X>> {
     rows.push(...more.results);
     next = more.next;
   }
+  if (offlineScope() !== owner || currentSession() !== session) throw new SessionChangedError();
+  if (!rows.incomplete && isOfflineReadable(path)) await writeEntry(offlineKey(path, query), rows, owner).catch(() => {});
+  if (offlineScope() !== owner || currentSession() !== session) throw new SessionChangedError();
   return rows;
 }
 

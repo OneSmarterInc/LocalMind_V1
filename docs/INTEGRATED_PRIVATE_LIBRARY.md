@@ -148,3 +148,42 @@ Embedded PDF raster illustrations are cropped from their original rendered posit
 Private lessons, quizzes and doubts are application-owned jobs. Navigation no longer cancels them or opens a Save and leave prompt. Two jobs may be active while further jobs wait; the installed model serves individual inference calls in FIFO order, so lesson parts and quiz questions can interleave without loading duplicate models. Reading, checking saved MCQs, book imports and navigation remain available. One job per generation type/module is accepted at a time to prevent accidental duplicates.
 
 Generation jobs has its own student navigation entry and lists progress, failures and per-job cancellation. Sign-out/account changes cancel that session's outstanding jobs. Removing a book cancels and drains its jobs before deleting records. Completed results remain device-local and update their screens automatically. Jobs survive in-app navigation, not browser reload, app termination or guaranteed operating-system background suspension. Keep the app open while work is pending; no partially generated lesson or quiz is marked complete.
+
+## Automatic teaching copies (admin, faculty and student)
+
+Every signed-in role now starts an automatic content refresh on startup, every
+minute, on reconnection and when returning to the app. Student content continues
+using the authorized student bundle. Admin/faculty copies include teaching
+subjects, book details and outlines, module sources and lessons, revisioned local
+authoring snapshots, quizzes and attempts, and teaching summaries. Each response
+uses the existing authenticated, permission-filtered endpoint. Full paginated
+lists and supported subject/status filters are available offline too.
+
+Offline AI → **Content on this device** shows completion and the last successful
+save; **Refresh saved content** retries immediately. A failed staff refresh does
+not replace the previous complete copy. Successful refreshes remove teaching
+records no longer present in the authorized copy. Account changes and logout
+retain the existing separation/clear behavior. Private authoring drafts are in a
+separate store and are not overwritten by a teaching-content refresh. Explicit
+source-conflict recovery must still fetch a fresh server revision.
+
+For an existing installation, pull and rebuild the web client, start LocalMind,
+and leave the account connected until **Your content copy is saved on this
+device** appears. The local model and app assets must also be installed once.
+After that, previously unvisited saved teaching pages open offline and the
+existing device generation flow can create lessons and quiz drafts from saved
+sources. Institution publishing and central updates still require reaching the
+LocalMind server; generated work stays local until synchronization succeeds.
+
+Losing internet does not inherently disconnect a running server at 127.0.0.1.
+The client continues trying the actual LocalMind server, independent of the
+browser's internet indicator, then falls back to the account's saved content.
+Stopping the local server or blocking requests uses the saved copy. Content that
+has never reached a device cannot be reconstructed by disconnecting it.
+
+Validation: browser regressions cover an unseen admin/faculty quiz page and
+reload while disconnected, generation from an unvisited source after disconnect,
+persistence of generated lessons/quizzes across reload, interrupted refresh
+retention, student offline reading/quiz events, and account separation. These
+workflow tests use disposable Django data and a deterministic model adapter;
+they do not measure Qwen generation quality or laptop speed.

@@ -825,3 +825,38 @@ test('reading outline preview can be discarded and explicitly saved without losi
  await expect(page.getByLabel('Source text',{exact:true})).toHaveValue(/restored upload regression/);
  await page.screenshot({path:'test-results/reading-outline-reviewed.png',fullPage:true});
 });
+
+for (const role of ['admin', 'faculty']) test(`${role} automatically saves unseen teaching pages and generates after an offline restart`, async ({page, context}) => {
+  await signIn(page, role, '/manage/offline-ai');
+  await model(page, '/manage/offline-ai');
+  await expect(page.getByText('Your content copy is saved on this device.', {exact:true})).toBeVisible({timeout:120000});
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  await page.route('**/api/faculty/subjects/', route => route.abort());
+  await page.getByRole('button', {name:'Refresh saved content',exact:true}).click();
+  await expect(page.getByText('Content refresh did not finish. Your previous saved copy is retained.', {exact:true})).toBeVisible();
+  await context.setOffline(true);
+  // This is the user's failing route. It has never been visited on this device.
+  await page.goto(`/manage/quiz/${fixture().quizImmediate}`);
+  await expect(page.getByRole('heading', {name:'Offline immediate quiz',exact:true})).toBeVisible();
+  await expect(page.getByText(/this page has not been saved/)).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByRole('heading', {name:'Offline immediate quiz',exact:true})).toBeVisible();
+  await page.screenshot({path:`test-results/${role}-quiz-offline.png`,fullPage:true});
+  // Source chooser and generation must also work without an earlier page visit.
+  await page.goto('/manage/quiz/new');
+  await page.getByLabel('Quiz title', {exact:true}).fill(`${role} disconnected quiz`);
+  await page.getByRole('checkbox', {name:'Leaf science',exact:true}).click();
+  await page.getByLabel('Multiple-choice questions', {exact:true}).fill('1');
+  await page.getByRole('button', {name:'Continue to questions',exact:true}).click();
+  await expect(page.getByText('1 of 1 questions saved · 1 source modules', {exact:true})).toBeVisible();
+  await page.reload();
+  await expect(page.getByText('1 of 1 questions saved · 1 source modules', {exact:true})).toBeVisible();
+  await page.goto(`/manage/local-authoring/${fixture().autoModule}`);
+  await expect(page.getByText('Source ready · Changes saved automatically', {exact:true})).toBeVisible();
+  await page.getByRole('button', {name:'Regenerate lesson',exact:true}).click();
+  await expect(page.getByRole('heading', {name:'Review lesson',exact:true})).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('heading', {name:'Review lesson',exact:true})).toBeVisible();
+  expect(errors).toEqual([]);
+  await context.setOffline(false);
+});
