@@ -9,6 +9,7 @@ import { device } from './device';
 import { cancelled } from './busy';
 import type { LocalFile } from './device.types';
 import { ANSWER_SCHEMA, groundedSchema, GROUNDING, COMPACT_LESSON_SCHEMA, COMPACT_MCQ_SCHEMA, markQuiz, requireThat, bookReference, pageSource, lessonPassages, text, validateAnswer, validateBook, validateLesson, validateMCQ, type PrivateBook, type Lesson, type MCQ, type SourceVisual } from './core';
+import {QUIZ_GENERATION_ATTEMPTS, quizPassages, sameQuestion} from './quizStability';
 export type QuizVersion = { id: string; bookId: string; sectionId: string; createdAt: string; questions: MCQ[] };
 export type LessonVersion = { id: string; sectionId: string; createdAt: string; lesson: Lesson };
 export type PracticeResult = { id: string; quizId: string; createdAt: string; answers: Record<string, number> } & ReturnType<typeof markQuiz>;
@@ -119,34 +120,57 @@ export class Library {
   async generateQuiz(bookId: string, sectionId: string, count: number, signal: AbortSignal, progress: (done: number) => void, detail?: (message:string)=>void) {
     requireThat(Number.isInteger(count) && count >= 1 && count <= 10, 'Choose between 1 and 10 questions');
     const book = await this.book(bookId); const section = book.sections.find(s => s.id === sectionId); requireThat(section, 'Choose a module');
-    const sources=lessonPassages(pageSource(book.sections,sectionId),2400); requireThat(sources.length,'No readable source was extracted. Check the original page and import it again.');
+    const sources=quizPassages(pageSource(book.sections,sectionId),count);
     const d = await device(), model=await d.status();
-    const key=`${this.work(bookId)}checkpoint:quiz:${sectionId}:${fingerprint(JSON.stringify({version:1,sources,count,model:model.hash||model.name}))}:`;
+    // Version 2 intentionally does not reuse checkpoints created by the old
+    // two-attempt duplicate policy that could get stuck on one repeated prompt.
+    const key=`${this.work(bookId)}checkpoint:quiz:${sectionId}:${fingerprint(JSON.stringify({version:2,sources,count,model:model.hash||model.name}))}:`;
     const checkpoint=await d.get<Checkpoint<MCQ>>(key)||{id:randomUUID(),parts:[]};
     const questions=checkpoint.parts;progress(questions.length);const previous = (await this.quizzes(bookId, sectionId))[0];
     for (let n = questions.length; n < count; n++) {
-      const source=sources[n % sources.length];
       let lastError: unknown;
-      for (let attempt = 0; attempt < 2; attempt++) {
+      for (let attempt = 0; attempt < QUIZ_GENERATION_ATTEMPTS; attempt++) {
         this.guard(); requireThat(!signal.aborted, 'Cancelled. Your earlier quizzes are unchanged.');
+        const source=sources[(n+attempt)%sources.length];
+        if(attempt)detail?.(`Question ${n+1}/${count} · retrying automatically with another source passage (${attempt+1}/${QUIZ_GENERATION_ATTEMPTS})`);
         try {
-          const avoid = [...questions.map(q => q.question), ...(previous?.questions.map(q => q.question) || [])].slice(-12).map(q => q.slice(0, 100)).join('\n');
-          const raw = await d.complete({ system: GROUNDING, prompt: `Write ONE useful multiple-choice practice question. Exactly four distinct options; answer is a zero-based index (0–3). Include a short explanation (at most 40 words) and an exact source quote. Keep the question and choices concise. Do not simply test whether a sentence appears in the book. Avoid repeating these earlier questions:\n${avoid}\nSTORED BOOK REFERENCE:\n${source}\nQuestion ${n + 1}; attempt ${attempt + 1}.`, schema: groundedSchema(COMPACT_MCQ_SCHEMA, source), maxTokens: 520, temperature: 0.2, signal, progress:message=>detail?.(`Question ${n+1}/${count} · ${message}`) });
+          const raw = await d.complete({
+            system: GROUNDING,
+            prompt: `Write ONE useful multiple-choice practice question from the focus passage below. Test one concrete definition, relationship, cause/effect, comparison, example, consequence or process from this passage. Do not ask whether a sentence appears in the book and do not make the chapter title itself the answer. Exactly four distinct options; answer is a zero-based index (0–3). Include a short explanation (at most 40 words) and an exact source quote. Keep the question and choices concise.\nFOCUS PASSAGE ${((n+attempt)%sources.length)+1} OF ${sources.length}:\n${source}\nQuestion ${n+1} of ${count}; attempt ${attempt+1}.`,
+            schema: groundedSchema(COMPACT_MCQ_SCHEMA, source),
+            maxTokens: 520,
+            temperature: Math.min(0.55,0.2+(attempt*0.1)),
+            signal,
+            progress:message=>detail?.(`Question ${n+1}/${count} · ${message}`)
+          });
           const question = validateMCQ(raw, source, sectionId, randomUUID());
-          requireThat(![...questions,...(previous?.questions || [])].some(q => q.question.toLowerCase().trim() === question.question.toLowerCase().trim()), 'The AI repeated a question. Try fewer questions or another module.');
+          requireThat(!questions.some(q=>sameQuestion(q.question,question.question)),'Duplicate question candidate');
+          // A new quiz should normally be fresh, but an older quiz must never
+          // make generation impossible. Retry old-version repeats twice, then
+          // accept a valid grounded question rather than failing the whole job.
+          const repeatedPrevious=!!previous?.questions.some(q=>sameQuestion(q.question,question.question));
+          requireThat(!repeatedPrevious || attempt>=2,'Question repeated from the previous quiz');
           this.guard();cancelled(signal);
           await d.put(key,{id:checkpoint.id,parts:[...questions,question]});this.guard();
           questions.push(question); lastError = undefined; break;
-        } catch (e) { lastError = e; if (signal.aborted || /timed out|storage|quota/i.test(String(e))) throw e; }
+        } catch (e) {
+          lastError = e;
+          if (signal.aborted || /timed out|storage|quota/i.test(String(e))) throw e;
+          if(attempt+1<QUIZ_GENERATION_ATTEMPTS)detail?.(`Question ${n+1}/${count} · candidate rejected; retrying automatically`);
+        }
       }
-      if (lastError) throw lastError; progress(n + 1);
+      if (lastError) {
+        const reason=String(lastError).replace(/^Error:\s*/,'');
+        throw new Error(`Local AI could not complete question ${n+1} after ${QUIZ_GENERATION_ATTEMPTS} automatic attempts. ${reason}. Questions already prepared are retained; generate again to resume.`);
+      }
+      progress(n + 1);
     }
     requireThat(questions.length === count, 'Incomplete quiz: no playable quiz was saved. Completed questions are retained'); await this.book(bookId); this.guard(); requireThat(!signal.aborted, 'Cancelled');
     const version: QuizVersion = { id: checkpoint.id, bookId, sectionId, createdAt: new Date().toISOString(), questions };
     await d.put(`${this.work(bookId)}quiz:${sectionId}:${version.id}`, version); this.guard();await d.removePrefix(key); return version;
   }
   async attempts(bookId: string, quizId: string): Promise<PracticeResult[]> { await this.book(bookId); const rows = await (await device()).list<PracticeResult>(`${this.work(bookId)}attempt:${quizId}:`); this.guard(); return rows.sort((a,b)=>b.createdAt.localeCompare(a.createdAt)); }
-  async draft(bookId: string, quizId: string) { await this.book(bookId); const row = await (await device()).get<Record<string, number>>(`${this.work(bookId)}draft:${quizId}`); this.guard(); return row || {}; }
+  async draft(bookId: string, quizId: string) { await this.book(bookId); const row=await (await device()).get<Record<string, number>>(`${this.work(bookId)}draft:${quizId}`); this.guard(); return row || {}; }
   async saveDraft(bookId: string, quizId: string, answers: Record<string, number>) { await this.book(bookId); this.guard(); await (await device()).put(`${this.work(bookId)}draft:${quizId}`, answers); this.guard(); }
   async check(quiz: QuizVersion, answers: Record<string, number>) {
     const stored = (await this.quizzes(quiz.bookId, quiz.sectionId)).find(q => q.id === quiz.id); requireThat(stored, 'The quiz version is not stored on this device');
