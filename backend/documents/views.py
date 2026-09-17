@@ -199,6 +199,47 @@ class ModuleLessonView(APIView):
         return Response(lessons.detail_for_faculty(module), status=status.HTTP_202_ACCEPTED)
 
 
+class ModuleVisualsView(APIView):
+    """Every source picture that lands in one module, for staff review.
+
+    Placement is computed live from the extraction manifest, so this reflects
+    exactly what a student sees in the same module.
+    """
+
+    permission_classes = [IsAdminOrFaculty]
+
+    def get(self, request, module_id):
+        from .services.visual_delivery import module_visuals
+        module = get_or_404(Module.objects.filter(chapter__document__in=_docs_for(request.user))
+                            .select_related("chapter__document"), pk=module_id)
+        return Response({"module_id": str(module.pk), "visuals": module_visuals(module)})
+
+
+class DocumentPicturesView(APIView):
+    """Read-only picture index for one book, for faculty and administrators.
+
+    Extraction runs during processing, but its output was previously only
+    reachable through a module editor or a generated lesson, so a freshly
+    uploaded book looked as though nothing had been extracted.
+    """
+
+    permission_classes = [IsAdminOrFaculty]
+
+    def get(self, request, document_id):
+        from .services.visual_delivery import (
+            picture_index, unassigned_visuals, extracted_total, extraction_warnings)
+        document = _doc(request.user, document_id)
+        review, pending = unassigned_visuals(document)
+        chapters = picture_index(document)
+        return Response({
+            "document_id": str(document.pk), "title": document.title,
+            "total": extracted_total(document),
+            "assigned": sum(m["count"] for c in chapters for m in c["modules"]),
+            "needs_review": pending, "warnings": extraction_warnings(document),
+            "chapters": chapters, "review": review,
+        })
+
+
 class ModuleAutoQuizView(APIView):
     """POST: write the module's automatic quiz again (queued in the background)."""
 

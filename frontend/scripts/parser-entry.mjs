@@ -1,7 +1,8 @@
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { WorkerMessageHandler } from 'pdfjs-dist/legacy/build/pdf.worker.mjs';
 import { unzipSync } from 'fflate';
-import { readablePdfText, imageRectangles, vectorRectangles, sourceFigureContext } from './pdf-layout.mjs';
+import { readablePdfText, imageRectangles, visualRegions, textLines } from './pdf-layout.mjs';
+import { pdfPictureContext, usefulPicture, looksLikeQrCanvas, shouldKeepPdfVisual } from './picture-context.mjs';
 import { groupPdfPages } from './reading-outline.mjs';
 import { OCR_WORKER } from './generated-ocr.mjs';
 globalThis.pdfjsWorker={WorkerMessageHandler};
@@ -80,20 +81,40 @@ async function parse(bytes,name,signal,progress=()=>{},saveVisual){
     const canvas=document.createElement('canvas');canvas.width=Math.ceil(view.width);canvas.height=Math.ceil(view.height);
     try {
      await page.render({canvasContext:canvas.getContext('2d'),viewport:view,background:'white'}).promise;
-     const visualIds=[await capture(canvas,`Original page ${p} — tables and diagrams`,p,'page')];
-     // Mixed pages (a selectable header above a scanned body) also need OCR.
+     // The rendered page is a cutting board, never a saved visual. Saving the
+     // whole page turns a reader into a stack of full-page scans; only the
+     // figure, chart, diagram and table regions are kept.
+     const visualIds=[];
      const ops=await page.getOperatorList();const hasImage=ops.fnArray.some(op=>[pdfjs.OPS.paintImageXObject,pdfjs.OPS.paintInlineImageXObject,pdfjs.OPS.paintImageMaskXObject].includes(op));
-     // Crop embedded illustrations from the rendered page, retaining surrounding labels.
-     const raster=imageRectangles(ops,pdfjs.OPS,pdfjs.Util.transform);
-     const vectors=vectorRectangles(ops,pdfjs.OPS,pdfjs.Util.transform).filter(r=>!raster.some(a=>r[0]>=a[0]-10&&r[1]>=a[1]-10&&r[2]<=a[2]+10&&r[3]<=a[3]+10));
-     for(const rect of [...raster,...vectors]){
+     const captured=[];
+     const overlaps=(a,b)=>{const x0=Math.max(a[0],b[0]),y0=Math.max(a[1],b[1]),x1=Math.min(a[2],b[2]),y1=Math.min(a[3],b[3]);if(x1<=x0||y1<=y0)return 0;const inter=(x1-x0)*(y1-y0);return inter/Math.max(1,Math.min((a[2]-a[0])*(a[3]-a[1]),(b[2]-b[0])*(b[3]-b[1])));};
+     const keep=async(bounds,kind,region)=>{
+      const x=Math.max(0,Math.floor(bounds[0])),y=Math.max(0,Math.floor(bounds[1]));
+      const w=Math.min(canvas.width-x,Math.ceil(bounds[2]-bounds[0])),h=Math.min(canvas.height-y,Math.ceil(bounds[3]-bounds[1]));
+      if(w<40||h<40)return;
+      const crop=document.createElement('canvas');crop.width=w;crop.height=h;crop.getContext('2d').drawImage(canvas,x,y,w,h,0,0,w,h);
+      if(looksLikeQrCanvas(crop)){crop.width=0;crop.height=0;return;}
+      const tableLike=kind==='table'||/^(?:table|chart|graph)\b/i.test(region?.caption||'');
+      const metadata={...pdfPictureContext(c.items,view,[x,y,x+w,y+h]),...(region?.caption?{caption:region.caption,captionOrigin:'source'}:{})};
+      if(!shouldKeepPdfVisual(metadata,[x,y,x+w,y+h],canvas.width,canvas.height,{tableLike})){crop.width=0;crop.height=0;return;}
+      // figurePlacement.ts ranks on context_text, caption and heading_path.
+      const context={context_text:String(metadata.insideText||metadata.contextText||'').slice(0,1800),...(metadata.caption?{caption:String(metadata.caption).slice(0,300)}:{})};
+      const label=tableLike?`Source table or chart from page ${p}`:`Source figure or diagram from page ${p}`;
+      visualIds.push(await capture(crop,label,p,tableLike?'table':'figure',context));captured.push([x,y,x+w,y+h]);crop.width=0;crop.height=0;
+     };
+     // Embedded raster illustrations first (a real photo or scan on the page).
+     for(const rect of imageRectangles(ops,pdfjs.OPS,pdfjs.Util.transform)){
       const r=view.convertToViewportRectangle(rect);const left=Math.min(r[0],r[2]),top=Math.min(r[1],r[3]),width=Math.abs(r[2]-r[0]),height=Math.abs(r[3]-r[1]);
-      if(width<40||height<40||width*height>canvas.width*canvas.height*0.65||left>=canvas.width||top>=canvas.height||left+width<=0||top+height<=0)continue;
-      const x=Math.max(0,Math.floor(left-16)),y=Math.max(0,Math.floor(top-16));
-      const crop=document.createElement('canvas');crop.width=Math.min(canvas.width-x,Math.ceil(width+32));crop.height=Math.min(canvas.height-y,Math.ceil(height+32));
-      if(crop.width<=0||crop.height<=0)continue;
-      crop.getContext('2d').drawImage(canvas,x,y,crop.width,crop.height,0,0,crop.width,crop.height);
-      visualIds.push(await capture(crop,`Illustration from page ${p}`,p,'figure',sourceFigureContext(c.items,rect)));crop.width=0;crop.height=0;
+      if(width<40||height<40||width*height>canvas.width*canvas.height*0.65)continue;
+      if(left>=canvas.width||top>=canvas.height||left+width<=0||top+height<=0)continue;
+      const smallest=Math.max(40,Math.round(Math.max(canvas.width,canvas.height)*0.045));
+      if(!usefulPicture(Math.ceil(width),Math.ceil(height))||Math.min(width,height)<smallest)continue;
+      await keep([left,top,left+width,top+height],'figure',null);
+     }
+     // Then vector line art and tables, read from the drawing operators.
+     for(const region of visualRegions({ops,OPS:pdfjs.OPS,transform:pdfjs.Util.transform,items:c.items,view,width:canvas.width,height:canvas.height})){
+      if(captured.some(old=>overlaps(region.rect,old)>=0.6))continue;
+      await keep(region.rect,region.kind,region);
      }
      const readableChars=text.replace(/\s/g,'').length;
      // Preserve illustrations without re-recognising substantial selectable text.
@@ -116,7 +137,7 @@ async function parse(bytes,name,signal,progress=()=>{},saveVisual){
    }
    const grouped=groupPdfPages(items,bookmarks);items=grouped.items;warnings.push(...grouped.warnings);
   } finally {signal?.removeEventListener('abort',abort);if(doc)await doc.destroy();else await task.destroy();}
-  warnings.unshift('Raster illustrations and grouped vector diagrams/tables are cropped where detectable; complex or scanned-page figures may require the original page. Original PDF pages are preserved as images. OCR runs locally in English; check numbers, formulas and table reading order against the original. Diagrams are displayed, not interpreted by the text model.');
+  warnings.unshift('Only figure, chart, diagram and table regions are kept. QR/navigation codes, watermark stencils, page banners, running heads, page numbers, prose callouts, blocks of equations and full PDF pages are excluded. OCR runs locally in English; check numbers, formulas and table reading order against the original. Diagrams are displayed, not interpreted by the text model.');
  } else if(ext==='docx') {
   let size=0,count=0;
   const entries=unzipSync(bytes,{filter:f=>{size+=f.originalSize;count++;assert(size<=100*1024*1024&&count<=3000,'DOCX expanded content is too large.');return /^(word\/(document\.xml|_rels\/document.xml.rels|media\/[^/]+)|\[Content_Types\]\.xml)$/.test(f.name);}});

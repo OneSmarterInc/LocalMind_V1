@@ -159,12 +159,20 @@ test('book jobs block overlapping manual generation and cancel all book work',as
  release();
 });
 
-test('vector figure regions respect graphics transforms and reject isolated rules',async()=>{
- const {vectorRectangles}=await import('../frontend/scripts/pdf-layout.mjs');
- const OPS={save:1,restore:2,transform:3,constructPath:4};
+test('vector figure regions respect graphics transforms and read the drawing operators',async()=>{
+ // The merged parser reads figures from painted vector paths rather than a
+ // pixel-cluster, so drawingRectangles must follow the transform stack and
+ // report each path in page coordinates with its paint style.
+ const {drawingRectangles}=await import('../frontend/scripts/pdf-layout.mjs');
+ const OPS={save:1,restore:2,transform:3,setFillRGBColor:4,setStrokeRGBColor:5,constructPath:6,fill:7,stroke:13};
  const transform=(m,n)=>[m[0]*n[0]+m[2]*n[1],m[1]*n[0]+m[3]*n[1],m[0]*n[2]+m[2]*n[3],m[1]*n[2]+m[3]*n[3],m[0]*n[4]+m[2]*n[5]+m[4],m[1]*n[4]+m[3]*n[5]+m[5]];
- const ops={fnArray:[1,3,4,4,4,2,4],argsArray:[null,[1,0,0,1,100,200],[[1],[],[0,0,50,50]],[[1],[],[60,0,110,50]],[[1],[],[50,25,60,25]],null,[[1],[],[0,700,500,701]]]};
- assert.deepEqual(vectorRectangles(ops,OPS,transform),[[100,200,210,250]]);
+ const path=(x0,y0,x1,y1)=>[OPS.constructPath,[[],[],[x0,y0,x1,y1]]];
+ const ops={fnArray:[OPS.save,OPS.transform,path(0,0,50,50)[0],OPS.stroke,OPS.restore,path(0,0,50,50)[0],OPS.fill],
+            argsArray:[null,[1,0,0,1,100,200],path(0,0,50,50)[1],null,null,path(0,0,50,50)[1],null]};
+ const drawn=drawingRectangles(ops,OPS,transform);
+ assert.equal(drawn.length,2);
+ assert.deepEqual(drawn[0].rect,[100,200,150,250]);assert.equal(drawn[0].filled,false);
+ assert.deepEqual(drawn[1].rect,[0,0,50,50]);assert.equal(drawn[1].filled,true);
 });
 
 test('lesson image placement uses source evidence and retains ambiguous originals',()=>{

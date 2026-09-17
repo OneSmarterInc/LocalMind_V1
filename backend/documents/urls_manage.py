@@ -15,6 +15,7 @@ urlpatterns = [
     path("documents/<uuid:document_id>/", views.DocumentDetailView.as_view(), name="documents-detail"),
     path("documents/<uuid:document_id>/process/", views.ProcessView.as_view(), name="documents-process"),
     path("documents/<uuid:document_id>/outline/", views.OutlineView.as_view(), name="documents-outline"),
+    path("documents/<uuid:document_id>/pictures/", views.DocumentPicturesView.as_view(), name="documents-pictures"),
     path("documents/<uuid:document_id>/ready/", views.MarkReadyView.as_view(), name="documents-ready"),
     path("documents/<uuid:document_id>/publish/", views.PublishView.as_view(), name="documents-publish"),
     path("documents/<uuid:document_id>/unpublish/", views.UnpublishView.as_view(), name="documents-unpublish"),
@@ -26,5 +27,6 @@ urlpatterns = [
     path("modules/<uuid:module_id>/", views.ModuleEditView.as_view(), name="modules-edit"),
     path("modules/<uuid:module_id>/availability/", views.ModuleAvailabilityView.as_view(), name="modules-availability"),
     path("modules/<uuid:module_id>/lesson/", views.ModuleLessonView.as_view(), name="modules-lesson"),
+    path("modules/<uuid:module_id>/visuals/", views.ModuleVisualsView.as_view(), name="modules-visuals"),
     path("modules/<uuid:module_id>/auto-quiz/", views.ModuleAutoQuizView.as_view(), name="modules-auto-quiz"),
 ]

@@ -1,3 +1,19 @@
+/** One cropped figure, chart, diagram or table from the uploaded source. */
+export type SourceVisual = {
+  id: string; kind?: string; page?: number | null; caption?: string; caption_origin?: string;
+  width?: number | null; height?: number | null; context_text?: string; heading_path?: string[];
+  data_url?: string; module_id?: string; module_title?: string; reason?: string;
+};
+
+/** Where every extracted picture in a book sits, without the image bytes. */
+export type PictureIndex = {
+  document_id: string; title: string; total: number; assigned: number; needs_review: number;
+  warnings: string[];
+  chapters: { id: string; title: string; order: number;
+    modules: { id: string; title: string; order: number; start_page: number | null; end_page: number | null; count: number }[] }[];
+  review: SourceVisual[];
+};
+
 export type Role = "admin" | "faculty" | "student";
 
 export interface Profile {

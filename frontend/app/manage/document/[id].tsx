@@ -18,11 +18,12 @@ import { Badge, Button, Card, CardHead, choiceAsync, CellText, Column, DangerZon
 import { HeadingPicker, type Heading } from "@/ui/HeadingPicker";
 import type { IconName } from "@/ui/Shell";
 import { LessonView } from "@/ui/LessonView";
+import { SourceFigures } from "@/ui/SourceFigures";
 
 /** Which node of the outline the right-hand pane is editing. */
 type Selection = { ci: number; mi: number | null };
 
-type DocTab = "outline" | "lessons" | "publish" | "live";
+type DocTab = "outline" | "pictures" | "lessons" | "publish" | "live";
 
 export default function DocumentScreen() {
   const { id, tab: tabParam, module: moduleParam } = useLocalSearchParams<{ id: string; tab?: DocTab; module?: string }>();
@@ -259,9 +260,11 @@ export default function DocumentScreen() {
       <ErrorBanner message={tabError ?? doc.error ?? act.error ?? remove.error} onRetry={doc.error ? doc.reload : undefined} />
       <PageTabs<DocTab> value={tab} onChange={setTab} tabs={[
         { key: "outline", label: "Outline & source" },
+        { key: "pictures", label: "Pictures" },
         { key: "lessons", label: "Lessons & quizzes", count: d!.auto_quizzes?.held ? d!.auto_quizzes.held : null },
         live ? { key: "live", label: "Published book" } : { key: "publish", label: "Publish checklist" },
       ]} />
+      {tab === "pictures" ? <PicturesTab documentId={id} /> : null}
       {tab === "outline" ? (
         <>
           {d.outline_quality?.source_sections ? <Notice title={`${d.outline_quality.covered_sections} of ${d.outline_quality.source_sections} extracted sections accounted for`} message={[d.outline_quality.coverage_note,...(d.outline_quality.warnings||[])].filter(Boolean).join(' ')} tone={d.outline_quality.warnings?.length ? 'warning' : 'info'} /> : null}
@@ -852,6 +855,7 @@ function ModulePane({ number, module: m, index, count, onChange, onMove, onRemov
           <Text style={{ fontSize: 11, color: colors.muted }}>Pick the book heading this module should take its text from. The text is refilled from that section when you save.</Text>
         </View>
       ) : null}
+      {m.id ? <ModuleSourceVisualsPanel moduleId={m.id} /> : null}
       <View style={{ height: 1, backgroundColor: colors.border }} />
       <Row style={{ justifyContent: "space-between" }}>
         {m.id ? (
@@ -1060,3 +1064,99 @@ const ws = StyleSheet.create({
   saveState: { fontSize: 12.5, color: colors.faint },
   hint: { fontSize: 12, color: colors.faint, lineHeight: 17 },
 });
+
+/** Every picture extracted from the book, read-only, grouped the way the book
+ * is organised. Extraction runs during processing, but its output was only
+ * reachable through a module editor or a generated lesson, so a freshly
+ * uploaded book looked as though nothing had been extracted. */
+function PicturesTab({ documentId }: { documentId: string }) {
+  const index = useAsync(() => manage.documentPictures(documentId), [documentId]);
+  const data = index.data;
+  const chapters = data?.chapters ?? [];
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const first = chapters.flatMap((c) => c.modules).find((m) => m.count > 0)?.id;
+  useEffect(() => { if (first) setOpen((v) => (v[first] ? v : { ...v, [first]: true })); }, [first]);
+  const warnings = data?.warnings ?? [];
+  return (
+    <View style={{ gap: 14 }}>
+      <ErrorBanner message={index.error} onRetry={index.reload} />
+      {index.loading && !data ? <Loading /> : null}
+      {data ? <>
+        <Notice message="Figures, charts, diagrams and tables only. Page banners, running heads, page numbers, navigation codes, watermarks and blocks of equations are left out on purpose. This tab is read-only." />
+        <Grid min={190}>
+          <Card><Text style={{ fontSize: 26, fontWeight: "700", color: colors.ink }}>{data.total}</Text><Text style={{ fontSize: 11, color: colors.muted }}>Pictures extracted</Text></Card>
+          <Card><Text style={{ fontSize: 26, fontWeight: "700", color: colors.ink }}>{data.assigned}</Text><Text style={{ fontSize: 11, color: colors.muted }}>Placed in a module</Text></Card>
+          <Card><Text style={{ fontSize: 26, fontWeight: "700", color: colors.ink }}>{data.needs_review}</Text><Text style={{ fontSize: 11, color: colors.muted }}>Need review</Text></Card>
+          <Card><Text style={{ fontSize: 26, fontWeight: "700", color: colors.ink }}>{warnings.length}</Text><Text style={{ fontSize: 11, color: colors.muted }}>Extraction warnings</Text></Card>
+        </Grid>
+        {warnings.length ? <Notice tone="warning" title="Extraction notes" message={warnings.join("\n")} /> : null}
+        {!data.total ? <Empty icon="image-outline" title="No picture was extracted" text="This book may be text only, or its figures may be the page furniture that is deliberately left out. The source text is unaffected." /> : null}
+        {chapters.map((chapter) => (
+          <Card key={chapter.id}>
+            <CardHead title={chapter.title} subtitle={`${chapter.modules.reduce((n, m) => n + m.count, 0)} picture(s) across ${chapter.modules.length} module(s)`} />
+            {chapter.modules.map((module) => (
+              <View key={module.id} style={{ borderTopWidth: 1, borderColor: colors.rowLine, paddingVertical: 10, gap: 10 }}>
+                <Row style={{ justifyContent: "space-between" }}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={{ fontWeight: "600", color: colors.ink }}>{module.title}</Text>
+                    <Text style={{ fontSize: 11, color: colors.muted }}>
+                      {module.start_page ? `Source page${module.end_page && module.end_page !== module.start_page ? `s ${module.start_page}\u2013${module.end_page}` : ` ${module.start_page}`}` : "Source pages not recorded"}
+                    </Text>
+                  </View>
+                  <Badge value={module.count ? `${module.count} picture${module.count === 1 ? "" : "s"}` : "None"} tone={module.count ? "green" : "neutral"} />
+                  {module.count ? <Button small variant="secondary" icon="image-outline" title={open[module.id] ? "Hide" : "Show"} onPress={() => setOpen((v) => ({ ...v, [module.id]: !v[module.id] }))} /> : null}
+                </Row>
+                {module.count && open[module.id] ? <ModulePictures moduleId={module.id} /> : null}
+              </View>
+            ))}
+          </Card>
+        ))}
+        {data.review.length ? (
+          <Card>
+            <CardHead title={`Need review (${data.needs_review})`} subtitle="Extracted and stored, but matched to no module. Nothing has been discarded." />
+            {data.review.map((visual) => (
+              <View key={visual.id} style={{ borderTopWidth: 1, borderColor: colors.rowLine, paddingTop: 10, gap: 6 }}>
+                <SourceFigures visuals={[visual]} />
+                <Text style={{ fontSize: 11, color: colors.warning }}>{pictureReviewReason(visual.reason)}</Text>
+              </View>
+            ))}
+          </Card>
+        ) : null}
+      </> : null}
+    </View>
+  );
+}
+
+function pictureReviewReason(reason?: string) {
+  if (reason === "no_matching_source_page") return "No matching source page. The module it belongs to was probably edited by hand, which detaches it from its heading and clears its page range.";
+  if (reason === "insufficient_context") return "Its caption and surrounding text match no module strongly enough to place it without guessing.";
+  if (reason === "ambiguous_context") return "Two modules matched almost equally well, so it was not placed in either.";
+  return reason ? `Held back: ${reason}` : "Held back for review.";
+}
+
+function ModulePictures({ moduleId }: { moduleId: string }) {
+  const q = useAsync(() => manage.moduleVisuals(moduleId), [moduleId]);
+  return <View style={{ gap: 8 }}>
+    <ErrorBanner message={q.error} onRetry={q.reload} />
+    {q.loading ? <Loading /> : <SourceFigures visuals={q.data?.visuals ?? []} />}
+  </View>;
+}
+
+/** A module's pictures, inline and expanded, while its source text is reviewed. */
+function ModuleSourceVisualsPanel({ moduleId }: { moduleId: string }) {
+  const q = useAsync(() => manage.moduleVisuals(moduleId), [moduleId]);
+  const visuals = q.data?.visuals ?? [];
+  return (
+    <View style={{ gap: 10 }}>
+      <Text style={{ fontSize: 11, fontWeight: "700", letterSpacing: 1.2, color: colors.muted }}>
+        SOURCE PICTURES{visuals.length ? ` \u00b7 ${visuals.length}` : ""}
+      </Text>
+      <ErrorBanner message={q.error} onRetry={q.reload} />
+      {q.loading ? <Loading /> : null}
+      {!q.loading && !q.error && !visuals.length
+        ? <Text style={{ fontSize: 11.5, color: colors.muted }}>No picture was extracted for these pages. Page banners, watermarks, navigation codes and blocks of equations are left out on purpose; the Pictures tab lists everything the book produced.</Text>
+        : <SourceFigures visuals={visuals} />}
+    </View>
+  );
+}
+

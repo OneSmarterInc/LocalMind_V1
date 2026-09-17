@@ -116,3 +116,64 @@ class SourceImageTests(TestCase):
         self.assertEqual({v['page'] for v in rows},{1,2})
         self.assertTrue(all(v['width']<1200 and v['height']<1600 for v in rows))
         self.assertEqual(rows,extract_source_visuals(path,self.base))
+
+
+class StaffPictureTabTests(TestCase):
+    """The read-only Pictures tab and its endpoints: every extracted picture,
+    reachable from the book itself rather than only from a lesson."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        s = override_settings(MEDIA_ROOT=self.temp.name); s.enable(); self.addCleanup(s.disable)
+        self.subject = make_subject()
+        self.doc = make_published_document(self.subject)
+        self.modules = list(self.doc.chapters.first().modules.all())
+        for page, module in enumerate(self.modules, start=1):
+            module.start_page = module.end_page = page
+            module.save()
+        self.base = Path(self.temp.name) / 'processed' / str(self.doc.pk)
+        (self.base / 'visuals').mkdir(parents=True)
+        self.doc.processed_markdown_path = str(self.base / 'source.md')
+        self.doc.save()
+        img = Image.new('RGB', (180, 100), 'blue')
+        out = io.BytesIO(); img.save(out, format='PNG')
+        (self.base / 'visuals' / 'a.png').write_bytes(out.getvalue())
+        (self.base / 'visuals' / 'b.png').write_bytes(out.getvalue())
+        visuals = [
+            dict(id='p1-a', filename='a.png', kind='figure', page=1, caption='Figure 1',
+                 caption_origin='source', width=180, height=100, context_text=self.modules[0].source_text, heading_path=[]),
+            dict(id='p9-b', filename='b.png', kind='figure', page=9, caption='Orphan',
+                 caption_origin='source', width=180, height=100, context_text='unrelated text', heading_path=[]),
+        ]
+        (self.base / 'visuals' / 'manifest.json').write_text(json.dumps({'visuals': visuals, 'warnings': []}))
+
+    def test_index_counts_by_module_without_image_bytes(self):
+        faculty = make_faculty(); assign(faculty, self.subject)
+        res = client_for(faculty).get(f'/api/faculty/documents/{self.doc.pk}/pictures/')
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data['total'], 2)
+        self.assertEqual(res.data['assigned'], 1)
+        self.assertEqual(res.data['needs_review'], 1)
+        self.assertNotIn('data:image/png', str(res.data['chapters']))
+        placed = [m for c in res.data['chapters'] for m in c['modules'] if m['count']]
+        self.assertEqual(placed[0]['id'], str(self.modules[0].pk))
+
+    def test_review_queue_carries_the_orphan_with_its_image_and_reason(self):
+        faculty = make_faculty(); assign(faculty, self.subject)
+        res = client_for(faculty).get(f'/api/faculty/documents/{self.doc.pk}/pictures/')
+        self.assertEqual(len(res.data['review']), 1)
+        row = res.data['review'][0]
+        self.assertTrue(row['data_url'].startswith('data:image/png;base64,'))
+        self.assertEqual(row['reason'], 'no_matching_source_page')
+
+    def test_module_visuals_endpoint_returns_the_placed_picture(self):
+        faculty = make_faculty(); assign(faculty, self.subject)
+        res = client_for(faculty).get(f'/api/faculty/modules/{self.modules[0].pk}/visuals/')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(len(res.data['visuals']), 1)
+        self.assertTrue(res.data['visuals'][0]['data_url'].startswith('data:image/png;base64,'))
+
+    def test_a_student_cannot_reach_the_picture_index(self):
+        student = make_student()
+        self.assertIn(client_for(student).get(f'/api/faculty/documents/{self.doc.pk}/pictures/').status_code, (403, 404))

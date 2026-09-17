@@ -95,6 +95,8 @@ export const manage = {
   saveOutline: (id: string, chapters: T.OutlineChapter[], document_title?: string, expected_content_version?: number) =>
     api<T.Document & { outline_report?: T.OutlineReport }>(`/faculty/documents/${id}/outline/`, { method: "PUT", body: { chapters, document_title, expected_content_version } }),
   moduleLesson: (id: string) => api<T.LessonDetail>(`/faculty/modules/${id}/lesson/`),
+  moduleVisuals: (id: string) => api<{ module_id: string; visuals: T.SourceVisual[] }>(`/faculty/modules/${id}/visuals/`),
+  documentPictures: (id: string) => api<T.PictureIndex>(`/faculty/documents/${id}/pictures/`),
   regenerateLesson: (id: string) => api<T.LessonDetail>(`/faculty/modules/${id}/lesson/`, { method: "POST", body: {} }),
   /** Faculty-side incident review (their own subjects), used to release a held quiz as a false alarm. */
   reviewIncident: (id: string, action: "false_positive" | "confirm", note = "") =>
