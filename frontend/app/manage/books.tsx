@@ -3,8 +3,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { manage } from "@/api/endpoints";
 import type { Document } from "@/api/types";
 import { useFilterChoices } from "@/hooks/useChoices";
-import { useAsync } from "@/hooks/useAsync";
-import { Badge, Button, Card, CellText, Column, Dropdown, Empty, ErrorBanner, Input, Loading, PageHeading, Screen, Table, TableToolbar, fmtDay, RequestFailed } from "@/ui";
+import { useAction, useAsync } from "@/hooks/useAsync";
+import { Badge, Button, Card, CellText, Column, Dropdown, Empty, ErrorBanner, Input, Loading, PageHeading, Screen, Table, TableToolbar, fmtDay, RequestFailed, Row, confirmDeleteAsync } from "@/ui";
 
 export default function Books() {
   const router = useRouter();
@@ -15,6 +15,12 @@ export default function Books() {
   const statuses = useFilterChoices("document_status");
   const subjects = useAsync(() => manage.subjects(), []);
   const q = useAsync(() => manage.documents({ subject: subject || undefined, status: status || undefined }), [subject, status]);
+  const remove = useAction(async (d: Document) => {
+    const confirmed = await confirmDeleteAsync("Remove this book?", "This permanently removes the book, its chapters and modules, and any quiz or assignment built from them, along with student attempts and submissions. It cannot be undone.", { detail: `${d.title} · ${d.original_name}`, okLabel: "Remove book" });
+    if (!confirmed) return;
+    await manage.deleteDocument(d.id);
+    await q.reload();
+  });
   const busy = q.data?.some((d) => d.status === "processing") ?? false;
   useEffect(() => { if (!busy) return; const t = setInterval(q.reload, 4000); return () => clearInterval(t); }, [busy, q.reload]);
   const code = (d: Document) => d.subject_code ?? subjects.data?.find((s) => s.id === d.subject_id)?.code ?? "";
@@ -26,13 +32,14 @@ export default function Books() {
     { key: "s", label: "Status", flex: 1, render: (d) => <Badge value={d.status === "under_review" ? "Under review" : d.status} /> },
     { key: "l", label: "Lessons", flex: 0.9, render: (d) => (d.lessons ? `${d.lessons.ready} of ${d.lessons.total} ready` : "—") },
     { key: "u", label: "Updated", flex: 0.9, render: (d) => fmtDay((d as Document & { updated_at?: string; created_at?: string }).updated_at ?? (d as Document & { created_at?: string }).created_at) },
-    { key: "x", label: "", flex: 1, render: (d) => <Button title={action(d)} small icon={d.status === "under_review" ? "arrow-forward" : undefined} variant={d.status === "under_review" ? "primary" : "secondary"} onPress={() => router.push(`/manage/document/${d.id}`)} /> },
+    { key: "x", label: "Actions", flex: 1.7, render: (d) => <Row><Button title={action(d)} small icon={d.status === "under_review" ? "arrow-forward" : undefined} variant={d.status === "under_review" ? "primary" : "secondary"} onPress={() => router.push(`/manage/document/${d.id}`)} /><Button title="Remove book" small variant="danger" icon="trash-outline" disabled={remove.busy} onPress={() => remove.run(d)} /></Row> },
   ];
   return (
     <Screen refreshing={q.loading} onRefresh={q.reload}>
       <PageHeading eyebrow="TEACHING CONTENT" title="Books & modules" subtitle="Import a book, prepare lessons and quizzes, then publish for your students."
         right={<Button title="Upload a book" icon="cloud-upload-outline" onPress={() => router.push({ pathname: "/manage/document/upload", params: subject ? { subject } : {} })} />} />
       <ErrorBanner message={q.error} onRetry={q.reload} />
+      <ErrorBanner message={remove.error} />
       <Card flush>
         <TableToolbar right={<>
           <Dropdown value={subject} onChange={setSubject} accessibilityLabel="Filter by subject" options={[{ value: "", label: "All subjects" }, ...(subjects.data ?? []).map((s) => ({ value: s.id, label: s.code }))]} />
@@ -41,7 +48,7 @@ export default function Books() {
           <Input icon="search" placeholder="Search this list…" value={search} onChangeText={setSearch} compact accessibilityLabel="Search books" />
         </TableToolbar>
         {q.error && !q.data ? <RequestFailed onRetry={q.reload} /> : q.loading && !q.data ? <Loading lines={2} /> : (
-          <Table noun="book" columns={columns} rows={rows} keyOf={(d) => d.id} onRowPress={(d) => router.push(`/manage/document/${d.id}`)} minWidth={900}
+          <Table noun="book" columns={columns} rows={rows} keyOf={(d) => d.id} minWidth={900}
             empty={<Empty icon="book-outline" title={q.data?.length ? "No book matches" : "No books yet"} text={q.data?.length ? "Try a different search or filter." : "Upload a PDF or Word book to turn it into modules for your students."}
               action={!q.data?.length ? <Button title="Upload a book" icon="cloud-upload-outline" onPress={() => router.push("/manage/document/upload")} /> : undefined} />} />
         )}

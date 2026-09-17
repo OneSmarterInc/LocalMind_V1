@@ -640,6 +640,15 @@ test('faculty upload uses content headings and opens the existing outline editor
  await expect(page.getByText(/Page 1 · Part/)).toHaveCount(0);
  await page.reload();
  await expect(page.getByLabel('Module title',{exact:true})).toHaveValue('Energy and living systems');
+ await page.goto('/manage/books');
+ await page.getByLabel('Search books',{exact:true}).fill('outline-upload');
+ await page.getByRole('button',{name:'Remove book',exact:true}).click();
+ await expect(page.getByText('Remove this book?',{exact:true})).toBeVisible();
+ const deleted=page.waitForResponse(r=>r.url().includes(`/api/faculty/documents/${document.id}/`)&&r.request().method()==='DELETE');
+ await page.getByRole('button',{name:'Remove book',exact:true,disabled:false}).click();
+ expect((await deleted).ok()).toBeTruthy();
+ await expect(page.getByRole('button',{name:'Remove book',exact:true})).toHaveCount(0);
+ await expect(page).toHaveURL(/\/manage\/books$/);
 });
 
 test('book readiness distinguishes missing generation from missing text and prepares device drafts automatically',async({page})=>{
@@ -666,4 +675,23 @@ test('automatic book preparation continues after a module timeout',async({page})
  await expect(page.getByText(/simulated interruption/).first()).toBeVisible();
  await page.getByRole('menuitem',{name:'Subjects',exact:true}).click();
  await expect(page).toHaveURL(/\/manage\/subjects/);
+});
+
+
+test('module authoring returns to the selected book outline',async({page})=>{
+ await signIn(page,'faculty',`/manage/local-authoring/${fixture().module}`);
+ await page.getByRole('button',{name:'Back to outline',exact:true}).click();
+ await expect(page).toHaveURL(new RegExp(`/manage/document/${fixture().document}\\?tab=outline&module=${fixture().module}`));
+ await expect(page.getByLabel('Module title',{exact:true})).toHaveValue('Leaf science');
+});
+
+test('books list confirms removal and stays on the list when cancelled',async({page})=>{
+ await signIn(page,'faculty','/manage/books');
+ const row=page.getByText('Faculty Biology',{exact:true});
+ await expect(row).toBeVisible();
+ await page.getByRole('button',{name:'Remove book',exact:true}).first().click();
+ await expect(page.getByText('Remove this book?',{exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Cancel',exact:true}).click();
+ await expect(page).toHaveURL(/\/manage\/books$/);
+ await expect(row).toBeVisible();
 });
