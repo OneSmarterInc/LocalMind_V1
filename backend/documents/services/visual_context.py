@@ -48,6 +48,12 @@ def choose_target(visual, targets, *, use_pages=True):
     headings = [normalize(h) for h in visual.get("heading_path", []) if h]
     context = visual.get("context_text", "")
     caption = visual.get("caption", "") if visual.get("caption_origin") == "source" else ""
+    # A figure whose nearest authored heading uniquely names one target belongs
+    # to that target — the strongest provenance, so take it without further scoring.
+    if headings:
+        exact = [t for t in candidates if normalize(t.get("title")) == headings[-1]]
+        if len(exact) == 1:
+            return exact[0], "authored_heading"
     ranked = []
     for target in candidates:
         title = normalize(target.get("title"))

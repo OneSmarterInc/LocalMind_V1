@@ -27,9 +27,14 @@ export default function PrivateLibrary(){
   try{
    if(signal.aborted)return;
    const result=await library.import(f,{id:`${b.kind}:${b.id}`,title:b.title,sha256:b.sha256},signal,task.setNote);
-   if(signal.aborted)return;task.setNote(result.duplicate?'Already in your library; saved work is unchanged.':'Private copy saved. All its modules are open for personal study.');await books.reload();setTab('device');
+   if(signal.aborted)return;task.setNote(result.duplicate?'Already in your library; saved work is unchanged.':'Private copy saved. All its modules are open for personal study.');await books.reload();
   }finally{await(await device()).releaseFile(f);}
  });
+ // An institution book is "already added" when a device book was imported from it
+ // (matched by its source id) or when the same file content is already saved.
+ const addedSourceIds=new Set((books.data||[]).map(b=>b.sourceId).filter(Boolean) as string[]);
+ const addedHashes=new Set((books.data||[]).map(b=>b.sourceHash).filter(Boolean) as string[]);
+ const isAdded=(b:SharedBook)=>addedSourceIds.has(`${b.kind}:${b.id}`)||addedHashes.has(b.sha256);
  return <Screen refreshing={books.loading} onRefresh={books.reload}>
   <PageHeading title="Private library" subtitle="Your books. Your pace. Lessons, quizzes and doubts stay on this device." right={<Button title="Offline AI" icon="hardware-chip-outline" variant="secondary" onPress={()=>router.push('/student/offline-ai')} disabled={task.busy}/>} />
   <ErrorBanner message={task.error||books.error} onRetry={books.reload}/>
@@ -49,7 +54,7 @@ export default function PrivateLibrary(){
    <ErrorBanner message={available.error} onRetry={available.reload}/>
    {available.loading?<Loading/>:null}
    {online&&!available.loading&&!available.error&&!available.data?.length?<Empty title="No shared books yet" text="Your admin or faculty can upload one in Books for private study. Published books from enrolled subjects also appear here."/>:null}
-   {(available.data||[]).filter(b=>b.title.toLowerCase().includes(search.toLowerCase())).map(b=><ListRow key={`${b.kind}:${b.id}`} title={b.title} subtitle={`${b.subject} · ${(b.file_size/1024/1024).toFixed(1)} MB`} icon="cloud-download-outline" right={<Button title="Add to my library" small disabled={task.busy} onPress={()=>add(b)}/>}/>) }
+   {(available.data||[]).filter(b=>b.title.toLowerCase().includes(search.toLowerCase())).map(b=>{const added=isAdded(b);return <ListRow key={`${b.kind}:${b.id}`} title={b.title} subtitle={`${b.subject} · ${(b.file_size/1024/1024).toFixed(1)} MB${added?' · Already in your library':''}`} icon={added?'checkmark-circle-outline':'cloud-download-outline'} right={added?<Badge value="Already added" tone="green" icon="checkmark-circle-outline"/>:<Button title="Add to my library" small disabled={task.busy} onPress={()=>add(b)}/>}/>;})}
   </Card>}
   <Notice title="Private means on this device" message="Personal books and practice are not sent to faculty or used as course grades. Keep the same app/browser profile; clearing its storage removes the saved library. AI output is unreviewed practice—check it against your book."/>
  </Screen>;

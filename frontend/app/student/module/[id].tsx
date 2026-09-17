@@ -103,11 +103,16 @@ export default function StudentModule() {
             </Card>
           ) : null}
           {tab === "lesson" && lessonState === "unavailable" ? (
-            <>
-              <Notice tone="warning" title="The guided lesson is not available right now." message="Here is the original module text, so you can keep learning. The lesson appears here once the tutor has written it."
-                action={<Button title="Try again" small variant="secondary" icon="refresh" onPress={() => teach.reload()} />} />
-              <ReadCard module={m} large={large} onToggleSize={() => setLarge((v) => !v)} />
-            </>
+            <Card>
+              <Empty icon="hourglass-outline" title="Your lesson isn't ready yet."
+                text="The guided lesson appears here once it has been generated. Read the module in the meantime, or check again in a moment — the source text stays on the Read tab."
+                action={
+                  <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap", justifyContent: "center" }}>
+                    <Button title="Read the module" icon="book-outline" variant="secondary" onPress={() => setTab("read")} />
+                    <Button title="Try again" icon="refresh" onPress={() => teach.reload()} />
+                  </View>
+                } />
+            </Card>
           ) : null}
           {tab === "lesson" && lessonState === "ready" && teach.data?.lesson ? (
             <Split side={side} main={

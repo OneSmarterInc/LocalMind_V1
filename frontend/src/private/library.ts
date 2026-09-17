@@ -83,7 +83,9 @@ export class Library {
   async quizzes(bookId: string, sectionId: string) { await this.book(bookId); const rows = await (await device()).list<QuizVersion>(`${this.work(bookId)}quiz:${sectionId}:`); this.guard(); return rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt)); }
   async generateLesson(bookId: string, sectionId: string, signal: AbortSignal, progress?: (message:string)=>void) {
     const book = await this.book(bookId); const section = book.sections.find(s => s.id === sectionId); requireThat(section, 'Choose a module in this book');
-    const passages=lessonPassages(pageSource(book.sections, sectionId));requireThat(passages.length,'This module has no readable text.');
+    // Larger passages mean far fewer sequential on-device model calls per module.
+    // Each call still teaches one consecutive passage; the schema bounds the output.
+    const passages=lessonPassages(pageSource(book.sections, sectionId), 2000);requireThat(passages.length,'This module has no readable text.');
     const d=await device(), model=await d.status();
     const key=`${this.work(bookId)}checkpoint:lesson:${sectionId}:${fingerprint(JSON.stringify({version:1,passages,title:section.title,model:model.hash||model.name}))}:`;
     const checkpoint=await d.get<Checkpoint<Lesson>>(key)||{id:randomUUID(),parts:[]};
@@ -126,9 +128,16 @@ export class Library {
           questions.push(question); lastError = undefined; break;
         } catch (e) { lastError = e; if (signal.aborted || /timed out|storage|quota/i.test(String(e))) throw e; }
       }
-      if (lastError) throw lastError; progress(n + 1);
+      if (lastError) {
+        // A small on-device model often cannot reach the requested count on short
+        // or content-light modules. Keep the distinct questions already produced
+        // rather than discarding a usable quiz; only fail when none were produced.
+        if (questions.length > 0) break;
+        throw lastError;
+      }
+      progress(n + 1);
     }
-    requireThat(questions.length === count, 'Incomplete quiz: no playable quiz was saved. Completed questions are retained'); await this.book(bookId); this.guard(); requireThat(!signal.aborted, 'Cancelled');
+    requireThat(questions.length >= 1, 'No usable question could be generated from this module. Open the module to view and edit its source text, or try a longer module.'); await this.book(bookId); this.guard(); requireThat(!signal.aborted, 'Cancelled');
     const version: QuizVersion = { id: checkpoint.id, bookId, sectionId, createdAt: new Date().toISOString(), questions };
     await d.put(`${this.work(bookId)}quiz:${sectionId}:${version.id}`, version); this.guard();await d.removePrefix(key); return version;
   }

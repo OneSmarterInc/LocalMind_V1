@@ -14,7 +14,7 @@ import { useAction, useAsync } from "@/hooks/useAsync";
 import { useUnsavedWarning } from "@/hooks/useDraft";
 import { registerGuard, confirmLeave } from "@/hooks/unsavedGuard";
 import { useDebounced } from "@/hooks/useDebounced";
-import { Badge, Button, Card, CardHead, choiceAsync, CellText, Column, DangerZone, DetailList, Empty, ErrorBanner, FormFooter, Grid, Input, ListRow, Loading, Notice, PageHeading, PageTabs, ProgressBar, Row, Screen, Split, Stepper, Table, TextLink, Tone, colors, confirmAsync, confirmDeleteAsync, fmtDay, fmtSeconds, radius, radiusSm, space } from "@/ui";
+import { Badge, Button, Card, CardHead, choiceAsync, CellText, Column, DangerZone, DetailList, Empty, ErrorBanner, FormFooter, Grid, Input, ListRow, Loading, Notice, PageHeading, PageTabs, ProgressBar, Row, Screen, Split, Stepper, Table, TextLink, Tone, colors, confirmAsync, confirmDeleteAsync, fmtDay, fmtSeconds, radiusSm, space } from "@/ui";
 import { HeadingPicker, type Heading } from "@/ui/HeadingPicker";
 import type { IconName } from "@/ui/Shell";
 import { LessonView } from "@/ui/LessonView";
@@ -678,6 +678,7 @@ function OutlineWorkspace({ documentId, published, onSaved, onState, lessonStatu
           onToggle={() => avail.run(sel.ci, sel.mi!)}
           toggleBusy={avail.busy}
           onBack={split ? undefined : () => setSel(null)}
+          lessonStatus={mod.id ? lessonStatus[mod.id] : undefined}
           textEdited={!!mod.id && (mod.source_text ?? "") !== ((q.data?.chapters ?? []).flatMap((c) => c.modules).find((x) => x.id === mod.id)?.source_text ?? "")}
         />
       ) : chapter && sel ? (
@@ -799,9 +800,10 @@ function OutlineTree({ chapters, selection, outlineSource, onSelect, onCollapse,
 }
 
 /** One module: title, source text, mapping, availability and position. */
-function ModulePane({ number, module: m, index, count, onChange, onMove, onRemove, onToggle, toggleBusy, onBack, onChapterSettings, headings, textEdited }: {
+function ModulePane({ number, module: m, index, count, onChange, onMove, onRemove, onToggle, toggleBusy, onBack, onChapterSettings, headings, textEdited, lessonStatus }: {
   number: number;
   textEdited?: boolean;
+  lessonStatus?: LessonStatus;
   module: OutlineModule;
   index: number;
   count: number;
@@ -834,6 +836,12 @@ function ModulePane({ number, module: m, index, count, onChange, onMove, onRemov
         style={{ minHeight: 285, lineHeight: 24, backgroundColor: "#FDFEFC" }}
         hint={textEdited ? "Saving queues a new lesson and an unattempted automatic quiz for the edited text." : "Edit the source, not a generated summary. Text changes queue new lessons and an unattempted automatic quiz."} />
       {empty ? <Notice tone="warning" message="This module has no text. Add its source text or explicitly remove the module before saving." /> : null}
+      {m.id && lessonStatus && lessonStatus !== "none" ? (
+        <View style={{ gap: 6 }}>
+          <Text style={ws.fieldLabel}>Lesson</Text>
+          <LessonStatusBanner status={lessonStatus} />
+        </View>
+      ) : null}
       <Row style={{ justifyContent: "space-between" }}>
         <Text style={{ fontSize: 11, color: colors.muted }}>{pages} · {heading ? `Mapped to “${heading.title}”` : "Manually editable"}</Text>
         <Button title="Source mapping" small variant="secondary" icon="git-branch-outline" onPress={() => setMapping((v) => !v)} />
@@ -873,6 +881,25 @@ function LessonMark({ status }: { status?: LessonStatus }) {
   if (!status || status === "ready" || status === "none") return null;
   const icon = status === "failed" ? "alert-circle-outline" : status === "generating" ? "sync-outline" : "time-outline";
   return <Ionicons name={icon} size={13} color={LESSON_COLOR[status]} accessibilityLabel={LESSON_BADGE[status]} />;
+}
+
+/** The module's lesson-generation state, shown in the module editor's own lesson
+ *  section, so a "generating" message never has to live next to the source text. */
+function LessonStatusBanner({ status }: { status: LessonStatus }) {
+  const map: Partial<Record<LessonStatus, { icon: IconName; color: string; text: string }>> = {
+    generating: { icon: "sync-outline", color: colors.accent, text: "Generating the lesson for this module…" },
+    pending: { icon: "time-outline", color: colors.muted, text: "Lesson queued — it will be written in turn with the other modules." },
+    ready: { icon: "checkmark-circle-outline", color: colors.success, text: "Lesson ready. Preview it from Lessons & quizzes." },
+    failed: { icon: "alert-circle-outline", color: colors.warning, text: "Lesson generation failed. It is retried automatically, or regenerate it from Lessons & quizzes." },
+  };
+  const s = map[status];
+  if (!s) return null;
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 10, borderRadius: radiusSm, borderWidth: 1, borderColor: `${s.color}33`, backgroundColor: `${s.color}12` }}>
+      <Ionicons name={s.icon} size={16} color={s.color} />
+      <Text style={{ flex: 1, fontSize: 12.5, lineHeight: 17, color: colors.text }}>{s.text}</Text>
+    </View>
+  );
 }
 
 /** Lesson generation for the whole book, above the outline. */
@@ -1006,9 +1033,9 @@ const ws = StyleSheet.create({
   subtitle: { fontSize: 12.5, color: colors.muted, marginTop: 2 },
   band: { paddingHorizontal: space.lg, paddingBottom: space.sm },
   body: { flex: 1, minHeight: 0, flexDirection: "row", gap: 0 },
-  tree: { backgroundColor: colors.sidebar, borderColor: colors.border, borderWidth: 1, borderRadius: radius },
-  treeSplit: { width: 330, marginLeft: space.lg, marginBottom: space.lg },
-  treeFull: { flex: 1, marginHorizontal: space.md, marginBottom: space.md },
+  tree: { backgroundColor: colors.sidebar },
+  treeSplit: { width: 330, borderRightWidth: 1, borderColor: colors.border },
+  treeFull: { flex: 1 },
   treeHead: { padding: space.md, gap: space.sm, borderBottomWidth: 1, borderColor: colors.border },
   treeTitle: { fontSize: 16, fontWeight: "800", color: colors.text },
   treeMeta: { fontSize: 12, color: colors.faint, lineHeight: 17 },
@@ -1023,7 +1050,7 @@ const ws = StyleSheet.create({
   moduleTitle: { flex: 1, minWidth: 0, fontSize: 13.5, color: colors.muted },
   dot: { width: 8, height: 8, borderRadius: 4 },
   emptyModules: { fontSize: 12.5, color: colors.faint, paddingVertical: 8, paddingHorizontal: 10 },
-  pane: { flex: 1, minWidth: 0, minHeight: 0, paddingHorizontal: space.lg, paddingBottom: space.md, gap: space.sm },
+  pane: { flex: 1, minWidth: 0, minHeight: 0, paddingHorizontal: space.lg, paddingTop: space.md, paddingBottom: space.md, gap: space.sm },
   crumb: { fontSize: 12.5, color: colors.muted },
   crumbNow: { fontSize: 12.5, color: colors.faint },
   fieldLabel: { fontSize: 12.5, color: colors.muted, fontWeight: "600" },

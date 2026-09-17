@@ -31,6 +31,123 @@ def validate_coverage(outline, sections):
             'source_digest': hashlib.sha256('\n\n'.join(block_text(s) for s in ordered).encode()).hexdigest()}
 
 
+def _words(section):
+    return len(block_text(section).split())
+
+
+def _module_limits():
+    """Module size window in words, overridable per deployment via settings.
+
+    Below the floor a module cannot support a full lesson or a five-question
+    quiz, so it is merged with a neighbour; above the ceiling it is split at the
+    next available sub-heading so no single module becomes a wall of text.
+    """
+    cfg = {}
+    try:
+        from django.conf import settings
+        cfg = getattr(settings, "LOCALMIND", {}) or {}
+    except Exception:
+        cfg = {}
+    def value(name, default):
+        try:
+            raw = cfg.get(name, default)
+            return int(raw) if raw not in (None, "") else default
+        except Exception:
+            return default
+    floor = max(40, value("OUTLINE_MIN_MODULE_WORDS", 220))
+    ceiling = max(floor + 120, value("OUTLINE_MAX_MODULE_WORDS", 1500))
+    return floor, ceiling
+
+
+def _module_title(group, root):
+    """Name a module after its top-level container heading (the parent section),
+    not the chapter title and not a child example. This is what stops a module
+    holding all of 'Section 1' from being labelled by whatever came first."""
+    candidates = [s for s in group if s is not root] or list(group)
+    top_level = min(s['level'] for s in candidates)
+    lead = next(s for s in candidates if s['level'] == top_level)
+    # An attach marker (Figure/Table/Summary/Your turn) is a poor module name;
+    # defer to the most substantial section when the lead is one.
+    if ATTACH.match(lead['title']) and len(candidates) > 1:
+        lead = max(candidates, key=_words)
+    return clean_title(lead['title'])[:300]
+
+
+def _split_unit(unit, ceiling):
+    """Split one natural unit at its own deeper-heading boundaries so no group
+    runs far past the budget. A single section too big to split stands alone; an
+    attached block (Your turn, Summary, a table) never starts a new split."""
+    groups, current, words = [], [], 0
+    for section in unit:
+        size = _words(section)
+        attached = bool(ATTACH.match(section['title']))
+        if current and not attached and words + size > ceiling:
+            groups.append(current)
+            current, words = [], 0
+        current.append(section)
+        words += size
+    if current:
+        groups.append(current)
+    return groups
+
+
+def _merge_small(groups, floor, ceiling):
+    """Merge any module below the floor into the neighbour that best keeps the
+    result within budget, preferring the smaller side; edge modules merge inward.
+    Order is preserved so source coverage stays intact."""
+    def size(group):
+        return sum(_words(s) for s in group)
+    changed = True
+    while changed and len(groups) > 1:
+        changed = False
+        for i, group in enumerate(groups):
+            if size(group) >= floor:
+                continue
+            prev_fits = i > 0 and size(groups[i - 1]) + size(group) <= ceiling
+            next_fits = i < len(groups) - 1 and size(groups[i + 1]) + size(group) <= ceiling
+            if prev_fits and next_fits:
+                target = i - 1 if size(groups[i - 1]) <= size(groups[i + 1]) else i + 1
+            elif prev_fits:
+                target = i - 1
+            elif next_fits:
+                target = i + 1
+            elif i > 0:
+                target = i - 1
+            else:
+                target = i + 1
+            groups[target] = (groups[target] + group) if target < i else (group + groups[target])
+            del groups[i]
+            changed = True
+            break
+    return groups
+
+
+def _build_modules(rows, root, floor, ceiling):
+    """Group a chapter's ordered sections into right-sized modules: split an
+    oversized heading at its children, merge an undersized one into a neighbour,
+    and keep every atomic section exactly once, in source order."""
+    children = _outer_sections(rows[1:])
+    starts = [0] + [rows.index(c) for c in children]
+    units = [rows[a:b] for a, b in zip(starts, starts[1:] + [len(rows)]) if a < b]
+    groups = []
+    for unit in units:
+        if sum(_words(s) for s in unit) > ceiling:
+            groups.extend(_split_unit(unit, ceiling))
+        else:
+            groups.append(list(unit))
+    groups = _merge_small(groups, floor, ceiling)
+    modules = []
+    for group in groups:
+        pages = [s.get('start_page') for s in group if s.get('start_page')]
+        ends = [s.get('own_end_page', s.get('end_page')) for s in group if s.get('own_end_page', s.get('end_page'))]
+        modules.append({'title': _module_title(group, root), 'source_heading_index': None,
+                        'source_section_indices': [s['index'] for s in group],
+                        'source_text': '\n\n'.join(block_text(s) for s in group),
+                        'start_page': min(pages) if pages else None,
+                        'end_page': max(ends) if ends else None})
+    return modules
+
+
 def reading_outline(original_name, sections):
     if not sections:
         raise ValueError('No source sections are available.')
@@ -47,37 +164,15 @@ def reading_outline(original_name, sections):
         # No defensible chapter hierarchy: preserve order without inventing 150 chapters.
         roots = [sections[0]]
         warnings.append('No reliable chapter hierarchy was found. Reading units follow source order; review their boundaries.')
+    floor, ceiling = _module_limits()
     chapters = []
     for pos, root in enumerate(roots):
         end = roots[pos + 1]['index'] if pos + 1 < len(roots) else float('inf')
         rows = [s for s in sections if root['index'] <= s['index'] < end]
-        # Work with sibling sections as indivisible units. Deeper examples stay attached.
-        children = _outer_sections(rows[1:])
-        starts = [0] + [rows.index(c) for c in children]
-        units = [rows[a:b] for a, b in zip(starts, starts[1:] + [len(rows)]) if a < b]
-        batches, current, words = [], [], 0
-        for unit in units:
-            size = sum(len(block_text(s).split()) for s in unit)
-            attached = bool(ATTACH.match(unit[0]['title']))
-            if current and words >= 700 and not attached and words + size > 1400:
-                batches.append(current)
-                current, words = [], 0
-            current.extend(unit)
-            words += size
-        if current:
-            batches.append(current)
-        modules = []
-        for batch in batches:
-            pages = [s.get('start_page') for s in batch if s.get('start_page')]
-            ends = [s.get('own_end_page', s.get('end_page')) for s in batch if s.get('own_end_page', s.get('end_page'))]
-            title = clean_title(batch[0]['title'])
-            if batch[0] is root and len(batch) > 1 and len(root.get('own_text', '').split()) < 150:
-                title = clean_title(batch[1]['title'])
-            modules.append({'title': title[:300], 'source_heading_index': None,
-                            'source_section_indices': [s['index'] for s in batch],
-                            'source_text': '\n\n'.join(block_text(s) for s in batch),
-                            'start_page': min(pages) if pages else None,
-                            'end_page': max(ends) if ends else None})
+        # Size-and-heading-aware modules: an oversized heading is split at its
+        # own children, an undersized one is merged into a neighbour, and every
+        # section stays exactly once in source order (coverage is re-checked below).
+        modules = _build_modules(rows, root, floor, ceiling)
         title = clean_title(root['title'])
         if len(roots) == 1 and warnings:
             title = Path(original_name).stem
