@@ -263,10 +263,6 @@ export default function DocumentScreen() {
         { key: "lessons", label: "Lessons & quizzes", count: d!.auto_quizzes?.held ? d!.auto_quizzes.held : null },
         live ? { key: "live", label: "Published book" } : { key: "publish", label: "Publish checklist" },
       ]} />
-      <Row>
-        {tab !== "outline" ? <Button title={tab === "lessons" ? "Back to outline" : "Back to lessons & quizzes"} icon="arrow-back" variant="secondary" onPress={() => { void setTab(tab === "lessons" ? "outline" : "lessons"); }} /> : null}
-        {tab !== "publish" ? <Button title={tab === "outline" ? "Next: Lessons & quizzes" : live ? "Next: Published book" : "Next: Publish checklist"} icon="arrow-forward" iconPosition="right" variant="secondary" onPress={() => { void setTab(tab === "outline" ? "lessons" : live ? "live" : "publish"); }} /> : null}
-      </Row>
       {tab === "outline" ? (
         <>
           <Notice title="One module at a time." message="Choose a module on the left. Edit its title and source on the right. Save explicitly before leaving." />

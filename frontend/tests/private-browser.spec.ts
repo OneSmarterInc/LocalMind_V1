@@ -684,9 +684,11 @@ test('module authoring returns to the selected book outline',async({page})=>{
  await expect(page).toHaveURL(new RegExp(`/manage/document/${fixture().document}\\?tab=outline&module=${fixture().module}`));
  await expect(page.getByLabel('Module title',{exact:true})).toHaveValue('Leaf science');
  await expect(page.getByRole('button',{name:'Books for private study',exact:true})).toHaveCount(0);
- await page.getByRole('button',{name:'Next: Lessons & quizzes',exact:true}).click();
+ await expect(page.getByRole('button',{name:/^Next:/})).toHaveCount(0);
+ await page.getByRole('tab',{name:'Lessons & quizzes',exact:true}).click();
  await expect(page.getByRole('tab',{name:'Lessons & quizzes',exact:true})).toHaveAttribute('aria-selected','true');
- await page.getByRole('button',{name:'Back to outline',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Back to outline',exact:true})).toHaveCount(0);
+ await page.getByRole('tab',{name:'Outline & source',exact:true}).click();
  await expect(page.getByLabel('Module title',{exact:true})).toHaveValue('Leaf science');
  await page.getByRole('button',{name:'Back to books',exact:true}).click();
  await expect(page).toHaveURL(/\/manage\/books$/);
