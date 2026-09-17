@@ -46,6 +46,8 @@ export default function OfflineAI() {
     <Card>
       <Row><H2>Model on this device</H2><Badge value={status?.installed ? 'Downloaded' : 'Not downloaded'} tone={status?.installed ? 'green' : 'neutral'} /></Row>
       <P>{status?.name || MODEL.title}</P>
+      <P muted>Available download: {MODEL.title} · {MODEL.downloadSize}.</P>
+      {status?.installed && status.hash !== MODEL.sha256 && <P muted>Select Download replacement model to switch to Qwen3 1.7B. Your current model stays installed until the new download is complete and verified. Your books and saved study material are kept.</P>}
       {Platform.OS==='web' && status?.loaded && <P muted>Local inference: {status.threads || 1} CPU thread(s). One response at a time.</P>}
       <P muted>After the model and book are installed, lesson generation, quiz generation and doubt solving run here without an internet connection or an AI API key. Checking an existing multiple-choice quiz does not need a model.</P>
       <P muted>The included download is a compact model, not a guarantee of answer quality. Compare explanations and generated questions with the original book. You may import a compatible larger GGUF when this device has enough memory.</P>

@@ -12,7 +12,7 @@ approval of practice questions or publisher signing keys.
    originals are also offered to enrolled students.
 2. Student opens **Private library** and either selects **Add to my library**
    under **From my institution**, or **Upload my book** for a local file.
-3. In **Offline AI**, download the starter model or import a compatible GGUF.
+3. In **Offline AI**, download Qwen3 1.7B (Q4_K_M, approximately 1.11 GB) or import a compatible GGUF.
    For the browser, also select **Check and save offline app files**.
 4. Disconnect and reopen the same installed application/browser profile. Read any
    private module, generate or regenerate lessons/quizzes, check MCQs, and ask doubts.
@@ -51,6 +51,14 @@ reached. English is the bundled recognition language; other OCR languages are no
 included in this release. Font rendering and scan quality can affect fidelity.
 
 ## Storage and updates
+
+The default Offline AI download is Qwen3 1.7B Q4_K_M from
+`unsloth/Qwen3-1.7B-GGUF`, pinned to a publisher revision with exact size and
+SHA-256 verification on web and native. Devices with the earlier 0.6B model keep
+using it until the user chooses **Download replacement model**. The existing
+model is replaced only after a complete, verified download; books, lessons,
+quizzes and study history are retained. Updating the app alone does not download
+or replace a model. The download size is not the model's total runtime memory use.
 
 Book metadata and module text are stored separately from page images so listing a
 library does not load all its bitmaps. Assets are scoped by account, institution,
