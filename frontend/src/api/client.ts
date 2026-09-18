@@ -151,7 +151,10 @@ export async function api<T = unknown>(path: string, opts: Options = {}): Promis
   const cancel = () => controller.abort();
   opts.signal?.addEventListener("abort", cancel);
   if (opts.signal?.aborted) cancel();
-  const timeout = setTimeout(cancel, opts.timeoutMs ?? (method === "GET" ? 15000 : 120000));
+  // A slow reply is not a disconnection. 15s was short enough that an ordinary
+  // sync burst on a single-laptop server tripped the offline banner; 45s only
+  // fires when the server really is not answering.
+  const timeout = setTimeout(cancel, opts.timeoutMs ?? (method === "GET" ? 45000 : 120000));
   try { res = await fetch(url, { method, headers, signal: controller.signal, body: form ?? (body !== undefined ? JSON.stringify(body) : undefined) }); }
   catch {
     if (session !== mine || offlineScope() !== owner) throw new SessionChangedError();

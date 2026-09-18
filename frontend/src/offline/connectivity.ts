@@ -2,7 +2,7 @@
 //
 // "Offline" here means the server is unreachable, which on a school LAN is
 // not the same as having no internet. The API client reports every request
-// outcome; while offline a light ping checks every 20 seconds and, the moment
+// outcome; while offline a light ping checks every 5 seconds and, the moment
 // the server answers again, listeners (the sync) are told.
 import { useEffect, useState } from "react";
 
@@ -25,7 +25,7 @@ function set(next: boolean) {
         const res = await fetch(pingUrl, { cache: "no-store" });
         if (res.ok) set(true);
       } catch { /* still unreachable */ }
-    }, 20000);
+    }, 5000);
   }
   if (next && pinger) { clearInterval(pinger); pinger = null; }
 }

@@ -54,6 +54,10 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "core.isolation.BrowserIsolationMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    # Compresses the built web client. WhiteNoise only compresses collected
+    # static files; the SPA bundle is served by core.webapp as a FileResponse,
+    # so without this the 2.35 MB entry chunk crosses the tunnel uncompressed.
+    "django.middleware.gzip.GZipMiddleware",
     # Serves collected static files without nginx so the standalone/offline
     # launcher is a single process.
     "whitenoise.middleware.WhiteNoiseMiddleware",
