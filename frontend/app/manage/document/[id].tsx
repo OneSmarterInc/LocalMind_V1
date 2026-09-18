@@ -1,4 +1,5 @@
 import { removeBook, archiveBook } from "@/documents/remove";
+import { useBackTo } from "@/hooks/useBackTo";
 import {prepareAutomatically,preparation,type PreparationMap} from '@/authoring/automatic';
 import {device} from '@/private/device';
 import {useAuth} from "@/auth/AuthContext";
@@ -12,7 +13,7 @@ import { manage } from "@/api/endpoints";
 import type { Document, LessonDetail, LessonStatus, OutlineChapter, OutlineModule, OutlineReport } from "@/api/types";
 import { useAction, useAsync } from "@/hooks/useAsync";
 import { useUnsavedWarning } from "@/hooks/useDraft";
-import { registerGuard, confirmLeave } from "@/hooks/unsavedGuard";
+import { registerGuard } from "@/hooks/unsavedGuard";
 import { useDebounced } from "@/hooks/useDebounced";
 import { Badge, Button, Card, CardHead, choiceAsync, CellText, Column, DangerZone, DetailList, Empty, ErrorBanner, FormFooter, Grid, Input, ListRow, Loading, Notice, PageHeading, PageTabs, ProgressBar, Row, Screen, Split, Stepper, Table, TextLink, Tone, colors, confirmAsync, confirmDeleteAsync, fmtDay, fmtSeconds, radiusSm, space } from "@/ui";
 import { HeadingPicker, type Heading } from "@/ui/HeadingPicker";
@@ -28,6 +29,7 @@ type DocTab = "outline" | "pictures" | "lessons" | "publish" | "live";
 export default function DocumentScreen() {
   const { id, tab: tabParam, module: moduleParam } = useLocalSearchParams<{ id: string; tab?: DocTab; module?: string }>();
   const router = useRouter();
+  const back = useBackTo();
   const {user}=useAuth();
   const owner=user?.id;
   const authoring=useMemo(()=>owner?new LocalAuthoring(owner):null,[owner]);
@@ -143,7 +145,7 @@ export default function DocumentScreen() {
   const missingSource = d?.missing_source_modules?.length ?? 0;
   const statusBadge = d ? <Badge value={d.status === "under_review" ? "Under review" : d.status} /> : null;
   const subtitle = d ? `${code ? `${code} · ` : ""}${d.outline_quality?.content_chapters ?? d.chapter_count ?? 0} chapters${d.outline_quality?.introductory_group ? ' + introductory material' : ''} · ${d.module_count ?? 0} modules · Version ${d.content_version}` : null;
-  const backToBooks = <Button title="Back to books" icon="arrow-back" variant="secondary" onPress={() => { void confirmLeave().then(ok => { if (ok) router.push("/manage/books"); }); }} />;
+  const backToBooks = <Button title="Back to books" icon="arrow-back" variant="secondary" onPress={() => back("/manage/books")} />;
   const stepper = (active: number) => <Stepper steps={["Upload a book", "Review the outline", "Publish to students"]} active={active} />;
 
   if (!editable) {

@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useBackTo } from "@/hooks/useBackTo";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
@@ -23,6 +24,7 @@ function Check({ on, onPress, label }: { on: boolean; onPress: () => void; label
 
 export default function MonitorPolicies() {
   const router = useRouter();
+  const back = useBackTo();
   const q = useAsync(() => admin.monitorPolicies(), []);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [saved, setSaved] = useState(false);
@@ -42,7 +44,7 @@ export default function MonitorPolicies() {
   return (
     <Screen refreshing={q.loading} onRefresh={q.reload}>
       <PageHeading eyebrow="ADMINISTRATOR CONTROLS" title="Monitoring policies" subtitle="Decide which findings create incidents for human review."
-        right={<Button title="Back to monitoring" variant="secondary" icon="arrow-back" onPress={() => router.push("/admin/monitoring")} />} />
+        right={<Button title="Back to monitoring" variant="secondary" icon="arrow-back" onPress={() => back("/admin/monitoring")} />} />
       <Notice title="These settings govern incident creation, not grading." message="Confidence is shown as a percentage and saved as the backend’s 0–1 value. Raising a threshold makes the queue quieter but lets more issues through unreviewed." />
       <ErrorBanner message={q.error ?? save.error} onRetry={q.reload} />
       {q.error && !q.data ? <RequestFailed onRetry={q.reload} /> : q.loading && !q.data ? <Loading /> : null}

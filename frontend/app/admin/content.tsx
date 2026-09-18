@@ -1,4 +1,5 @@
 import { useRouter } from "expo-router";
+import { useBackTo } from "@/hooks/useBackTo";
 import React from "react";
 import { Text } from "react-native";
 import { Button, Card, Grid, Notice, PageHeading, Screen, colors } from "@/ui";
@@ -10,10 +11,11 @@ const AREAS = [
 
 export default function AdminContent() {
   const router = useRouter();
+  const back = useBackTo();
   return (
     <Screen>
       <PageHeading eyebrow="CONTENT WORKSPACE" title="Teaching content, with administrator access." subtitle="The same content workspace faculty uses, without switching your account."
-        right={<Button title="Back to administration" variant="secondary" icon="arrow-back" onPress={() => router.push("/admin")} />} />
+        right={<Button title="Back to administration" variant="secondary" icon="arrow-back" onPress={() => back("/admin")} />} />
       <Notice title="Your administrator role stays active." message="Administrators can use the content workspace for every subject. Actions are recorded in the audit trail under your account." />
       <Grid min={260} gap={20}>
         {AREAS.map((a) => (

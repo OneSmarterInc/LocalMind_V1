@@ -13,6 +13,7 @@ const icon = (name: keyof typeof Ionicons.glyphMap) => {
 const STUDENT_META: PortalMeta = {
   name: "Student workspace",
   navLabel: "MY LEARNING",
+  homePath: "/student",
   profilePath: "/student/profile",
   finder: [
     { title: "Private library", section: "Your books and local AI", path: "/student/private-library" },

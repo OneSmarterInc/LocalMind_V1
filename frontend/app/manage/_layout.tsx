@@ -27,6 +27,7 @@ export default function ManageLayout() {
   const meta: PortalMeta = {
     name: admin ? "Content workspace" : "Faculty workspace",
     navLabel: "TEACHING",
+    homePath: "/manage",
     profilePath: admin ? "/admin/profile" : "/manage/profile",
     links: admin ? [{ label: "Administrator workspace", icon: "shield-half-outline", path: "/admin" }] : undefined,
     finder: admin ? [...finder, { title: "Administrator overview", section: "Administrator workspace", path: "/admin" }] : [...finder, { title: "My profile", section: "Account", path: "/manage/profile" }],

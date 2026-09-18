@@ -1,4 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useBackTo } from "@/hooks/useBackTo";
+import { useTabParam } from "@/hooks/useTabParam";
 import { quizNeedsSubmission } from "@/screens/student/quizStatus";
 import {useIsFocused} from '@react-navigation/native';
 import {recordCourseWork} from '@/offline/coursework';
@@ -18,12 +20,12 @@ type Tab = "read" | "lesson" | "ask";
 const statusLabel = (st?: string) => (st === "completed" ? "Completed" : st === "in_progress" ? "In progress" : st === "needs_review" ? "Needs review" : "Not started");
 
 export default function StudentModule() {
-  const { id, tab: tabParam } = useLocalSearchParams<{ id: string; tab?: string }>();
+  const { id } = useLocalSearchParams<{ id: string; tab?: string }>();
   const router = useRouter();
+  const back = useBackTo();
   const navigation = useNavigation();
   const focused=useIsFocused();
-  const [tab, setTab] = useState<Tab>(tabParam === "lesson" || tabParam === "ask" ? tabParam : "read");
-  useEffect(() => { if (tabParam === "lesson" || tabParam === "ask" || tabParam === "read") setTab(tabParam); }, [tabParam, id]);
+  const [tab, setTab] = useTabParam<Tab>("read", ["read", "lesson", "ask"]);
   const mod = useAsync(() => student.module(id), [id]);
   const quizzes = useAsync(() => student.quizzes({ module: id }), [id]);
   const m = mod.data;
@@ -79,7 +81,9 @@ export default function StudentModule() {
   const number = m?.module_number ?? m?.order;
   // Replace rather than push: walking a book with Next should not build a
   // twenty-deep back stack that the student then has to unwind.
-  const go = (moduleId: string) => router.replace(`/student/module/${moduleId}`);
+  // push, not replace: walking module 1 -> 2 -> 3 and pressing the browser Back
+  // button should return to module 2, not jump all the way out to the book.
+  const go = (moduleId: string) => router.push(`/student/module/${moduleId}`);
   const side = m ? (
     <>
       <ModuleSearch documentId={m.document_id} currentId={id} onGo={go} />
@@ -95,7 +99,7 @@ export default function StudentModule() {
       {m ? (
         <>
           <PageHeading eyebrow={eyebrow} title={m.title} subtitle={`${trail ? `${trail} / ` : ""}Module ${number}`}
-            right={m.document_id ? <Button title="Back to book" variant="secondary" icon="arrow-back" onPress={() => router.push(`/student/document/${m.document_id}`)} /> : null} />
+            right={m.document_id ? <Button title="Back to book" variant="secondary" icon="arrow-back" onPress={() => back(`/student/document/${m.document_id}`)} /> : null} />
           <PageTabs<Tab> value={tab} onChange={setTab} tabs={[{ key: "read", label: "Read" }, { key: "lesson", label: "Lesson" }, { key: "ask", label: "Ask a doubt" }]} />
           {tab === "read" ? <Split main={<><ReadCard module={m} onLesson={() => setTab("lesson")} /><ModuleNav previous={m.previous_module} next={m.next_module} onGo={go} /></>} side={side} /> : null}
           {tab === "lesson" && teach.loading && !teach.data ? <Loading /> : null}

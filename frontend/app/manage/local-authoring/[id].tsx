@@ -1,4 +1,5 @@
 import {useAsync} from '@/hooks/useAsync';
+import { useBackTo } from "@/hooks/useBackTo";
 import {LocalLessonView} from '@/private/LocalLessonView';
 import {LessonView} from '@/ui/LessonView';
 import React,{useCallback,useEffect,useMemo,useState} from 'react';
@@ -32,6 +33,7 @@ export default function LocalAuthoringPage(){const {user}=useAuth();return user?
 
 function Authoring(){
  const {id}=useLocalSearchParams<{id:string}>(),{user}=useAuth(),router=useRouter(),library=useLibrary(),task=useTask();
+ const back=useBackTo();
  const owner=user!.id;
  const service=useMemo(()=>new LocalAuthoring(owner),[owner]);
  const [tab,setTab]=useState<Tab>('review');
@@ -119,7 +121,7 @@ function Authoring(){
   <PageHeading eyebrow="LOCAL AUTHORING" title={draft?.snapshot.title||'Local authoring'}
    subtitle="Generated on this device. Review it, then synchronize it to the institution."
    right={<Row>
-    {draft&&(!draft.localBook||draft.snapshot.remote_id)?<Button title="Back to outline" icon="arrow-back" variant="secondary" onPress={()=>router.push({pathname:"/manage/document/[id]",params:{id:draft.snapshot.document_id,tab:"outline",module:draft.snapshot.remote_id||draft.snapshot.module_id}})}/>:null}
+    {draft&&(!draft.localBook||draft.snapshot.remote_id)?<Button title="Back to outline" icon="arrow-back" variant="secondary" onPress={()=>back({pathname:"/manage/document/[id]",params:{id:draft.snapshot.document_id,tab:"outline",module:draft.snapshot.remote_id||draft.snapshot.module_id}})}/>:null}
     <Button title="Books & modules" icon="library-outline" variant="secondary" onPress={()=>router.push('/manage/books')}/>
    </Row>}/>
 

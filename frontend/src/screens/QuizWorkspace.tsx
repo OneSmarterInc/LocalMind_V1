@@ -1,4 +1,5 @@
 import {generationJobs} from '@/private/jobs';
+import { useBackTo } from "@/hooks/useBackTo";
 import {jobScope} from '@/private/useGenerationJobs';
 import {useLibrary} from '@/private/useLibrary';
 import {device} from '@/private/device';
@@ -146,6 +147,7 @@ function OptionCardLike({ checked, onPress, children, label }: { checked: boolea
 export function QuizNewPage() {
   const {user}=useAuth(),library=useLibrary();
   const router = useRouter();
+  const back = useBackTo();
   const [title, setTitle] = useState("");
   const [subjectId, setSubjectId] = useState("");
   const [modules, setModules] = useState<string[]>([]);
@@ -170,7 +172,7 @@ export function QuizNewPage() {
   return (
     <Screen>
       <PageHeading eyebrow="QUIZZES" title="Create a quiz" subtitle="Choose the source first. Then generate questions or write your own."
-        right={<Button title="Back to quizzes" variant="secondary" icon="arrow-back" onPress={() => router.push("/manage/quizzes")} />} />
+        right={<Button title="Back to quizzes" variant="secondary" icon="arrow-back" onPress={() => back("/manage/quizzes")} />} />
       <Button title="Saved quiz drafts" variant="secondary" onPress={()=>router.push("/manage/local-quizzes")}/>
       <Split
         main={
@@ -191,7 +193,7 @@ export function QuizNewPage() {
             ) : null}
             <ErrorBanner message={go.error} />
             <FormFooter note="Pass mark, attempts and result release are set on the quiz’s Settings tab.">
-              <Button title="Cancel" variant="secondary" onPress={() => router.push("/manage/quizzes")} />
+              <Button title="Cancel" variant="secondary" onPress={() => back("/manage/quizzes")} />
               <Button title="Continue to questions" icon="arrow-forward" onPress={() => go.run()} busy={go.busy} disabled={modules.length === 0} />
             </FormFooter>
           </Card>

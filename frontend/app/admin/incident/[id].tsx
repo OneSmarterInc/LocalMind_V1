@@ -1,4 +1,5 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useBackTo } from "@/hooks/useBackTo";
 import React, { useState } from "react";
 import { Text, View } from "react-native";
 import { admin } from "@/api/endpoints";
@@ -20,6 +21,7 @@ const DECISIONS: { value: ReviewAction; title: string; text: string }[] = [
 export default function IncidentReview() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const back = useBackTo();
   const { user } = useAuth();
   const q = useAsync(() => admin.monitorIncident(id), [id]);
   const [decision, setDecision] = useState<ReviewAction>("confirm");
@@ -42,7 +44,7 @@ export default function IncidentReview() {
         <>
           <PageHeading eyebrow="AI MONITORING" title={`Review ${ISSUE_LABEL[i.issue_type]?.toLowerCase() ?? "an issue"} in a ${e.interaction_kind === "quiz" ? "generated quiz" : "tutor answer"}`}
             subtitle={[`Incident ${i.id.slice(0, 8).toUpperCase()}`, i.subject ? i.subject.code : null, e.module_title || null, i.user ? `${i.user.full_name} (${i.user.role})` : null].filter(Boolean).join(" · ")}
-            right={<Button title="Back to incidents" variant="secondary" icon="arrow-back" onPress={() => router.push("/admin/monitoring")} />} />
+            right={<Button title="Back to incidents" variant="secondary" icon="arrow-back" onPress={() => back("/admin/monitoring")} />} />
           <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
             <Badge value={`${i.severity} severity`} tone={SEVERITY_TONE[i.severity]} />
             <Badge value={i.status} tone={STATUS_TONE[i.status] ?? "neutral"} />

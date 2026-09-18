@@ -5,6 +5,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Modal, Platform, Pressable, PressableStateCallbackType, ScrollView, StyleSheet, Text, TextInput, TouchableWithoutFeedback, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/auth/AuthContext";
+import { useBackTo } from "@/hooks/useBackTo";
 import { confirmLeave } from "@/hooks/unsavedGuard";
 import { useOnline } from "@/offline/connectivity";
 import { Avatar, SIDEBAR_WIDTH } from "./index";
@@ -60,6 +61,8 @@ export type PortalMeta = {
   name: string;
   /** Small uppercase label above the navigation. */
   navLabel: string;
+  /** The workspace overview. Where the LocalMind mark in the sidebar goes. */
+  homePath: string;
   /** Where "My profile" at the bottom of the sidebar goes. */
   profilePath: string;
   /** Extra links under the main navigation (e.g. admin -> content workspace). */
@@ -127,7 +130,7 @@ function Sidebar({ state, descriptors, navigation, meta, onNavigate }: BottomTab
   const go = async (path: string) => { if (!(await confirmLeave())) return; onNavigate?.(); router.push(path as never); };
   return (
     <ScrollView style={s.sidebar} contentContainerStyle={[s.sidebarInner, { paddingTop: insets.top + 24 }]}>
-      <Pressable onPress={() => go(meta.finder[0]?.path ?? "/")} accessibilityRole="link" style={{ marginHorizontal: 11, marginBottom: 25 }}><Brand /></Pressable>
+      <Pressable onPress={() => go(meta.homePath)} accessibilityRole="link" style={{ marginHorizontal: 11, marginBottom: 25 }}><Brand /></Pressable>
       <View style={s.portalLabel}><View style={s.portalDot} /><Text style={{ color: colors.muted, fontSize: 12 }}>{meta.name}</Text></View>
       <Text style={s.navLabel}>{meta.navLabel}</Text>
       <View accessibilityRole="menu">
@@ -259,6 +262,7 @@ export function ShellHeader({ route, options, meta }: BottomTabHeaderProps & { m
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const online = useOnline();
+  const back = useBackTo();
   const desktop = width >= bp.desktop;
   const narrow = width < bp.tablet;
   const [finder, setFinder] = useState(false);
@@ -285,7 +289,7 @@ export function ShellHeader({ route, options, meta }: BottomTabHeaderProps & { m
         {!narrow ? <Text style={s.crumbText} numberOfLines={1}>{meta.name}</Text> : null}
         {!narrow ? <Ionicons name="chevron-forward" size={12} color={colors.muted} /> : null}
         {extras.backTo && extras.backLabel ? (
-          <Pressable onPress={() => { void confirmLeave().then((ok) => { if (ok) router.replace(extras.backTo as never); }); }} accessibilityRole="link" accessibilityLabel={`Back to ${extras.backLabel}`}>
+          <Pressable onPress={() => back(extras.backTo as string)} accessibilityRole="link" accessibilityLabel={`Back to ${extras.backLabel}`}>
             {(st: PressState) => <Text style={[s.crumbText, { color: colors.ink, fontWeight: "600" }, st.hovered && { textDecorationLine: "underline", color: colors.primary }]} numberOfLines={1}>{narrow ? `‹ ${extras.backLabel}` : extras.backLabel}</Text>}
           </Pressable>
         ) : (

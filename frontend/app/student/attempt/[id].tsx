@@ -1,4 +1,5 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useBackTo } from "@/hooks/useBackTo";
 import React, { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import {retryCourseEvent} from "@/offline/coursework";
@@ -11,6 +12,7 @@ import { Badge, Button, Card, CardHead, DetailList, Empty, ErrorBanner, Loading,
 export default function StudentAttempt() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const back = useBackTo();
   const q = useAsync(() => student.attempt(id), [id]);
   const retrySync = useAction(async () => { await retryCourseEvent(id); await q.reload(); });
   const quizzes = useAsync(() => student.quizzes(), []);
@@ -41,7 +43,7 @@ export default function StudentAttempt() {
     return (
       <Screen refreshing={q.loading} onRefresh={q.reload}>
         <PageHeading eyebrow="SAVED ON THIS DEVICE" title={a.sync_status === 'conflict' ? 'Synchronization needs review' : 'Your quiz result'} subtitle={[title, book].filter(Boolean).join(" · ")}
-          right={<Button title="Back to quizzes" variant="secondary" icon="arrow-back" onPress={() => router.push('/student/quizzes')} />} />
+          right={<Button title="Back to quizzes" variant="secondary" icon="arrow-back" onPress={() => back("/student/quizzes")} />} />
         <Notice tone={a.sync_status === 'conflict' ? 'warning' : 'info'}
           message={(a.sync_error === 'Quiz not found.'
             ? 'Your submitted answers are saved, but the quiz is not currently available to your account. Ask faculty to check publication, module access and enrollment, then retry synchronization.'
@@ -78,13 +80,13 @@ export default function StudentAttempt() {
     );
   }
   if (a.status === "submitted" && !held) {
-    return <Screen><PageHeading title="Your answers are saved" subtitle={title}/><Notice title="Evaluation is pending" message="Your response is safely stored. The local evaluation worker will process it, and faculty release rules still apply. No zero or pass has been assigned. If this remains pending, ask faculty to check the saved job."/><Button title="Check evaluation status" onPress={q.reload}/><Button title="Back to quizzes" variant="secondary" onPress={()=>router.push("/student/quizzes")}/></Screen>;
+    return <Screen><PageHeading title="Your answers are saved" subtitle={title}/><Notice title="Evaluation is pending" message="Your response is safely stored. The local evaluation worker will process it, and faculty release rules still apply. No zero or pass has been assigned. If this remains pending, ask faculty to check the saved job."/><Button title="Check evaluation status" onPress={q.reload}/><Button title="Back to quizzes" variant="secondary" onPress={() => back("/student/quizzes")}/></Screen>;
   }
 
   if (held) {
     return (
       <Screen refreshing={q.loading} onRefresh={q.reload}>
-        <PageHeading eyebrow="SUBMISSION CONFIRMED" title="Your answers are submitted." subtitle={title} right={<Button title="Back to quizzes" variant="secondary" icon="arrow-back" onPress={() => router.push("/student/quizzes")} />} />
+        <PageHeading eyebrow="SUBMISSION CONFIRMED" title="Your answers are submitted." subtitle={title} right={<Button title="Back to quizzes" variant="secondary" icon="arrow-back" onPress={() => back("/student/quizzes")} />} />
         <Card>
           <Empty icon="time-outline" title="Your faculty will release the results." text="Your attempt has been received. Your score, correct answers, and feedback are hidden until results are released."
             action={<Badge value="Submitted · results not released" tone="amber" />} />
@@ -105,7 +107,7 @@ export default function StudentAttempt() {
   return (
     <Screen refreshing={q.loading} onRefresh={q.reload}>
       <PageHeading eyebrow="QUIZ COMPLETED" title="Your quiz result" subtitle={[title, book].filter(Boolean).join(" · ")}
-        right={bookId ? <Button title="Back to book" variant="secondary" icon="arrow-back" onPress={() => router.push(`/student/document/${bookId}`)} /> : null} />
+        right={bookId ? <Button title="Back to book" variant="secondary" icon="arrow-back" onPress={() => back(`/student/document/${bookId}`)} /> : null} />
       <View style={{ flexDirection: "row", alignItems: "center", gap: 30, padding: 28, borderWidth: 1, borderColor: "#D7E4D1", backgroundColor: "#F0F6EB", borderRadius: 13, flexWrap: "wrap" }}>
         <ScoreRing value={pct(a.percentage)} caption="YOUR SCORE" />
         <View style={{ flex: 1, minWidth: 220, gap: 8 }}>

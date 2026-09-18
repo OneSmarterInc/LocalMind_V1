@@ -1,4 +1,5 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useBackTo } from "@/hooks/useBackTo";
 import React, { useState } from "react";
 import { View } from "react-native";
 import { admin } from "@/api/endpoints";
@@ -10,6 +11,7 @@ type Kind = "students" | "faculty";
 
 export default function AddPerson() {
   const router = useRouter();
+  const back = useBackTo();
   const p = useLocalSearchParams<{ kind?: string }>();
   const [kind, setKind] = useState<Kind>(p.kind === "faculty" ? "faculty" : "students");
   const [f, setF] = useState<Record<string, string>>({ batch: "" });
@@ -30,7 +32,7 @@ export default function AddPerson() {
   return (
     <Screen>
       <PageHeading eyebrow="PEOPLE" title="Add a person" subtitle="Create the account first. Assign learning or teaching access in the next step."
-        right={<Button title="Back to people" variant="secondary" icon="arrow-back" onPress={() => router.push({ pathname: "/admin/users", params: { kind } })} />} />
+        right={<Button title="Back to people" variant="secondary" icon="arrow-back" onPress={() => back({ pathname: "/admin/users", params: { kind } })} />} />
       {issued ? <OneTimeCredentials title={`One-time password for ${issued.row.full_name}`} rows={[issued.row]} onDone={() => router.replace({ pathname: "/admin/users", params: { kind, notice: issued.notice } })} /> : null}
       <Split
         main={
@@ -69,7 +71,7 @@ export default function AddPerson() {
             <Notice title="A first sign-in password change is required." message="The account uses the platform's onboarding password policy: the person must change the initial password at first sign-in. No email is sent." />
             <ErrorBanner message={create.error} />
             <FormFooter note="The initial password is shown once after the account is created.">
-              <Button title="Cancel" variant="secondary" onPress={() => router.push({ pathname: "/admin/users", params: { kind } })} />
+              <Button title="Cancel" variant="secondary" onPress={() => back({ pathname: "/admin/users", params: { kind } })} />
               <Button title="Create account" icon="add" onPress={() => create.run()} busy={create.busy} disabled={!emailOk || !f.full_name?.trim()} />
             </FormFooter>
           </Card>

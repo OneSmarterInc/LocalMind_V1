@@ -1,4 +1,5 @@
 import {LocalLessonView} from '../LocalLessonView';
+import { useBackTo } from "@/hooks/useBackTo";
 import {generationJobs} from '../jobs';
 import {jobScope,useGenerationJobs} from '../useGenerationJobs';
 import React,{useEffect,useRef,useState} from 'react';
@@ -18,6 +19,7 @@ import {confirmLeave,registerGuard} from '@/hooks/unsavedGuard';
 type Tab='read'|'lesson'|'quiz'|'ask';
 export default function PrivateBook(){
  const {id,section:targetSection,tab:targetTab}=useLocalSearchParams<{id:string;section?:string;tab?:string}>(),router=useRouter(),library=useLibrary();
+ const back=useBackTo();
  const book=useAsync(()=>{if(!library)throw Error('Open the library after signing in.');return library.book(id);},[id,library]);
  const [sectionId,setSectionId]=useState(''),[query,setQuery]=useState('');
  useEffect(()=>{let alive=true;if(library&&book.data)void library.viewState(id,'section').then(saved=>{if(alive)setSectionId(book.data!.sections.find(s=>s.id===(targetSection||saved))?.id||book.data!.sections[0].id);});return()=>{alive=false;};},[book.data,id,library,targetSection]);
@@ -26,7 +28,7 @@ export default function PrivateBook(){
  const sidebar=<Card><H2>Modules</H2><P muted>Open any module. Quiz results never lock the next one.</P><Input value={query} onChangeText={setQuery} placeholder="Find a module"/><ScrollView style={{maxHeight:550}}>
   {(b?.sections||[]).filter(x=>x.title.toLowerCase().includes(query.toLowerCase())).map((x)=><Pressable key={x.id} accessibilityRole="button" accessibilityState={{selected:x.id===sectionId}} onPress={()=>{void confirmLeave().then(ok=>{if(ok)selectSection(x.id);});}} style={{padding:12,borderRadius:8,marginBottom:5,backgroundColor:x.id===sectionId?colors.primary:'transparent'}}><P style={{color:x.id===sectionId?'white':colors.text}}>{x.title}</P></Pressable>)}
  </ScrollView></Card>;
- return <Screen><PageHeading title={b?.title||'Private book'} subtitle="Personal study · Saved only on this device" right={<Button title="Back to library" variant="secondary" onPress={()=>{void confirmLeave().then(ok=>{if(ok)router.push('/student/private-library');});}}/>}/><ErrorBanner message={book.error} onRetry={book.reload}/>
+ return <Screen><PageHeading title={b?.title||'Private book'} subtitle="Personal study · Saved only on this device" right={<Button title="Back to library" variant="secondary" onPress={()=>back('/student/private-library')}/>}/><ErrorBanner message={book.error} onRetry={book.reload}/>
   {book.loading&&!b?<Loading/>:null}
   {b?.warnings.length?<Notice tone="warning" title="About this import" message={b.warnings.join('\n')}/>:null}
   {b&&s&&library?<Split side={sidebar} main={<ModuleLearning key={`${library.prefix}:${id}:${s.id}`} bookId={id} initialTab={targetTab} onSourceSaved={book.reload} section={s} next={()=>{const n=b.sections.findIndex(x=>x.id===s.id)+1;if(b.sections[n])void confirmLeave().then(ok=>{if(ok)selectSection(b.sections[n].id);});}}/>}/>:null}

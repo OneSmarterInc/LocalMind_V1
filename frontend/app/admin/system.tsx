@@ -1,4 +1,5 @@
 import { useRouter } from "expo-router";
+import { useBackTo } from "@/hooks/useBackTo";
 import React, { useState } from "react";
 import { Text, View } from "react-native";
 import { admin } from "@/api/endpoints";
@@ -15,6 +16,7 @@ const ICONS: Record<string, IconName> = { backend: "server-outline", database: "
 
 export default function SystemReadiness() {
   const router = useRouter();
+  const back = useBackTo();
   const q = useAsync(() => admin.aiStatus(), []);
   const refresh = useAction(async () => { q.setData(await admin.aiStatus(true)); });
   const [showAll, setShowAll] = useState(false);
@@ -62,7 +64,7 @@ export default function SystemReadiness() {
           <Text style={{ fontSize: 11, color: colors.muted }}>The first model download needs internet access. Afterwards the platform runs offline.</Text>
           <View style={{ flexDirection: "row", gap: 9, flexWrap: "wrap" }}>
             <Button title="View all components" variant="secondary" icon="list-outline" onPress={() => setShowAll(true)} />
-            <Button title="Back to overview" variant="ghost" onPress={() => router.push("/admin")} />
+            <Button title="Back to overview" variant="ghost" onPress={() => back("/admin")} />
           </View>
         </Card>
       </Screen>

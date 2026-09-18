@@ -1,4 +1,5 @@
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
+import { useBackTo } from "@/hooks/useBackTo";
 import React, { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import { admin } from "@/api/endpoints";
@@ -14,6 +15,7 @@ type Detail = User & { enrollments?: any[]; subjects?: any[] };
 export default function ManageAccount() {
   const { id, kind: k } = useLocalSearchParams<{ id: string; kind?: string }>();
   const router = useRouter();
+  const back = useBackTo();
   const navigation = useNavigation();
   const kind = k === "faculty" ? "faculty" : "students";
   const faculty = kind === "faculty";
@@ -61,7 +63,7 @@ export default function ManageAccount() {
       {q.loading && !u ? <Loading /> : null}
       {u ? (
         <>
-          <PageHeading eyebrow={faculty ? "PEOPLE · FACULTY" : "PEOPLE · STUDENT"} title={u.full_name} subtitle={u.email} right={<Button title="Back to people" variant="secondary" icon="arrow-back" onPress={() => router.push({ pathname: "/admin/users", params: { kind } })} />} />
+          <PageHeading eyebrow={faculty ? "PEOPLE · FACULTY" : "PEOPLE · STUDENT"} title={u.full_name} subtitle={u.email} right={<Button title="Back to people" variant="secondary" icon="arrow-back" onPress={() => back({ pathname: "/admin/users", params: { kind } })} />} />
           {issued ? <OneTimeCredentials title="New one-time password" rows={[issued]} onDone={() => setIssued(null)} /> : null}
           <View style={{ flexDirection: "row", alignItems: "center", gap: 16, padding: 24, borderRadius: 14, backgroundColor: "#EAF1E5", borderWidth: 1, borderColor: "#D9E6D5" }}>
             <Avatar name={u.full_name} size={64} tone={faculty ? "blue" : "green"} />

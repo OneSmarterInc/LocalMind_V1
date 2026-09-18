@@ -1,4 +1,5 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useTabParam } from "@/hooks/useTabParam";
 import React, { useEffect, useMemo, useState } from "react";
 import { Text, View } from "react-native";
 import { admin, manage } from "@/api/endpoints";
@@ -9,8 +10,8 @@ import { StudentPicker } from "@/ui/StudentPicker";
 type Tab = "details" | "faculty" | "students";
 
 export default function AdminSubject() {
-  const { id, tab: t } = useLocalSearchParams<{ id: string; tab?: Tab }>();
-  const [tab, setTab] = useState<Tab>(t ?? "details");
+  const { id } = useLocalSearchParams<{ id: string; tab?: Tab }>();
+  const [tab, setTab] = useTabParam<Tab>("details", ["details", "faculty", "students"]);
   const q = useAsync(() => admin.subject(id), [id]);
   const s = q.data;
   const activeFaculty = (s?.faculty ?? []).filter((f) => f.status === "active");

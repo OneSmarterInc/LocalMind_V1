@@ -12,6 +12,7 @@ const icon = (name: keyof typeof Ionicons.glyphMap) => {
 const META: PortalMeta = {
   name: "Administrator workspace",
   navLabel: "MANAGE PLATFORM",
+  homePath: "/admin",
   profilePath: "/admin/profile",
   links: [{ label: "Content workspace", icon: "book-outline", path: "/admin/content" }],
   finder: [

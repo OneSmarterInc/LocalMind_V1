@@ -1,4 +1,6 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useTabParam } from "@/hooks/useTabParam";
+import { useBackTo } from "@/hooks/useBackTo";
 import React, { useMemo, useState } from "react";
 import { Text, View } from "react-native";
 import { manage } from "@/api/endpoints";
@@ -11,15 +13,16 @@ type Tab = "overview" | "students" | "modules";
 const learningStatus = (r: any) => (r.modules_needs_review > 0 ? { label: "Needs review", tone: "amber" as const } : r.completion_percentage >= 60 ? { label: "On track", tone: "green" as const } : r.modules_completed > 0 || r.learning_seconds > 0 ? { label: "In progress", tone: "blue" as const } : { label: "Not started", tone: "neutral" as const });
 
 export default function TeachingSubject() {
-  const { id, tab: tabParam } = useLocalSearchParams<{ id: string; tab?: Tab }>();
+  const { id } = useLocalSearchParams<{ id: string; tab?: Tab }>();
   const router = useRouter();
-  const [tab, setTab] = useState<Tab>(tabParam ?? "overview");
+  const back = useBackTo();
+  const [tab, setTab] = useTabParam<Tab>("overview", ["overview", "students", "modules"]);
   const summary = useAsync(() => manage.subjectSummary(id), [id]);
   const s = summary.data;
   return (
     <Screen refreshing={summary.loading} onRefresh={summary.reload}>
       <PageHeading eyebrow="MY SUBJECTS" title={s?.subject.name ?? "Subject"} subtitle={s ? `${s.subject.code} · Your subject workspace` : null}
-        right={<Button title="Back to subjects" variant="secondary" icon="arrow-back" onPress={() => router.push("/manage/subjects")} />} />
+        right={<Button title="Back to subjects" variant="secondary" icon="arrow-back" onPress={() => back("/manage/subjects")} />} />
       <ErrorBanner message={summary.error} onRetry={summary.reload} />
       <PageTabs<Tab> value={tab} onChange={setTab} tabs={[{ key: "overview", label: "Overview" }, { key: "students", label: "Students" }, { key: "modules", label: "Modules & progress" }]} />
       {tab === "overview" ? (summary.loading && !s ? <Loading /> : s ? <OverviewTab s={s} subjectId={id} onStudents={() => setTab("students")} /> : null) : null}

@@ -1,4 +1,5 @@
 import React,{useEffect,useMemo,useState} from 'react';
+import { useBackTo } from "@/hooks/useBackTo";
 import {useLocalSearchParams,useRouter} from 'expo-router';
 import {useAuth} from '@/auth/AuthContext';
 import {manage} from '@/api/endpoints';
@@ -21,6 +22,7 @@ async function draftsFor(service:LocalAuthoring,documentId:string){
 export default function LocalBatch(){const {user}=useAuth();return user?<Batch key={user.id} owner={user.id}/>:null;}
 function Batch({owner}:{owner:string}){
  const {document:id}=useLocalSearchParams<{document:string}>(),router=useRouter(),library=useLibrary();
+ const back=useBackTo();
  const service=useMemo(()=>new LocalAuthoring(owner),[owner]);
  const [preparing,setPreparing]=useState(true),[modelReady,setModelReady]=useState(false);
  const [rows,setRows]=useState<Draft[]>([]),[error,setError]=useState('');
@@ -43,7 +45,7 @@ function Batch({owner}:{owner:string}){
   );
  }catch(e){setError(String(e));}};
  return <Screen><PageHeading title="Prepare book" subtitle="Generate lessons and quizzes, then review your drafts." right={<Button title="Offline AI" variant="secondary" onPress={()=>router.push('/manage/offline-ai')}/>}/>
- <Row><Button title="Back to outline" icon="arrow-back" variant="secondary" onPress={()=>router.push({pathname:"/manage/document/[id]",params:{id,tab:"outline"}})}/></Row>
+ <Row><Button title="Back to outline" icon="arrow-back" variant="secondary" onPress={()=>back({pathname:"/manage/document/[id]",params:{id,tab:"outline"}})}/></Row>
  <ErrorBanner message={error}/><Card><P muted>{preparing?'Preparing book sources…':'Sources and generated work save automatically.'}</P>
  {!modelReady?<P>Download or import a model in Offline AI before generating.</P>:null}
  <P muted>Continue using the app while generation runs. After a refresh, restart the batch to resume missing work. Review drafts before publishing.</P>

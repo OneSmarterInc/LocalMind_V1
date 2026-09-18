@@ -1,4 +1,5 @@
 import {UploadStatus} from '@/authoring/UploadStatus';
+import { useBackTo } from "@/hooks/useBackTo";
 import * as DocumentPicker from "expo-document-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
@@ -11,6 +12,7 @@ import { Button, Card, CardHead, Dropdown, ErrorBanner, FormFooter, Input, Notic
 
 export default function UploadBook() {
   const router = useRouter();
+  const back = useBackTo();
   const {user}=useAuth();
   const uploads=useMemo(()=>user?new BookUploads(user.id):null,[user]);
   const params = useLocalSearchParams<{ subject?: string }>();
@@ -36,7 +38,7 @@ export default function UploadBook() {
   return (
     <Screen>
       <PageHeading eyebrow="BOOKS & MODULES" title="Let’s add a book." subtitle="We’ll walk you from source material to student-ready modules."
-        right={<Button title="Back to books" variant="secondary" icon="arrow-back" onPress={() => router.push("/manage/books")} />} />
+        right={<Button title="Back to books" variant="secondary" icon="arrow-back" onPress={() => back("/manage/books")} />} />
       {user?<UploadStatus owner={user.id}/>:null}
       <Stepper steps={["Upload a book", "Review the outline", "Publish to students"]} active={0} />
       <Split
@@ -60,7 +62,7 @@ export default function UploadBook() {
             <ErrorBanner message={upload.error} />
 
             <FormFooter note={file ? `Ready to upload ${file.name}.` : "The book is read and split into modules after upload."}>
-              <Button title="Cancel" variant="secondary" onPress={() => router.push("/manage/books")} />
+              <Button title="Cancel" variant="secondary" onPress={() => back("/manage/books")} />
               <Button title="Upload and process" icon="arrow-forward" onPress={() => upload.run()} busy={upload.busy} disabled={!file || !subjectId || !title.trim()} />
             </FormFooter>
           </Card>

@@ -1,4 +1,5 @@
 import * as DocumentPicker from "expo-document-picker";
+import { useBackTo } from "@/hooks/useBackTo";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useState } from "react";
 import { Platform, Text, View } from "react-native";
@@ -13,6 +14,7 @@ type RowT = { row: number; name: string; email: string; outcome: "Created" | "Ac
 
 export default function ImportPeople() {
   const router = useRouter();
+  const back = useBackTo();
   const p = useLocalSearchParams<{ kind?: string }>();
   const [kind, setKind] = useState<Kind>(p.kind === "faculty" ? "faculty" : "students");
   const [file, setFile] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
@@ -73,7 +75,7 @@ export default function ImportPeople() {
   return (
     <Screen>
       <PageHeading eyebrow="PEOPLE · BULK IMPORT" title="Add people from Excel" subtitle="Prepare the file, check the columns, then review each row’s result."
-        right={<Button title="Back to people" variant="secondary" icon="arrow-back" onPress={() => router.push({ pathname: "/admin/users", params: { kind } })} />} />
+        right={<Button title="Back to people" variant="secondary" icon="arrow-back" onPress={() => back({ pathname: "/admin/users", params: { kind } })} />} />
       <Split
         main={
           <Card>
@@ -98,7 +100,7 @@ export default function ImportPeople() {
             </View>
             <ErrorBanner message={upload.error ?? download.error ?? spec.error} />
             <FormFooter note="File contents are not read or sent anywhere until you import.">
-              <Button title="Cancel" variant="secondary" onPress={() => router.push({ pathname: "/admin/users", params: { kind } })} />
+              <Button title="Cancel" variant="secondary" onPress={() => back({ pathname: "/admin/users", params: { kind } })} />
               <Button title={`Import ${who}`} icon="arrow-forward" onPress={() => upload.run()} busy={upload.busy} disabled={!file} />
             </FormFooter>
           </Card>
