@@ -302,6 +302,12 @@ export const COMPACT_LESSON_SCHEMA=schema({
   takeaways:{type:'array',minItems:1,maxItems:1,items:{type:'string',maxLength:300}},
 });
 export const COMPACT_MCQ_SCHEMA=schema({question:{type:'string',maxLength:300},options:{type:'array',items:{type:'string',maxLength:160},minItems:4,maxItems:4},answer:{type:'integer',minimum:0,maximum:3},explanation:{type:'string',maxLength:480},quote:str});
+/** Structured batch schema for faster local quiz authoring. The final quiz contract is
+ * unchanged: every item is still validated and stored as an ordinary MCQ. */
+export function compactMcqBatchSchema(count:number):object {
+ requireThat(Number.isInteger(count)&&count>=1&&count<=3,'Invalid quiz batch size');
+ return schema({questions:{type:'array',minItems:count,maxItems:count,items:COMPACT_MCQ_SCHEMA}});
+}
 
 /** Consecutive source passages: no part is dropped to meet the inference budget. */
 export function lessonPassages(source:string, size=800):string[]{

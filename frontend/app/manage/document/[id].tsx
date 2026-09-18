@@ -421,7 +421,7 @@ function PublishTab({ doc, onAct, busy, onDelete, deleting, onTab }: { doc: Docu
   const modules = (doc.chapters ?? []).flatMap((c) => c.modules).filter((m) => m.id);
   const open = modules.filter((m) => m.availability === "open").length;
   const l = doc.lessons; const a = doc.auto_quizzes;
-  const teachableRows=(m:ModuleRow)=>!m.source_missing&&!!m.source_text?.trim()&&!isFrontMatter(m.title,m.source_text);
+  const teachableRows=(m:OutlineModule)=>!m.source_missing&&!!m.source_text?.trim()&&!isFrontMatter(m.title,m.source_text);
   const total=modules.filter(teachableRows).length;
   const missing = doc.missing_source_modules?.length ?? 0;
   const checks: { icon: IconName; title: string; text: string; badge: string; tone: Tone }[] = [
