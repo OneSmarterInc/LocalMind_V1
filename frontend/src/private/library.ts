@@ -97,7 +97,7 @@ export class Library {
       progress:done=>progress?.(`${done} of ${passages.length} lesson parts saved. Generate again after an interruption to resume.`),
       generate:async index=>{
         this.guard();const source=passages[index];
-        const raw=await d.complete({system:GROUNDING,prompt:`Teach this entire source passage in plain language. Explain its definitions, relationships, examples and formulas when present. Do not just name the main idea. Write one introductory sentence, one explanatory section and one takeaway. Each call covers one consecutive part of the module. Use an exact supporting quote.\nMODULE: ${section.title} — part ${index+1} of ${passages.length}\nSTORED BOOK REFERENCE:\n${source}`,schema:groundedSchema(COMPACT_LESSON_SCHEMA,source),maxTokens:650,temperature:0.2,signal,
+        const raw=await d.complete({system:GROUNDING,prompt:`Teach this entire source passage in plain language. Explain its definitions, relationships, examples and formulas when present. Do not just name the main idea. Write one introductory sentence, one explanatory section and one takeaway. Each call covers one consecutive part of the module. Use an exact supporting quote.\nMODULE: ${section.title} — part ${index+1} of ${passages.length}\nSTORED BOOK REFERENCE:\n${source}`,schema:groundedSchema(COMPACT_LESSON_SCHEMA,source),maxTokens:1000,temperature:0.2,signal,
           progress:message=>progress?.(`Part ${index+1}/${passages.length} · ${message}`)});
         return validateLesson(raw,source);
       }});
@@ -120,6 +120,18 @@ export class Library {
     const focuses=[...new Set([...primary,...alternatives])].filter(source=>source.trim().length>=8);
     requireThat(focuses.length,'This module has too little readable text for a grounded quiz.');
     const questions=checkpoint.parts;progress(questions.length);
+    // The minimum worth saving. A thin module (a page of chapter objectives)
+    // honestly holds two or three distinct questions, not six; without a floor
+    // the loop below ground through every attempt for every missing question,
+    // failing each time, so a finished 2-question quiz sat "Working" for a
+    // minute before giving up. Once we have this many, running dry is success,
+    // not failure — we keep what we have and stop.
+    const floor=Math.min(count,2);
+    // A hard ceiling on wasted work. Two consecutive questions that each burn
+    // all their attempts means the module is exhausted; there is no point
+    // asking a thin module the same thing eight more ways. This caps the tail
+    // no matter what, so a job always finishes promptly instead of hanging.
+    let emptyRuns=0;
     for (let n = questions.length; n < count; n++) {
       let lastError: unknown;
       const retryStart=checkpoint.retryCursor||0;
@@ -131,7 +143,7 @@ export class Library {
           const candidates=unused.length?unused:focuses;
           const source=candidates[offset%candidates.length];
           const avoid = [...excluded,...questions.map(q => q.question)].map(q => q.slice(0, 160)).join('\n');
-          const raw = await d.complete({ system: GROUNDING, prompt: `Write ONE useful multiple-choice practice question. Exactly four distinct options; answer is a zero-based index (0–3). Include a short explanation (at most 40 words) and an exact source quote. Keep the question and choices concise. Do not simply test whether a sentence appears in the book. Choose a specific fact from the supplied reference that has not been tested. Ask about that fact, not the module title or chapter objectives.\nDo not repeat these questions already accepted in THIS quiz:\n${avoid}\nSTORED BOOK REFERENCE:\n${source}\nQuestion ${n + 1}; attempt ${retryStart + attempt + 1}.`, schema: groundedSchema(COMPACT_MCQ_SCHEMA, source), maxTokens: 520, temperature: 0.25 + attempt * 0.15, signal, progress:message=>detail?.(`Question ${n+1}/${count} · ${message}`) });
+          const raw = await d.complete({ system: GROUNDING, prompt: `Write ONE useful multiple-choice practice question. Exactly four distinct options; answer is a zero-based index (0–3). Write each option as the answer text ONLY — never begin an option with \"A.\", \"B)\", \"1.\" or any other label, because the app adds the letters itself. Include a short explanation (at most 40 words) and an exact source quote. Keep the question and choices concise. Do not simply test whether a sentence appears in the book. Choose a specific fact from the supplied reference that has not been tested, and ask about that fact rather than the module title. If the reference is itself a list of objectives or outcomes, ask about the substance of one of them.\nDo not repeat these questions already accepted in THIS quiz:\n${avoid}\nSTORED BOOK REFERENCE:\n${source}\nQuestion ${n + 1}; attempt ${retryStart + attempt + 1}.`, schema: groundedSchema(COMPACT_MCQ_SCHEMA, source), maxTokens: 700, temperature: 0.25 + attempt * 0.15, signal, progress:message=>detail?.(`Question ${n+1}/${count} · ${message}`) });
           const question = validateMCQ(raw, source, sectionId, randomUUID());
           requireThat(! [...excluded,...questions.map(q=>q.question)].some(q => q.toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim() === question.question.toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim()), `The model could not produce another distinct question. ${questions.length} of ${count} questions are saved. Select Generate quiz again to resume.`);
           this.guard();cancelled(signal);
@@ -144,9 +156,28 @@ export class Library {
           detail?.(`Question ${n+1}/${count}: retrying with another passage (${attempt+1}/4).`);
         }
       }
-      if (lastError) throw lastError; progress(n + 1);
+      // Ran out of attempts for this question. If we already have enough to be
+      // a usable quiz, stop here and keep them — the module simply has no more
+      // distinct questions in it, which is a finished quiz, not an error. Only
+      // when we have too few to be worth anything do we surface the failure.
+      if (lastError) {
+        if (questions.length >= floor) break;
+        // Two questions in a row that burned every attempt means the module is
+        // exhausted. This used to rethrow, which threw away the questions that
+        // HAD been written: a module that honestly holds one good question was
+        // reported as a failure and left with nothing. Stop instead, and keep
+        // what was written for the reviewer to judge.
+        if (++emptyRuns >= 2) break;
+        continue;
+      }
+      emptyRuns=0;
+      progress(n + 1);
     }
-    requireThat(questions.length === count, 'Incomplete quiz: no playable quiz was saved. Completed questions are retained'); await this.book(bookId); this.guard(); requireThat(!signal.aborted, 'Cancelled');
+    // One real question is a short quiz for a reviewer to look at. Nothing at all
+    // is a failure. The bar used to be ``floor`` here as well, so a finished
+    // one-question quiz on a thin module was discarded and the module was marked
+    // Failed — a content limit reported as a software fault.
+    requireThat(questions.length >= 1, 'No question could be generated from this module. Its source is too thin or too repetitive for a grounded quiz.'); await this.book(bookId); this.guard(); requireThat(!signal.aborted, 'Cancelled');
     const version: QuizVersion = { id: checkpoint.id, bookId, sectionId, createdAt: new Date().toISOString(), questions };
     await d.put(`${this.work(bookId)}quiz:${sectionId}:${version.id}`, version); this.guard();await d.removePrefix(key); return version;
   }
@@ -163,7 +194,7 @@ export class Library {
     const b = await this.book(bookId), s = b.sections.find(x => x.id === sectionId); requireThat(s, 'Choose a module'); requireThat(s.source.trim(), 'This page has no recognised text. View its original image; the text tutor cannot interpret image-only content.'); text(question, 1000, 'question');
     const history = (/\b(it|that|this|they|those|these|why|more)\b/i.test(question) ? (await this.chats(bookId, sectionId)).slice(-1) : []).map(h => `Earlier question: ${h.question.slice(0, 300)}`).join('\n');
     const d = await device(), reference = bookReference(b.sections, sectionId, question);
-    const raw = await d.complete({ system: GROUNDING, prompt: `Answer concisely in at most 120 words, using only this reference. If it does not contain the answer, set supported=false.\nSTORED BOOK REFERENCE:\n${reference}\n${history}\nSTUDENT QUESTION:\n${question}`, schema: groundedSchema(ANSWER_SCHEMA, reference), maxTokens: 420, temperature: 0.1, signal, progress });
+    const raw = await d.complete({ system: GROUNDING, prompt: `Answer concisely in at most 120 words, using only this reference. If it does not contain the answer, set supported=false.\nSTORED BOOK REFERENCE:\n${reference}\n${history}\nSTUDENT QUESTION:\n${question}`, schema: groundedSchema(ANSWER_SCHEMA, reference, question), maxTokens: 420, temperature: 0.1, signal, progress });
     const answer = validateAnswer(raw, reference); await this.book(bookId); requireThat(!signal.aborted, 'Cancelled');
     const row: PrivateChat = { id: randomUUID(), question, ...answer, createdAt: new Date().toISOString() };
     await d.put(`${this.work(bookId)}chat:${sectionId}:${row.id}`, row); this.guard(); return row;

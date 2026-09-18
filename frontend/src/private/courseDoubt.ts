@@ -6,7 +6,7 @@ import {isOnline} from '@/offline/connectivity';
 import {randomUUID} from 'expo-crypto';
 import {Library,fingerprint,type PrivateChat} from './library';
 import {device} from './device';
-import {ANSWER_SCHEMA,GROUNDING,retrieve,text,requireThat,validateAnswer} from './core';
+import {ANSWER_SCHEMA,GROUNDING,groundedSchema,retrieve,text,requireThat,validateAnswer} from './core';
 import {cancelled} from './busy';
 import {offlineFallbackAllowed} from './offlinePolicy';
 export function canUseLocal(error:unknown){return error instanceof ApiError && offlineFallbackAllowed(error.status,error.code);}
@@ -33,7 +33,16 @@ export async function answerCourse(owner:string,moduleId:string,question:string,
  const m=await readEntry<ModuleFull>(`/student/modules/${moduleId}/`);guard();
  requireThat(m && m.id===moduleId && m.availability==='open' && m.source_text?.trim(),'Save this authorized module while connected before asking offline.');
  const ref=retrieve(m.source_text,question), history=(await localCourseHistory(owner,moduleId)).slice(-2);
- const reply=await d.complete({system:GROUNDING,prompt:`Answer only from this stored course reference. If it does not support the answer, set supported=false.\nREFERENCE:\n${ref}\nEARLIER QUESTIONS:\n${history.map(h=>h.question.slice(0,250)).join('\n')}\nQUESTION:\n${question}`,schema:ANSWER_SCHEMA,maxTokens:650,temperature:0.1,signal});
+ // The quotation is constrained to sentences that actually occur in ``ref``.
+ //
+ // This call used to pass the bare ANSWER_SCHEMA while every other grounded
+ // call passes ``groundedSchema``. With the field unconstrained the model was
+ // free to paraphrase by a word, and ``validateAnswer`` below then threw the
+ // whole answer away — "The AI could not provide a matching quotation from
+ // this module" on a question the module plainly answers. Constraining the
+ // field at decode time makes an unmatched quotation impossible rather than
+ // fatal.
+ const reply=await d.complete({system:GROUNDING,prompt:`Answer only from this stored course reference. If it does not support the answer, set supported=false.\nREFERENCE:\n${ref}\nEARLIER QUESTIONS:\n${history.map(h=>h.question.slice(0,250)).join('\n')}\nQUESTION:\n${question}`,schema:groundedSchema(ANSWER_SCHEMA,ref,question),maxTokens:650,temperature:0.1,signal});
  guard();const answer=validateAnswer(reply,ref);
  // A source edit/download revocation while inference runs invalidates the result.
  const latest=await readEntry<ModuleFull>(`/student/modules/${moduleId}/`);guard();

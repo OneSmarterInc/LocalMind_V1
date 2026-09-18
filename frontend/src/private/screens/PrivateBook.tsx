@@ -11,7 +11,7 @@ import {useAsync} from '@/hooks/useAsync';
 import {useLibrary} from '../useLibrary';
 import {useTask} from '../useTask';
 import type {QuizVersion,PrivateChat} from '../library';
-import {MAX_READING_CHARS, MAX_SECTION_CHARS, type Section} from '../core';
+import {MAX_READING_CHARS, MAX_SECTION_CHARS, stripOptionLabel, type Section} from '../core';
 import {useUnsavedWarning} from '@/hooks/useDraft';
 import {confirmLeave,registerGuard} from '@/hooks/unsavedGuard';
 
@@ -98,7 +98,16 @@ function QuizPractice({quiz}:{quiz:QuizVersion}){
  const check=()=>task.run(async()=>{await serial.current;const sent=answersRef.current;await library.saveDraft(quiz.bookId,quiz.id,sent);persisted.current=sent;const r=await library.check(quiz,sent);if(alive.current){setResult(r);dirty.current=false;setSaved(true);await history.reload();}});
  return <View style={{gap:16}}><P muted>{ready?(saved?'Answers saved on this device':'Saving your answers…'):'Restoring your saved answers…'}</P>
  <ErrorBanner message={task.error}/>
- {quiz.questions.map((q,n)=><View key={q.id} style={{gap:8,paddingVertical:12,borderBottomWidth:1,borderColor:colors.border}}><H2>{n+1}. {q.question}</H2>{q.options.map((o,i)=><Pressable key={i} accessibilityRole="radio" aria-checked={answers[q.id]===i} aria-disabled={!ready||!!result||task.busy} accessibilityState={{checked:answers[q.id]===i,disabled:!ready||!!result||task.busy}} disabled={!ready||!!result||task.busy} onPress={()=>choose(q.id,i)} style={{borderWidth:1,borderColor:answers[q.id]===i?colors.primary:colors.border,padding:12,borderRadius:8,backgroundColor:answers[q.id]===i?'#EAF2ED':'white'}}><P>{String.fromCharCode(65+i)}. {o}</P></Pressable>)}{result?<Notice tone={result.checks[n].correct?'success':'warning'} title={result.checks[n].correct?'Correct':`Correct answer: ${String.fromCharCode(65+q.answer)}`} message={`${q.explanation}\nFrom the book: ${q.quote}`}/>:null}</View>)}
+ {/* One option per row, with the letter in its own column.
+     The letter and the option text used to sit in a single run of text, so a
+     choice that wrapped put its second line underneath the letter instead of
+     lining up with the first word — the misalignment in this screen. The
+     letter now has a fixed column and the text flows in its own, so every
+     option starts on the same left edge however long it is.
+     ``stripOptionLabel`` runs on the way out as well as on the way in: quizzes
+     generated before the parser removed labels are stored with "A. " inside
+     the option, and would otherwise render "A. A. Cloud computing". */}
+ {quiz.questions.map((q,n)=><View key={q.id} style={{gap:8,paddingVertical:12,borderBottomWidth:1,borderColor:colors.border}}><H2>{n+1}. {q.question}</H2>{q.options.map((o,i)=><Pressable key={i} accessibilityRole="radio" accessibilityLabel={`${String.fromCharCode(65+i)}. ${stripOptionLabel(o)}`} aria-checked={answers[q.id]===i} aria-disabled={!ready||!!result||task.busy} accessibilityState={{checked:answers[q.id]===i,disabled:!ready||!!result||task.busy}} disabled={!ready||!!result||task.busy} onPress={()=>choose(q.id,i)} style={{flexDirection:'row',alignItems:'flex-start',gap:10,borderWidth:1,borderColor:answers[q.id]===i?colors.primary:colors.border,paddingHorizontal:12,paddingVertical:11,borderRadius:8,backgroundColor:answers[q.id]===i?'#EAF2ED':'white'}}><P style={{fontWeight:'700',minWidth:16}}>{String.fromCharCode(65+i)}</P><P style={{flex:1}}>{stripOptionLabel(o)}</P></Pressable>)}{result?<Notice tone={result.checks[n].correct?'success':'warning'} title={result.checks[n].correct?'Correct':`Correct answer: ${String.fromCharCode(65+q.answer)} — ${stripOptionLabel(q.options[q.answer])}`} message={`${q.explanation}\nFrom the book: ${q.quote}`}/>:null}</View>)}
  {result?<Notice tone="success" title={`${result.correct} of ${result.total} correct`} message="Private practice only. This result is saved here, not sent to faculty and never locks another module."/>:<Button title="Check my answers" onPress={check} busy={task.busy} disabled={!ready||Object.keys(answers).length!==quiz.questions.length}/>}
  <Button title="Start this quiz again" variant="secondary" disabled={!ready||task.busy} onPress={()=>task.run(async()=>{if(await confirmAsync('Start again?','Clear the current answers. Previous checked results remain in your history.','Start again','Keep answers')){await serial.current;await library.saveDraft(quiz.bookId,quiz.id,{});if(alive.current){persisted.current={};answersRef.current={};dirty.current=false;setAnswers({});setResult(null);setSaved(true);}}})}/>
  {!!history.data?.length&&<><H2>Previous practice</H2>{history.data.map(r=><P key={r.id}>{new Date(r.createdAt).toLocaleString()} · {r.correct}/{r.total} correct</P>)}</>}

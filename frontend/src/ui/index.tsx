@@ -552,9 +552,37 @@ export function DetailList({ items }: { items: [string, React.ReactNode][] }) {
   );
 }
 
+/** A ring that actually shows the score.
+ *
+ * This used to be a plain circle with a pale border and one dark segment at the
+ * top, fixed in the stylesheet. It looked like a gauge and behaved like
+ * decoration: 12% and 100% drew exactly the same quarter-green ring, and a
+ * student reading a full score saw a quarter-full dial. The number in the
+ * middle was the only thing that ever changed.
+ *
+ * It is drawn from the value now, as a ring of short segments laid around the
+ * circle and filled clockwise from twelve o'clock. Segments rather than a true
+ * arc because this project has no SVG or charting library, and rotated-mask
+ * tricks behave differently on web and native — a ring of ticks renders
+ * identically on both and is honest at every value, including solid at 100%.
+ */
 export function ScoreRing({ value, caption }: { value: string; caption?: string }) {
+  const parsed = parseFloat(String(value).replace(/[^0-9.]/g, ""));
+  const percent = Math.max(0, Math.min(100, Number.isFinite(parsed) ? parsed : 0));
+  const SEGMENTS = 48, size = 126, radius = size / 2;
+  // Round up so any non-zero score lights at least one segment, and only a
+  // genuine 100% fills the last one.
+  const lit = percent >= 100 ? SEGMENTS : Math.min(SEGMENTS - 1, Math.ceil(percent / 100 * SEGMENTS));
   return (
     <View style={s.scoreRing}>
+      <View style={{ position: "absolute", width: size, height: size, alignItems: "center", justifyContent: "center" }}
+        accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+        {Array.from({ length: SEGMENTS }, (_, i) => (
+          <View key={i} style={{ position: "absolute", width: 7, height: 11, borderRadius: 3,
+            backgroundColor: i < lit ? colors.primary : "transparent",
+            transform: [{ rotate: `${i * (360 / SEGMENTS)}deg` }, { translateY: -(radius - 5.5) }] }} />
+        ))}
+      </View>
       <Text style={{ fontSize: 30, letterSpacing: -1, color: colors.ink, fontWeight: "600" }}>{value}</Text>
       {caption ? <Text style={{ color: colors.muted, fontSize: 10 }}>{caption}</Text> : null}
     </View>
@@ -782,7 +810,7 @@ const s = StyleSheet.create({
   danger: { borderWidth: 1, borderColor: "#EAD1CD", backgroundColor: "#FFFCFB", borderRadius: 10, padding: 18 },
   tableFooter: { paddingHorizontal: 20, paddingVertical: 13, borderTopWidth: 1, borderTopColor: colors.border, flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" },
   stepNum: { width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
-  scoreRing: { width: 126, height: 126, borderRadius: 63, borderWidth: 9, borderColor: "#BED8B8", borderTopColor: colors.primary, alignItems: "center", justifyContent: "center" },
+  scoreRing: { width: 126, height: 126, borderRadius: 63, borderWidth: 9, borderColor: "#BED8B8", alignItems: "center", justifyContent: "center" },
   bookShape: { width: 104, height: 138, borderTopLeftRadius: 3, borderBottomLeftRadius: 3, borderTopRightRadius: 9, borderBottomRightRadius: 9, backgroundColor: "#37694C", transform: [{ rotate: "-10deg" }], padding: 14, justifyContent: "space-between" },
   hero: { flexDirection: "row", alignItems: "center", gap: 24, paddingHorizontal: 30, paddingVertical: 28, borderRadius: 14, backgroundColor: "#EAF1E5", borderWidth: 1, borderColor: "#D9E6D5", overflow: "hidden" },
 });

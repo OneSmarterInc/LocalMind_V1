@@ -1,15 +1,17 @@
+import { Ionicons } from "@expo/vector-icons";
 import { quizNeedsSubmission } from "@/screens/student/quizStatus";
 import {useIsFocused} from '@react-navigation/native';
 import {recordCourseWork} from '@/offline/coursework';
 import CourseAsk from "@/private/CourseAsk";
 import { SourceContent } from "@/ui/SourceContent";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AppState, Text, View } from "react-native";
 import { student } from "@/api/endpoints";
-import type { ModuleFull, Quiz } from "@/api/types";
+import type { ModuleFull, ModuleNeighbour, Quiz } from "@/api/types";
 import { useAsync } from "@/hooks/useAsync";
-import { Badge, Button, Card, CardHead, DetailList, Empty, ErrorBanner, Eyebrow, FormFooter, Loading, Notice, PageHeading, PageTabs, Screen, Split, StepList, TextLink, colors, pct } from "@/ui";
+import { Badge, Button, Card, CardHead, DetailList, Empty, ErrorBanner, Eyebrow, FormFooter, Input, Loading, Notice, PageHeading, PageTabs, Row, Screen, Split, StepList, TextLink, colors, pct } from "@/ui";
+import { Pressable } from "react-native";
 import { LessonView } from "@/ui/LessonView";
 
 type Tab = "read" | "lesson" | "ask";
@@ -75,7 +77,15 @@ export default function StudentModule() {
 
   const trail = m ? [...new Set([m.document_title, m.chapter_title].filter(Boolean))].join(" / ") : "";
   const number = m?.module_number ?? m?.order;
-  const side = m ? <ModuleSide module={m} quizzes={quizzes.data ?? []} onQuiz={(qid) => router.push(`/student/quiz/${qid}`)} onOffline={() => router.push("/student/offline")} /> : null;
+  // Replace rather than push: walking a book with Next should not build a
+  // twenty-deep back stack that the student then has to unwind.
+  const go = (moduleId: string) => router.replace(`/student/module/${moduleId}`);
+  const side = m ? (
+    <>
+      <ModuleSearch documentId={m.document_id} currentId={id} onGo={go} />
+      <ModuleSide module={m} quizzes={quizzes.data ?? []} onQuiz={(qid) => router.push(`/student/quiz/${qid}`)} onOffline={() => router.push("/student/offline")} />
+    </>
+  ) : null;
   const lessonState = teach.data?.status;
   return (
     <Screen refreshing={mod.loading} onRefresh={() => { mod.reload(); teach.reload(); }}>
@@ -87,7 +97,7 @@ export default function StudentModule() {
           <PageHeading eyebrow={eyebrow} title={m.title} subtitle={`${trail ? `${trail} / ` : ""}Module ${number}`}
             right={m.document_id ? <Button title="Back to book" variant="secondary" icon="arrow-back" onPress={() => router.push(`/student/document/${m.document_id}`)} /> : null} />
           <PageTabs<Tab> value={tab} onChange={setTab} tabs={[{ key: "read", label: "Read" }, { key: "lesson", label: "Lesson" }, { key: "ask", label: "Ask a doubt" }]} />
-          {tab === "read" ? <Split main={<ReadCard module={m} onLesson={() => setTab("lesson")} />} side={side} /> : null}
+          {tab === "read" ? <Split main={<><ReadCard module={m} onLesson={() => setTab("lesson")} /><ModuleNav previous={m.previous_module} next={m.next_module} onGo={go} /></>} side={side} /> : null}
           {tab === "lesson" && teach.loading && !teach.data ? <Loading /> : null}
           {tab === "lesson" ? <ErrorBanner message={teach.error} onRetry={teach.reload} /> : null}
           {tab === "lesson" && lessonState === "preparing" ? (
@@ -122,6 +132,7 @@ export default function StudentModule() {
               } />
             } />
           ) : null}
+          {tab === "lesson" && lessonState === "ready" && teach.data?.lesson ? <ModuleNav previous={m.previous_module} next={m.next_module} onGo={go} /> : null}
           {tab === "ask" ? <Split main={<CourseAsk key={id} moduleId={id} />} side={<AskTips />} /> : null}
         </>
       ) : null}
@@ -212,3 +223,138 @@ function AskTips() {
   );
 }
 
+
+/** Previous / Next across the whole book, in the order a student reads it.
+ *
+ * There was no way to move between modules from the reading view at all: you
+ * went back to the book and picked the next one by eye, every time. A locked
+ * neighbour is shown but not pressable, with the reason on it, so the control
+ * never navigates into a MODULE_LOCKED page — which is what "make sure not to
+ * move to the next module if the next module is closed" has to mean in
+ * practice.
+ */
+function ModuleNav({ previous, next, onGo }: { previous?: ModuleNeighbour | null; next?: ModuleNeighbour | null; onGo: (id: string) => void }) {
+  if (!previous && !next) return null;
+  const step = (n: ModuleNeighbour | null | undefined, side: "previous" | "next") => {
+    if (!n) return <View style={{ flex: 1 }} />;
+    const locked = n.availability !== "open";
+    const body = (
+      <View style={{ flex: 1, gap: 3, alignItems: side === "next" ? "flex-end" : "flex-start" }}>
+        <Text style={{ fontSize: 11, color: colors.muted, textTransform: "uppercase", letterSpacing: 0.4 }}>
+          {side === "next" ? "Next" : "Previous"} · Module {n.number}
+        </Text>
+        <Text numberOfLines={1} style={{ fontSize: 14, fontWeight: "600", color: locked ? colors.muted : colors.ink, textAlign: side === "next" ? "right" : "left" }}>
+          {n.title}
+        </Text>
+        {locked ? <Text style={{ fontSize: 11, color: colors.muted }}>Not open yet</Text> : null}
+      </View>
+    );
+    const inner = (
+      <View style={{ flexDirection: side === "next" ? "row-reverse" : "row", alignItems: "center", gap: 10, flex: 1 }}>
+        <Ionicons name={side === "next" ? "arrow-forward" : "arrow-back"} size={16} color={locked ? colors.faint : colors.ink} />
+        {body}
+      </View>
+    );
+    if (locked) {
+      return (
+        <View accessibilityLabel={`${n.title} is not open yet`} style={{ flex: 1, opacity: 0.55, borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, backgroundColor: "#F7F8F6" }}>
+          {inner}
+        </View>
+      );
+    }
+    return (
+      <Pressable accessibilityRole="button" accessibilityLabel={`Go to module ${n.number}: ${n.title}`} onPress={() => onGo(n.id)}
+        style={({ pressed }) => [{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, backgroundColor: pressed ? "#F1F5EF" : colors.surface }]}>
+        {inner}
+      </Pressable>
+    );
+  };
+  return (
+    <View style={{ flexDirection: "row", gap: 12, marginTop: 4 }}>
+      {step(previous, "previous")}
+      {step(next, "next")}
+    </View>
+  );
+}
+
+/** Jump to any module the student is enrolled in, by name, chapter or number.
+ *
+ * Sits in the sidebar rather than the header: it is a navigation aid, not the
+ * subject of the page, and putting a search field above the title would push
+ * the module the student is actually reading below the fold. Results are
+ * capped so the card never grows taller than the ones beside it.
+ *
+ * The search covers the whole library, not just the open book. Searching one
+ * book only answered "find a module in here", when the thing a student
+ * actually asks for is "take me to that module" — and the module they mean is
+ * often in another book of the same subject. The current book is searched
+ * immediately from the outline the page already holds; the rest of the
+ * library is fetched once, in the background, the first time anything is
+ * typed, so opening a module never pays for a search that may not happen.
+ * Rows from the current book are listed first, and a row from elsewhere says
+ * which book it belongs to.
+ */
+type Hit = { id: string; title: string; chapter: string; number: number; availability?: string; book: string; here: boolean; elsewhere: boolean };
+
+function ModuleSearch({ documentId, currentId, onGo }: { documentId?: string; currentId: string; onGo: (id: string) => void }) {
+  const [term, setTerm] = useState("");
+  const [wanted, setWanted] = useState(false);
+  const tree = useAsync(() => (documentId ? student.document(documentId) : Promise.resolve(null)), [documentId]);
+
+  // Every other book, fetched once and only after the student starts typing.
+  const rest = useAsync(async () => {
+    if (!wanted) return null;
+    const books: { id: string; title: string }[] = [];
+    for (const s of await student.subjects()) for (const d of await student.documents(s.id)) if (d.id !== documentId) books.push({ id: d.id, title: d.title });
+    const out: Hit[] = [];
+    for (const b of books) {
+      try {
+        const t = await student.document(b.id);
+        let n = 0;
+        for (const c of t.chapters) for (const m of c.modules) out.push({ id: m.id, title: m.title, chapter: c.title, number: ++n, availability: m.availability, book: t.title, here: false, elsewhere: true });
+      } catch { /* a book that cannot be read is simply not offered */ }
+    }
+    return out;
+  }, [wanted, documentId]);
+
+  const here = useMemo<Hit[]>(() => {
+    const bookTitle = tree.data?.title ?? "";
+    const rows = (tree.data?.chapters ?? []).flatMap((c) => c.modules.map((m) => ({ ...m, chapter: c.title })));
+    return rows.map((m, i) => ({ id: m.id, title: m.title, chapter: m.chapter, number: i + 1, availability: m.availability, book: bookTitle, here: m.id === currentId, elsewhere: false }));
+  }, [tree.data, currentId]);
+
+  const hits = useMemo(() => {
+    const q = term.trim().toLowerCase();
+    if (!q) return [];
+    const match = (m: Hit) => m.title.toLowerCase().includes(q) || m.chapter.toLowerCase().includes(q) || m.book.toLowerCase().includes(q) || String(m.number) === q;
+    // This book first: a student searching while reading usually means this one.
+    return [...here.filter(match), ...(rest.data ?? []).filter(match)].slice(0, 8);
+  }, [here, rest.data, term]);
+
+  const change = (v: string) => { setTerm(v); if (v.trim() && !wanted) setWanted(true); };
+  if (!documentId) return null;
+  return (
+    <Card>
+      <CardHead title="Find a module" subtitle="Search every book you are enrolled in, by name, chapter or number." />
+      <Input value={term} onChangeText={change} placeholder="Search modules" icon="search" accessibilityLabel="Search modules across your books" />
+      {term.trim() && !hits.length ? (
+        <Text style={{ fontSize: 12, color: colors.muted }}>{rest.loading ? "Searching your other books\u2026" : "No module matches that."}</Text>
+      ) : null}
+      <View style={{ gap: 6 }}>
+        {hits.map((m) => {
+          const locked = m.availability !== "open";
+          return (
+            <Pressable key={m.id} disabled={locked || m.here} accessibilityRole="button" accessibilityLabel={`${m.title}${m.elsewhere ? `, in ${m.book}` : ""}${locked ? ", not open yet" : ""}`}
+              onPress={() => { setTerm(""); onGo(m.id); }}
+              style={({ pressed }) => [{ borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, opacity: locked ? 0.55 : 1,
+                backgroundColor: m.here ? "#EDF5EA" : pressed ? "#F1F5EF" : "transparent" }]}>
+              <Text numberOfLines={1} style={{ fontSize: 13, color: colors.ink, fontWeight: m.here ? "600" : "400" }}>{m.number}. {m.title}</Text>
+              <Text numberOfLines={1} style={{ fontSize: 11, color: colors.muted }}>{m.here ? "You are here" : locked ? "Not open yet" : m.elsewhere ? m.book : m.chapter}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      {term.trim() && rest.loading ? <Text style={{ fontSize: 11, color: colors.faint }}>Still looking through your other books\u2026</Text> : null}
+    </Card>
+  );
+}

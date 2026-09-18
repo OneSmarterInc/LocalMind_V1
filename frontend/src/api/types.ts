@@ -51,7 +51,12 @@ export interface ModuleFull extends ModuleBrief {
   document_id?: string; document_title?: string; chapter_title?: string;
   /** Position in the book and who teaches it (student module detail). */
   module_number?: number | null; module_count?: number; faculty_names?: string[];
+  /** The modules either side of this one, in book order (student module detail).
+   * ``availability`` travels with them so the reader can disable a locked
+   * neighbour and say why, rather than navigating into an error page. */
+  previous_module?: ModuleNeighbour | null; next_module?: ModuleNeighbour | null;
 }
+export interface ModuleNeighbour { id: string; title: string; availability: ModuleAvailability; number: number }
 export interface Chapter { id: string; title: string; order: number; modules: ModuleBrief[]; status?: string }
 export type DocumentStatus = "uploaded" | "processing" | "under_review" | "ready" | "published" | "unpublished" | "archived" | "error";
 export interface Document {
@@ -121,6 +126,10 @@ export interface Quiz {
 }
 export interface DetailedResult {
   question_id: string; type: "mcq" | "subjective"; question: string; selected_option?: string; correct_option?: string;
+  /** Option wording that goes with the letters above. Older attempts graded
+   * before these were stored have only the letters, so both are optional and
+   * every screen falls back to the letter alone. */
+  selected_option_text?: string; correct_option_text?: string; options?: QuizOption[];
   student_answer?: string; is_correct: boolean | null; score_awarded: number | null; explanation?: string; feedback?: string; missing_points?: string[];
 }
 export interface Attempt {

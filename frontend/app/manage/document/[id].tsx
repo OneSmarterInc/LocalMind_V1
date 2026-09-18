@@ -2,7 +2,7 @@ import { removeBook, archiveBook } from "@/documents/remove";
 import {prepareAutomatically,preparation,type PreparationMap} from '@/authoring/automatic';
 import {device} from '@/private/device';
 import {useAuth} from "@/auth/AuthContext";
-import {LocalAuthoring,draftStatus,type Draft} from "@/authoring/local";
+import {LocalAuthoring,draftStatus,isFrontMatter,type Draft} from "@/authoring/local";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -45,7 +45,13 @@ export default function DocumentScreen() {
   useEffect(()=>{let live=true;const poll=async()=>{if(!authoring||!d)return;try{const status=await(await device()).status();const rows=await preparation(authoring,d);if(live){setModelInstalled(status.installed);setAutomatic(rows);}}catch(e){if(live)setPrepareError(errorMessage(e));}};void poll();const timer=setInterval(poll,1500);return()=>{live=false;clearInterval(timer);};},[authoring,d]);
   useEffect(()=>{if(!authoring||!d||!modelInstalled||!['under_review','ready','published'].includes(d.status))return;
     const token=`${owner}:${d.id}:${d.content_version}`;if(autoStarted.current===token)return;autoStarted.current=token;
-    void prepareAutomatically(authoring,d).catch(e=>{setPrepareError(errorMessage(e));autoStarted.current='';});
+    // The guard is NOT cleared when preparation reports a problem. Clearing it
+    // let the effect start the whole book again, which failed again, which
+    // cleared it again — a permanent regeneration loop triggered by a single
+    // unpreparable module. The token already changes when the book's content
+    // version does, so genuine new work still starts on its own; anything else
+    // is a deliberate retry from the module itself.
+    void prepareAutomatically(authoring,d).catch(e=>{setPrepareError(errorMessage(e));});
   },[authoring,d,modelInstalled,owner]);
 
   useEffect(()=>{let live=true;if(!authoring||!sourceChapters)return;
@@ -75,6 +81,10 @@ export default function DocumentScreen() {
   const jobNotice = d?.background_job && d.background_job.status !== "done" ? <Notice tone={d.background_job.status === "failed" ? "warning" : "info"} title={`Saved processing job: ${d.background_job.status}`} message={d.background_job.error || "Parsing is saved in the job queue. Restarting the local launcher resumes eligible jobs."} action={d.background_job.status === "failed" ? <Button title="Retry saved job" busy={retryJob.busy} onPress={()=>retryJob.run()}/> : undefined}/> : null;
   const queueLessons = useAction(async () => { router.push({pathname:"/manage/local-batch",params:{document:id}}); });
   const queueQuizzes = useAction(async () => { router.push({pathname:"/manage/local-batch",params:{document:id}}); });
+  // A quiz that used all three of its attempts stops retrying for good. This
+  // is the only way back to a generated quiz without editing the database:
+  // the endpoint already existed, nothing in the UI ever called it.
+  const retryQuiz = useAction(async (moduleId?: string) => { if (!moduleId) return; await manage.regenerateAutoQuiz(moduleId); await doc.reload(); });
   // The outline editor keeps edits locally until Save; a transition offers to save them first.
   const [pending, setPending] = useState<{ dirty: boolean; save: () => Promise<boolean> } | null>(null);
   // Leaving the Outline tab unmounts the editor, so unsaved edits are saved first or the switch is cancelled.
@@ -272,7 +282,7 @@ export default function DocumentScreen() {
           </View>
         </>
       ) : null}
-      {tab === "lessons" ? <ReadinessTab automatic={automatic} modelInstalled={modelInstalled} doc={d!} onQueueLessons={() => queueLessons.run()} lessonsBusy={queueLessons.busy} onQueueQuizzes={() => queueQuizzes.run()} quizzesBusy={queueQuizzes.busy} error={queueLessons.error ?? queueQuizzes.error} onPreview={setPreview} /> : null}
+      {tab === "lessons" ? <ReadinessTab automatic={automatic} modelInstalled={modelInstalled} doc={d!} onQueueLessons={() => queueLessons.run()} lessonsBusy={queueLessons.busy} onQueueQuizzes={() => queueQuizzes.run()} quizzesBusy={queueQuizzes.busy} onRetryQuiz={(mid) => retryQuiz.run(mid)} retryBusy={retryQuiz.busy} error={queueLessons.error ?? queueQuizzes.error ?? retryQuiz.error} onPreview={setPreview} /> : null}
       {tab === "publish" ? <PublishTab doc={d!} onAct={(a) => act.run(a)} busy={act.busy} onDelete={() => remove.run()} deleting={remove.busy} onTab={setTab} /> : null}
     </Screen>
   );
@@ -310,12 +320,15 @@ function ProcessingCard({ doc, onOpen }: { doc: Document; onOpen: () => void }) 
 }
 
 const LESSON_TEXT: Record<string, string> = { ready: "Ready", pending: "Queued", generating: "Preparing", failed: "Failed", none: "Not generated" };
-const QUIZ_TEXT: Record<string, string> = { ready: "Ready", checking: "Being checked", held: "Held for review", pending: "Queued", generating: "Being written", failed: "Failed", dismissed: "Deleted", short: "Too short", none: "None", off: "Off" };
+// "failed_final" is a quiz that used all its retries: it will never run again
+// on its own, so it needs a person. It used to report as plain "Failed",
+// indistinguishable from one retrying in ten minutes, and quietly sat there.
+const QUIZ_TEXT: Record<string, string> = { ready: "Ready", checking: "Being checked", held: "Held for review", pending: "Queued", generating: "Being written", failed: "Failed — retrying", failed_final: "Failed — needs retry", dismissed: "Deleted", short: "Too short", none: "None", off: "Off" };
 
 type ModuleRow = OutlineModule & { chapter: string; number: number };
 type Preview = { id: string; title: string; quizStatus: string; quizId: string | null };
 
-function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsBusy, onQueueQuizzes, quizzesBusy, error, onPreview }: { automatic: PreparationMap; modelInstalled:boolean; doc: Document; onQueueLessons: () => void; lessonsBusy: boolean; onQueueQuizzes: () => void; quizzesBusy: boolean; error: string | null; onPreview: (p: Preview) => void }) {
+function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsBusy, onQueueQuizzes, quizzesBusy, onRetryQuiz, retryBusy, error, onPreview }: { automatic: PreparationMap; modelInstalled:boolean; doc: Document; onQueueLessons: () => void; lessonsBusy: boolean; onQueueQuizzes: () => void; quizzesBusy: boolean; onRetryQuiz: (moduleId: string) => void; retryBusy: boolean; error: string | null; onPreview: (p: Preview) => void }) {
   const router = useRouter();
   const {user}=useAuth(),owner=user?.id;
   const service=useMemo(()=>owner?new LocalAuthoring(owner):null,[owner]);
@@ -325,18 +338,23 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
   let n = 0;
   const modules: ModuleRow[] = (doc.chapters ?? []).flatMap((c) => c.modules.map((m) => ({ ...m, chapter: c.title, number: ++n }))).filter((m) => m.id);
   const l = doc.lessons; const a = doc.auto_quizzes;
-  const total=modules.filter(m=>!m.source_missing&&m.source_text?.trim()).length;
+  const teachableRows=(m:ModuleRow)=>!m.source_missing&&!!m.source_text?.trim()&&!isFrontMatter(m.title,m.source_text);
+  const total=modules.filter(teachableRows).length;
   const status=(m:ModuleRow,kind:'lesson'|'quiz')=>{
     if(m.source_missing||!m.source_text?.trim())return 'No source text';
+    // Objectives, contents and other front matter are read by students but
+    // never taught. Reporting them as Queued (and later Failed) made a healthy
+    // book look broken, and counted them against the prepared total.
+    if(isFrontMatter(m.title,m.source_text))return 'Front matter';
     const saved=draftStatus(local(m.id!),kind);if(saved)return saved;
     const shared=kind==='lesson'?m.lesson_status:m.quiz_status;
-    if(shared&&['ready','held','checking','failed','dismissed'].includes(shared))return (kind==='lesson'?LESSON_TEXT:QUIZ_TEXT)[shared];
+    if(shared&&['ready','held','checking','failed','failed_final','dismissed'].includes(shared))return (kind==='lesson'?LESSON_TEXT:QUIZ_TEXT)[shared];
     return automatic[m.id!]?.[kind]||(modelInstalled?'Waiting to prepare':'Model setup required');
   };
   const columns: Column<ModuleRow>[] = [
     { key: "m", label: "Module", flex: 2.2, render: (m) => <CellText title={m.title} sub={`Module ${m.number}`} /> },
     { key: "l", label: "Lesson", flex: 0.8, render: (m) => <Badge value={status(m,"lesson")} tone={status(m,"lesson").startsWith("Ready")?"green":"neutral"} /> },
-    { key: "q", label: "Quiz", flex: 1, render: (m) => <Badge value={status(m,"quiz")} tone={status(m,"quiz").startsWith("Ready")?"green":"neutral"} /> },
+    { key: "q", label: "Quiz", flex: 1, render: (m) => <Badge value={status(m,"quiz")} tone={status(m,"quiz").startsWith("Ready")?"green":m.quiz_status==="failed_final"?"red":"neutral"} /> },
     { key: "draft", label: "Saved work", flex: 1.1, render: (m) => {const d=local(m.id!);return <CellText title={d?.lesson?"Lesson draft saved":"No lesson draft"} sub={automatic[m.id!]?.error||(d?.questions?`${d.questions.length} quiz questions saved`:"No quiz draft")}/>;} },
     { key: "x", label: "", flex: 1.7, render: (m) => (
       <View style={{ flexDirection: "row", gap: 6 }}>
@@ -344,6 +362,10 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
         <Button title="Preview lesson" small variant="secondary" disabled={m.lesson_status === "none"} onPress={() => onPreview({ id: m.id!, title: m.title, quizStatus: m.quiz_status ?? "off", quizId: m.auto_quiz_id ?? null })} />
         {m.quiz_status === "held" && m.auto_quiz_id
           ? <Button title="Review quiz" small variant="secondary" onPress={() => router.push(`/manage/quiz/${m.auto_quiz_id}`)} />
+          : null}
+        {/* A quiz that exhausted its retries has no way back without this. */}
+        {m.quiz_status === "failed_final"
+          ? <Button title="Retry quiz" small icon="refresh" busy={retryBusy} onPress={() => onRetryQuiz(m.id!)} />
           : null}
       </View>
     ) },
@@ -356,7 +378,7 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
   // prepared. Count lessons that are prepared on this device (any stage past
   // generation) so the headline matches the rows.
   const lessonState = (m: ModuleRow) => status(m, "lesson");
-  const teachable = modules.filter((m) => !m.source_missing && m.source_text?.trim());
+  const teachable = modules.filter(teachableRows);
   const preparedLocally = teachable.filter((m) => {
     const st = lessonState(m);
     return st === "Ready for review" || st === "Awaiting synchronization" || st === "Synchronized" || st === "Ready";
@@ -399,7 +421,8 @@ function PublishTab({ doc, onAct, busy, onDelete, deleting, onTab }: { doc: Docu
   const modules = (doc.chapters ?? []).flatMap((c) => c.modules).filter((m) => m.id);
   const open = modules.filter((m) => m.availability === "open").length;
   const l = doc.lessons; const a = doc.auto_quizzes;
-  const total=modules.filter(m=>!m.source_missing&&m.source_text?.trim()).length;
+  const teachableRows=(m:ModuleRow)=>!m.source_missing&&!!m.source_text?.trim()&&!isFrontMatter(m.title,m.source_text);
+  const total=modules.filter(teachableRows).length;
   const missing = doc.missing_source_modules?.length ?? 0;
   const checks: { icon: IconName; title: string; text: string; badge: string; tone: Tone }[] = [
     { icon: "document-text-outline", title: "Source text", text: missing ? `${missing} module${missing === 1 ? " has" : "s have"} no source text and stay hidden.` : `${modules.length} modules have readable source text.`, badge: missing ? "Check text" : "Ready", tone: missing ? "amber" : "green" },

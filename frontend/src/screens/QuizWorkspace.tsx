@@ -26,6 +26,14 @@ import { type SubjectModule, useSubjectModules } from "@/screens/manage/subjectM
 
 export type Tab = "questions" | "sources" | "settings" | "attempts";
 
+/** "B — Cloud computing", or just "B" for an attempt graded before option
+ * text was stored with the result. Never renders an empty dash pair. */
+function optionLabel(key?: string, text?: string) {
+  if (!key) return "—";
+  return text ? `${key} — ${text}` : key;
+}
+
+
 const quizStatus = (z: Quiz): { label: string; tone: Tone } => (z.held_for_review ? { label: "Held for review", tone: "amber" }
   : z.status === "published" ? { label: "Published", tone: "green" } : z.status === "draft" ? { label: "Draft", tone: "neutral" } : { label: z.status.charAt(0).toUpperCase() + z.status.slice(1), tone: "neutral" });
 
@@ -623,12 +631,34 @@ export function AttemptReviewPage({ attemptId, quizId }: { attemptId: string; qu
                 {a.detailed_results.map((r, i) => (
                   <View key={r.question_id} style={{ gap: 8, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: colors.rowLine }}>
                     <Text style={{ fontSize: 15, fontWeight: "600", color: colors.ink }}>Question {i + 1} · {r.question}</Text>
-                    <View style={{ borderWidth: 1, borderColor: colors.border, backgroundColor: "#F8FAF7", borderRadius: 9, padding: 12, gap: 8 }}>
-                      <Text style={{ fontSize: 12, fontWeight: "600", color: colors.ink }}>Student answer</Text>
-                      <Text style={{ fontSize: 12, color: colors.text }}>{r.type === "mcq" ? (r.selected_option ?? "—") : (r.student_answer || "(blank)")}</Text>
-                      <Text style={{ fontSize: 12, fontWeight: "600", color: colors.ink }}>Expected answer</Text>
-                      <Text style={{ fontSize: 12, color: colors.text }}>{r.type === "mcq" ? (r.correct_option ?? "—") : (r.explanation || r.feedback || "Marked against the rubric")}</Text>
-                    </View>
+                    {r.type === "mcq" && r.options?.length ? (
+                      // Every option, each labelled once, with the student's pick and
+                      // the correct one marked in place. Reading "B" against "A" told
+                      // a marker nothing about what the student actually chose.
+                      <View style={{ borderWidth: 1, borderColor: colors.border, backgroundColor: "#F8FAF7", borderRadius: 9, padding: 12, gap: 6 }}>
+                        {r.options.map((o) => {
+                          const picked = o.key === r.selected_option;
+                          const right = o.key === r.correct_option;
+                          return (
+                            <View key={o.key} style={{ flexDirection: "row", alignItems: "flex-start", gap: 8,
+                              backgroundColor: right ? "#EDF5EA" : picked ? "#FBEDED" : "transparent",
+                              borderRadius: 7, paddingHorizontal: 8, paddingVertical: 6 }}>
+                              <Text style={{ fontSize: 12, fontWeight: "700", color: right ? colors.ink : colors.muted, minWidth: 16 }}>{o.key}</Text>
+                              <Text style={{ fontSize: 12, color: colors.text, flex: 1 }}>{o.text}</Text>
+                              {picked ? <Badge value="Student's answer" tone={right ? "green" : "red"} /> : null}
+                              {right && !picked ? <Badge value="Correct" tone="green" /> : null}
+                            </View>
+                          );
+                        })}
+                      </View>
+                    ) : (
+                      <View style={{ borderWidth: 1, borderColor: colors.border, backgroundColor: "#F8FAF7", borderRadius: 9, padding: 12, gap: 8 }}>
+                        <Text style={{ fontSize: 12, fontWeight: "600", color: colors.ink }}>Student answer</Text>
+                        <Text style={{ fontSize: 12, color: colors.text }}>{r.type === "mcq" ? optionLabel(r.selected_option, r.selected_option_text) : (r.student_answer || "(blank)")}</Text>
+                        <Text style={{ fontSize: 12, fontWeight: "600", color: colors.ink }}>Expected answer</Text>
+                        <Text style={{ fontSize: 12, color: colors.text }}>{r.type === "mcq" ? optionLabel(r.correct_option, r.correct_option_text) : (r.explanation || r.feedback || "Marked against the rubric")}</Text>
+                      </View>
+                    )}
                     {r.type === "mcq" ? <Badge value={r.is_correct ? "Correct" : "Incorrect"} tone={r.is_correct ? "green" : "red"} /> : (
                       <Grid min={200} gap={12}>
                         <Input label="Score awarded" keyboardType="decimal-pad" value={overrides[r.question_id] ? String(overrides[r.question_id].score_awarded) : r.score_awarded != null ? String(r.score_awarded) : ""}

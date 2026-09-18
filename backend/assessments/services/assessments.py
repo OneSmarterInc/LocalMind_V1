@@ -331,8 +331,19 @@ def _grade(assessment, submitted_answers, *, source_text=None):
             selected = str(answer or "").strip().upper()
             correct = selected == q["correct_answer"]
             score += 1.0 if correct else 0.0
+            # The letter alone ("B") tells a reviewer nothing: faculty marking an
+            # attempt, and the student reading their own result, both saw bare
+            # letters with no way to know what was chosen. Carry the text too.
+            # ``options`` is stored with the row rather than read from the live
+            # question, so a result keeps the wording the student actually saw
+            # even after faculty edit the quiz into a new version.
+            by_key = {str(o.get("key")): str(o.get("text", "")) for o in (q.get("options") or []) if isinstance(o, dict)}
             results.append({"question_id": qid, "type": "mcq", "question": q["question"], "selected_option": selected,
                             "correct_option": q["correct_answer"], "is_correct": correct, "score_awarded": 1.0 if correct else 0.0,
+                            "selected_option_text": by_key.get(selected, ""),
+                            "correct_option_text": by_key.get(q["correct_answer"], ""),
+                            "options": [{"key": str(o.get("key")), "text": str(o.get("text", ""))}
+                                        for o in (q.get("options") or []) if isinstance(o, dict)],
                             "explanation": q.get("explanation", ""), "source_reference": q.get("source_reference", "")})
         else:
             text = str(answer or "")

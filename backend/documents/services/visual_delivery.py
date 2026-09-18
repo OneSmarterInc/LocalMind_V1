@@ -18,23 +18,93 @@ def prepare_visuals(document):
     return extract_source_visuals(Path(document.file.path), Path(document.processed_markdown_path).parent)
 
 
+def _placement_map(document):
+    """``{visual id: module id}`` for one document, computed once.
+
+    ``choose_target`` scores every extracted figure against every module in the
+    book. That ran on EVERY read: opening a module re-scored the whole book's
+    figures before returning, for every student, every time. On a 126-module
+    book that is the slowest thing on the page and none of it changes between
+    requests. Keyed on the manifest's mtime so re-extraction invalidates it by
+    itself; the process-local default cache is enough because a stale entry
+    only costs one recompute.
+    """
+    from django.core.cache import cache
+    from django.db.models import Count, Max
+    from learning.models import Module
+    base = Path(document.processed_markdown_path).parent
+    manifest_path = base / "visuals" / "manifest.json"
+    try:
+        stamp = manifest_path.stat().st_mtime_ns
+    except OSError:
+        return {}, {}, set()
+    manifest = extraction_manifest(base)
+    visuals = manifest.get("visuals") or []
+    if not visuals:
+        return {}, {}, set()
+    # Placement depends on the modules as much as on the manifest: a module
+    # added, retitled, re-paged or re-outlined moves figures around. Keying on
+    # the manifest alone would have served a stale map until re-extraction, so
+    # the modules' count and latest edit are part of the key. Both come from
+    # one cheap aggregate.
+    fingerprint = Module.objects.filter(chapter__document=document).aggregate(n=Count("id"), last=Max("updated_at"))
+    key = (f"lm:visual-placement:{document.pk}:{document.content_version}:{stamp}"
+           f":{fingerprint['n']}:{fingerprint['last'].timestamp() if fingerprint['last'] else 0}")
+    cached = cache.get(key)
+    if cached is None:
+        targets = _targets(document)
+        placement, by_page = {}, set()
+        for visual in visuals:
+            visual_id = str(visual.get('id'))
+            target, _reason = choose_target(visual, targets)
+            if target is not None:
+                placement[visual_id] = target['id']
+                continue
+            # Fall back to the page the figure was printed on.
+            #
+            # ``choose_target`` scores a figure against the module text and
+            # declines when it is not confident. Everything it declined was
+            # then dropped, so a student opening a module saw only the
+            # confidently-scored figures, while staff reading the same book
+            # from the device library saw every figure in the section. That is
+            # the whole "faculty see images, students do not" report: the
+            # picture was extracted and nothing was broken, it was simply never
+            # offered to the reader.
+            #
+            # A figure printed on page 84 belongs to whichever module covers
+            # page 84. That is weaker evidence than a text match, so it is used
+            # only where the text match failed, only when the page falls inside
+            # exactly one module's range, and the row is marked so staff can
+            # tell the two apart. A page claimed by several modules, or a
+            # figure with no page, stays unplaced and keeps appearing in the
+            # staff review queue — which is where a genuinely ambiguous figure
+            # belongs.
+            covering = _by_page(visual, targets)
+            if covering is not None:
+                placement[visual_id] = covering['id']
+                by_page.add(visual_id)
+        # Ids only: never the image bytes, which would put the whole book's
+        # figures in memory for the sake of one module's page.
+        cached = {'placement': placement, 'by_page': sorted(by_page)}
+        cache.set(key, cached, 60 * 30)
+    return cached['placement'], {str(v.get('id')): v for v in visuals}, set(cached['by_page'])
+
+
 def module_visuals(module):
     """Caller must authorize module access. Reads never run extraction or an LLM."""
     document = module.chapter.document
     if not document.processed_markdown_path:
         return []
-    from learning.models import Module
     base = Path(document.processed_markdown_path).parent
-    manifest = extraction_manifest(base)
-    if not manifest.get('visuals'):
+    placement, by_id, by_page = _placement_map(document)
+    if not placement:
         return []
-    targets = [dict(id=str(m.pk), title=m.title, source=m.source_text,
-                    start_page=m.start_page, end_page=m.end_page, chapter_title=m.chapter.title)
-               for m in Module.objects.filter(chapter__document=document).select_related('chapter')]
     rows = []
-    for visual in manifest['visuals']:
-        target, _ = choose_target(visual, targets)
-        if target is None or target['id'] != str(module.pk):
+    for visual_id, target_id in placement.items():
+        if target_id != str(module.pk):
+            continue
+        visual = by_id.get(visual_id)
+        if visual is None:
             continue
         filename = str(visual.get('filename') or '')
         if not filename or Path(filename).name != filename:
@@ -47,7 +117,15 @@ def module_visuals(module):
             continue
         rows.append({**{k: visual.get(k) for k in ('id', 'kind', 'page', 'caption', 'caption_origin',
                                                   'width', 'height', 'context_text', 'heading_path')},
+                     # How this figure reached this module: matched against the
+                     # module's text, or assigned because it was printed on one
+                     # of the module's pages. Staff screens can label the second
+                     # kind; students simply see the figure.
+                     'placement': 'page' if visual_id in by_page else 'text',
                      'data_url': 'data:image/png;base64,' + base64.b64encode(raw).decode('ascii')})
+    # Reading order. A dictionary's insertion order is the manifest's order,
+    # which is close but not guaranteed once page fallbacks are mixed in.
+    rows.sort(key=lambda r: (r.get('page') if isinstance(r.get('page'), int) else 10 ** 6, str(r.get('id'))))
     return rows
 
 
@@ -64,6 +142,23 @@ def _targets(document):
                  chapter_id=str(m.chapter_id), chapter_order=m.chapter.order, order=m.order)
             for m in Module.objects.filter(chapter__document=document).select_related('chapter')
                                    .order_by('chapter__order', 'order')]
+
+
+def _by_page(visual, targets):
+    """The one module whose page range covers this figure's page, or None.
+
+    Deliberately strict: exactly one covering module, or nothing. Two modules
+    claiming the same page means the outline cannot tell us where the figure
+    goes, and guessing there would put a figure in the wrong lesson, which is a
+    teaching error rather than a missing picture.
+    """
+    page = visual.get('page')
+    if not isinstance(page, int):
+        return None
+    covering = [t for t in targets
+                if isinstance(t.get('start_page'), int) and isinstance(t.get('end_page'), int)
+                and t['start_page'] <= page <= t['end_page']]
+    return covering[0] if len(covering) == 1 else None
 
 
 def _assign(document):
@@ -84,6 +179,12 @@ def _assign(document):
     placed, unplaced = [], []
     for visual in visuals:
         target, reason = choose_target(visual, targets)
+        if target is None:
+            # Same page fallback the delivery path uses. Without it the staff
+            # Pictures tab and the review queue disagreed with what a student
+            # actually sees: a figure assigned by page would be counted as
+            # unplaced here and still be shown to the reader.
+            target, reason = _by_page(visual, targets), 'Placed by page number'
         (placed if target else unplaced).append((visual, target, reason))
     return placed, unplaced
 

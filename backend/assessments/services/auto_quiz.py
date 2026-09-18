@@ -430,6 +430,12 @@ def state_for(module, job=_UNSET) -> str:
             return "checking"
     if device_authoring_only() and job.status in (AutoQuizStatus.PENDING, AutoQuizStatus.GENERATING):
         return "none"
+    # A failed job with no retry scheduled has used all its attempts and will
+    # never run again on its own. It reported plainly as "failed", exactly like
+    # one that retries in ten minutes, so a quiz that needed a human sat
+    # untouched and looked like it was still working on it.
+    if job.status == AutoQuizStatus.FAILED and job.next_attempt_at is None:
+        return "failed_final"
     return job.status
 
 

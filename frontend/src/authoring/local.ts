@@ -11,6 +11,30 @@ export type Snapshot={source_visuals?:import('@/ui/SourceFigures').Figure[];modu
 type Operation={id:string;revision:string;kind:'lesson'|'quiz';reviewed:true;lesson?:Lesson;questions?:MCQ[]};
 export type Draft={snapshot:Snapshot;localBook?:string;sourceBook?:string;sourceSection?:string;lesson?:Lesson;questions?:MCQ[];run?:{kind:'lesson'|'quiz';book:string;done:number;quizCount?:number;sectionIds?:string[];lessonParts:Lesson[];questions:MCQ[]};pausedRuns?:Partial<Record<'lesson'|'quiz',NonNullable<Draft['run']>>>;operation?:Operation;state?:'pending'|'synced'|'conflict';error?:string;quiz_id?:string;shared?:Partial<Record<'lesson'|'quiz',string>>};
 export type ArchivedDraft={id:string;archivedAt:string;draft:Draft};
+/** Front matter: readable, but not teachable.
+ *
+ * A book splits into modules at its headings, so "Chapter Objectives" becomes
+ * Module 1 — seven hundred characters of "readers should be able to…". A
+ * lesson written from that is the objectives restated, and a quiz from it can
+ * only ask which objective is listed third. It also poisoned the readiness
+ * table: the module could not produce the questions asked of it, so it sat
+ * there as Failed, which reads as a broken system rather than a list of goals.
+ *
+ * Titles are matched, not guessed from content, and only for the handful of
+ * headings that are unambiguously front matter. "Introduction" and "Overview"
+ * are included only when they are short enough to be signposting rather than
+ * teaching, because plenty of books open with a substantial introduction that
+ * students should absolutely have a lesson for. Anything excluded still
+ * appears, and is still read, on the student's Read tab.
+ */
+const FRONT_MATTER=/^(chapter\s+)?(objectives|learning\s+objectives|learning\s+outcomes|outcomes|goals|chapter\s+goals|contents|table\s+of\s+contents|preface|foreword|dedication|acknowledge?ments?|copyright|about\s+(the\s+)?(author|book)|how\s+to\s+use\s+this\s+book|title\s+page|colophon)\b/i;
+const SIGNPOST=/^(introduction|overview|in\s+this\s+chapter|what\s+you\s+will\s+learn|chapter\s+summary|summary)\b/i;
+const SIGNPOST_MAX=900;
+export function isFrontMatter(title?:string|null,source?:string|null):boolean{
+ const name=(title||'').trim();if(!name)return false;
+ if(FRONT_MATTER.test(name))return true;
+ return SIGNPOST.test(name)&&(source||'').trim().length<SIGNPOST_MAX;
+}
 const draftOperations=new Set<string>();
 const preparing=new Map<string,Promise<Draft>>();
 const syncing=new Map<string,Promise<Draft|undefined>>();
@@ -24,9 +48,34 @@ export class LocalAuthoring {
  async flushAll(){const rows=await this.drafts();for(const row of rows)if(row.state==='pending')await this.flush(row.snapshot.module_id);}
  async read(id:string){this.library.guard();const value=await(await device()).get<Draft>(this.key(id));this.library.guard();return value;}
  private async save(id:string,draft:Draft){this.library.guard();await(await device()).put(this.key(id),draft);this.library.guard();}
- private async exclusive<T>(id:string,run:()=>Promise<T>):Promise<T>{
-  const key=this.key(id);requireThat(!draftOperations.has(key),'This module already has an operation in progress on this device.');draftOperations.add(key);
+ /** One operation at a time per module LANE, not per module.
+  *
+  * The lock used to cover the whole module, so approving a finished lesson
+  * while the quiz was still being written was rejected with "This module
+  * already has an operation in progress on this device." Lesson work and quiz
+  * work touch different fields of the draft and have no reason to exclude each
+  * other; only two operations on the SAME kind genuinely conflict. Callers that
+  * rewrite the module as a whole (refresh, download, link) keep the module-wide
+  * lane and still exclude everything.
+  */
+ private async exclusive<T>(id:string,run:()=>Promise<T>,lane='module'):Promise<T>{
+  const key=this.key(id)+'#'+lane,whole=this.key(id)+'#module';
+  requireThat(!draftOperations.has(key)&&!draftOperations.has(whole),'This module already has an operation in progress on this device.');
+  if(lane==='module')requireThat(![...draftOperations].some(k=>k.startsWith(this.key(id)+'#')),'This module already has an operation in progress on this device.');
+  draftOperations.add(key);
   try{return await run();}finally{draftOperations.delete(key);}
+ }
+ /** Write back only the fields this generation owns.
+  *
+  * A generation run holds its draft in memory for minutes. Saving that whole
+  * object at the end would undo anything the reviewer did meanwhile — most
+  * obviously approving the other kind, which sets ``operation`` and ``state``.
+  * Re-reading and copying across only the generated fields keeps both.
+  */
+ private async mergeGenerated(id:string,draft:Draft){
+  const fresh=await this.read(id)||draft;
+  const merged:Draft={...fresh,lesson:draft.lesson,questions:draft.questions,run:draft.run,pausedRuns:draft.pausedRuns};
+  await this.save(id,merged);return merged;
  }
  async seedLocal(id:string,draft:Draft){if(!await this.read(id))await this.save(id,draft);}
  async linkLocal(id:string,documentId:string,remoteId:string,revision:string){return this.exclusive(id,()=>this.linkLocalDraft(id,documentId,remoteId,revision));}
@@ -77,16 +126,21 @@ export class LocalAuthoring {
   await(await device()).put(this.library.prefix+'history:'+id+':'+archived.id,archived);this.library.guard();
   const fresh:Draft={snapshot,localBook:old.localBook,sourceBook:old.sourceBook,sourceSection:old.sourceSection};await this.save(id,fresh);return fresh;
  }
- async generate(id:string,kind:'lesson'|'quiz',signal:AbortSignal,progress:(message:string)=>void,quizCount=6){
-  return this.exclusive(id,()=>this.generateDraft(id,kind,signal,progress,quizCount));
+ /** ``restart`` throws away a partly finished run and begins again.
+  * Without it, cancelling a generation and then pressing Regenerate silently
+  * RESUMED the cancelled run: reviewers expected a fresh quiz and got the
+  * abandoned one continued, which read as the cancel having done nothing. */
+ async generate(id:string,kind:'lesson'|'quiz',signal:AbortSignal,progress:(message:string)=>void,quizCount=6,restart=false){
+  return this.exclusive(id,()=>this.generateDraft(id,kind,signal,progress,quizCount,restart),kind);
  }
- private async generateDraft(id:string,kind:'lesson'|'quiz',signal:AbortSignal,progress:(message:string)=>void,quizCount:number){
+ private async generateDraft(id:string,kind:'lesson'|'quiz',signal:AbortSignal,progress:(message:string)=>void,quizCount:number,restart=false){
   if(kind==='quiz')requireThat(Number.isInteger(quizCount)&&quizCount>=1&&quizCount<=6,'Choose 1–6 questions.');
   const draft=await this.read(id);requireThat(draft,'Save this module on the device first.');
   requireThat(!await this.isRemoved(draft.snapshot.document_id),'This book was removed or archived.');
   requireThat(!draft.localBook||!activeBookTransfers.has(this.library.prefix+'import:'+draft.localBook),'A book transfer is in progress. Try generation when it finishes.');
   requireThat(!draft.operation||draft.state==='synced','Finish synchronizing the reviewed draft before generating another version.');
   if(draft.run&&draft.run.kind!==kind){draft.pausedRuns={...draft.pausedRuns,[draft.run.kind]:draft.run};draft.run=undefined;}
+  if(restart){if(draft.run?.kind===kind)draft.run=undefined;if(draft.pausedRuns?.[kind])delete draft.pausedRuns[kind];}
   if(!draft.run&&draft.pausedRuns?.[kind]){draft.run=draft.pausedRuns[kind];delete draft.pausedRuns[kind];}
   const d=await device();requireThat((await d.status()).installed,'Download a model in Offline AI first.');
   const legacyQuiz=kind==='quiz'&&!!draft.run&&!draft.run.sectionIds;
@@ -105,14 +159,14 @@ export class LocalAuthoring {
    const section=kind==='quiz'?book.sections.find(s=>s.id===run.sectionIds![index])!:book.sections[index];progress(`Module part ${index+1} of ${book.sections.length}`);
    if(kind==='lesson'){const result=await this.library.generateLesson(book.id,section.id,signal,progress);run.lessonParts.push(result.lesson);}
    else {const used=Math.min(book.sections.length,run.quizCount||6);const count=run.quizCount?Math.floor(run.quizCount/used)+(index<run.quizCount%used?1:0):1;const result=await this.library.generateQuiz(book.id,section.id,count,signal,done=>progress(`${done} questions saved`),progress,run.questions.map(q=>q.question),draft.snapshot.source);run.questions.push(...result.questions);}
-   run.done=index+1;await this.save(id,draft);
+   run.done=index+1;await this.mergeGenerated(id,draft);
    if(kind==='quiz'&&run.questions.length>=6)break;
   }
   if(kind==='lesson')draft.lesson={introduction:run.lessonParts[0].introduction,sections:run.lessonParts.flatMap(p=>p.sections),takeaways:run.lessonParts.flatMap(p=>p.takeaways)};
   else draft.questions=run.questions;
-  draft.run=undefined;await this.save(id,draft);return draft;
+  draft.run=undefined;return await this.mergeGenerated(id,draft);
  }
- async share(id:string,kind:'lesson'|'quiz'){return this.exclusive(id,()=>this.shareDraft(id,kind));}
+ async share(id:string,kind:'lesson'|'quiz'){return this.exclusive(id,()=>this.shareDraft(id,kind),kind);}
  private async shareDraft(id:string,kind:'lesson'|'quiz'){
   const draft=await this.read(id);requireThat(draft,'No local draft.');requireThat(draft.run?.kind!==kind&&!draft.pausedRuns?.[kind],'Finish generation before sharing.');
   requireThat(!await this.isRemoved(draft.snapshot.document_id),'This book was removed or archived.');
