@@ -15,10 +15,10 @@
  *
  *   cores  ->  threads
  *     2          1     (reserve wins; leaves 1 for the UI)
- *     4          3
- *     6          5
+ *     4          2
+ *     6          4
  *     8          6
- *    12         10
+ *    12          8
  *    16+         8     (cap)
  *
  * ``reserve`` and ``cap`` are arguments so this can be tuned or tested without

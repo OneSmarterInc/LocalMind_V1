@@ -114,7 +114,8 @@ test('PDF small caps normalize display casing without changing ordinary scientif
 const perf=require(path.join(tmp,'performance.js'));
 test('inference threads preserve a non-isolated fallback and cap CPU use',()=>{
  assert.equal(perf.inferenceThreads(false,true,16),1);assert.equal(perf.inferenceThreads(true,false,16),1);
- assert.equal(perf.inferenceThreads(true,true,8),4);assert.equal(perf.inferenceThreads(true,true,4),2);
+ assert.equal(perf.inferenceThreads(true,true,8),6);assert.equal(perf.inferenceThreads(true,true,4),2);
+ assert.equal(perf.inferenceThreads(true,true,16),8);assert.equal(perf.inferenceThreads(true,true,6),4);
  assert.equal(perf.inferenceThreads(true,true,1),1);assert.equal(perf.inferenceThreads(true,true,NaN),1);
 });
 test('checkpoint retry after reload generates only missing validated parts',async()=>{
@@ -149,13 +150,16 @@ test('native import cancellation waits for an in-flight image save before rollba
  bridge.attachParser(undefined);
 });
 
-test('book jobs block overlapping manual generation and cancel all book work',async()=>{
+test('book jobs queue overlapping manual generation and cancel all book work',async()=>{
  const {JobQueue}=require(path.join(tmp,'jobs.js'));const jobs=new JobQueue();
  let release;let aborted=false;
  jobs.enqueue({scope:'owner',bookId:'book',documentId:'book',sectionId:'book',kind:'staff-auto',label:'Auto'},signal=>new Promise(resolve=>{release=resolve;signal.addEventListener('abort',()=>{aborted=true;resolve();});}));
- assert.throws(()=>jobs.enqueue({scope:'owner',bookId:'module',documentId:'book',sectionId:'module',kind:'staff-lesson',label:'Manual'},async()=>{}),/already being prepared/);
+ let manualRan=false;
+ jobs.enqueue({scope:'owner',bookId:'module',documentId:'book',sectionId:'module',kind:'staff-lesson',label:'Manual'},async()=>{manualRan=true;});
+ assert.equal(jobs.snapshot()[1].state,'queued');
  await jobs.cancelDocument('owner','book',['module']);
  assert.equal(aborted,true);assert.equal(jobs.snapshot()[0].state,'cancelled');
+ assert.equal(manualRan,false);
  release();
 });
 

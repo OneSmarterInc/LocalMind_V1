@@ -5,6 +5,16 @@ export type Job={id:number;scope:string;bookId:string;sectionId:string;kind:stri
   * cancelling must not make every other row claim it is cancelling too. */
  cancelling?:boolean};
 type Entry=Job&{controller:AbortController;run?:(signal:AbortSignal,progress:(s:string)=>void)=>Promise<unknown>;settled:Promise<void>;finish:()=>void};
+/** Generation is serialized for shared drafts, not for unrelated documents. */
+function conflicts(a:Job,b:Job):boolean {
+ if(a.scope!==b.scope||!a.kind.startsWith('staff-')||!b.kind.startsWith('staff-'))return false;
+ if(a.bookId===b.bookId)return true;
+ const documents=(j:Job)=>new Set([...(j.documentIds||[]),...(j.documentId?[j.documentId]:[])]);
+ if(a.kind==='staff-auto'||b.kind==='staff-auto'||a.kind==='staff-batch'||b.kind==='staff-batch'){
+  const left=documents(a);return [...documents(b)].some(id=>left.has(id));
+ }
+ return false;
+}
 export class JobQueue{
  private entries:Entry[]=[];private serial=0;private active=0;private snapshotJobs:readonly Job[]=[];private listeners=new Set<()=>void>();
  constructor(private concurrency=2,private doubtLane=false){}
@@ -42,7 +52,7 @@ export class JobQueue{
  async cancelBook(scope:string,bookId:string){const jobs=this.entries.filter(j=>j.scope===scope&&j.bookId===bookId);for(const j of jobs)this.cancel(j.id);await Promise.all(jobs.map(j=>j.settled));}
  private pump(){
   while(true){const running=this.entries.filter(j=>j.state==='running');
-   const j=this.entries.find(j=>j.state==='queued'&&(this.doubtLane?(j.kind==='doubt'?!running.some(r=>r.kind==='doubt'):running.filter(r=>r.kind!=='doubt').length<this.concurrency):this.active<this.concurrency));if(!j)break;this.active++;j.state='running';j.note='Preparing on this device';this.emit();
+   const j=this.entries.find(j=>j.state==='queued'&&!running.some(r=>conflicts(j,r))&&(this.doubtLane?(j.kind==='doubt'?!running.some(r=>r.kind==='doubt'):running.filter(r=>r.kind!=='doubt').length<this.concurrency):this.active<this.concurrency));if(!j)break;this.active++;j.state='running';j.note='Preparing on this device';this.emit();
    void(async()=>{try{await j.run!(j.controller.signal,s=>{if(!j.controller.signal.aborted){j.note=s;this.emit();}});j.state=j.controller.signal.aborted?'cancelled':'completed';j.note=j.state==='completed'?'Saved on this device':'Cancelled';}
     catch(e){j.state=j.controller.signal.aborted?'cancelled':'failed';j.error=j.state==='failed'?(e instanceof Error?e.message:String(e)):'';}
     finally{j.run=undefined;j.cancelling=false;j.finish();this.active--;this.emit();this.pump();}})();

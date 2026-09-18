@@ -63,7 +63,7 @@ class DeviceGenerationBoundaryTests(TestCase):
 
     def test_legacy_ai_outline_preserves_complete_source_without_model(self):
         from documents.services.outline import ai_outline, build_proposed_outline
-        from documents.services.outline_policy import source_hierarchy_outline
+        from documents.services.reading_outline import reading_outline
         from documents.services.parser import extract_sections_from_markdown, _extract_headings
         self.doc.outline_strategy = "ai"
         sections = extract_sections_from_markdown("# Chapter One\nFirst text.\n## Module\nFull module content.\n# Chapter Two\nSecond text.")
@@ -72,8 +72,11 @@ class DeviceGenerationBoundaryTests(TestCase):
             outline, source = build_proposed_outline(self.doc, sections, headings)
             self.assertIsNone(ai_outline(self.doc, headings))
         gateway.assert_not_called()
-        self.assertEqual(source, "source_hierarchy")
-        self.assertEqual(outline, source_hierarchy_outline(self.doc.original_name, sections))
+        self.assertEqual(source, "reading_units")
+        self.assertEqual(outline, reading_outline(self.doc.original_name, sections))
+        text = str(outline)
+        for passage in ("First text.", "Full module content.", "Second text."):
+            self.assertIn(passage, text)
 
     def test_legacy_written_answer_waits_for_faculty_and_can_be_graded(self):
         from core.testing import SUBJ

@@ -184,7 +184,9 @@ def _assign(document):
             # Pictures tab and the review queue disagreed with what a student
             # actually sees: a figure assigned by page would be counted as
             # unplaced here and still be shown to the reader.
-            target, reason = _by_page(visual, targets), 'Placed by page number'
+            target = _by_page(visual, targets)
+            if target is not None:
+                reason = 'Placed by page number'
         (placed if target else unplaced).append((visual, target, reason))
     return placed, unplaced
 

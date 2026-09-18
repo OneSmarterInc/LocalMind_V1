@@ -38,6 +38,7 @@ export function isFrontMatter(title?:string|null,source?:string|null):boolean{
 const draftOperations=new Set<string>();
 const preparing=new Map<string,Promise<Draft>>();
 const syncing=new Map<string,Promise<Draft|undefined>>();
+const draftWrites=new Map<string,Promise<unknown>>();
 export class LocalAuthoring {
  readonly library:Library;
  constructor(owner:string){this.library=new Library(owner,'authoring');}
@@ -48,6 +49,12 @@ export class LocalAuthoring {
  async flushAll(){const rows=await this.drafts();for(const row of rows)if(row.state==='pending')await this.flush(row.snapshot.module_id);}
  async read(id:string){this.library.guard();const value=await(await device()).get<Draft>(this.key(id));this.library.guard();return value;}
  private async save(id:string,draft:Draft){this.library.guard();await(await device()).put(this.key(id),draft);this.library.guard();}
+ private async update(id:string,change:(fresh:Draft)=>Draft){
+  const key=this.key(id),previous=draftWrites.get(key)||Promise.resolve();
+  const next=previous.catch(()=>{}).then(async()=>{const fresh=await this.read(id);requireThat(fresh,'Local draft is missing.');const result=change(fresh);await this.save(id,result);return result;});
+  draftWrites.set(key,next);
+  try{return await next;}finally{if(draftWrites.get(key)===next)draftWrites.delete(key);}
+ }
  /** One operation at a time per module LANE, not per module.
   *
   * The lock used to cover the whole module, so approving a finished lesson
@@ -72,10 +79,8 @@ export class LocalAuthoring {
   * obviously approving the other kind, which sets ``operation`` and ``state``.
   * Re-reading and copying across only the generated fields keeps both.
   */
- private async mergeGenerated(id:string,draft:Draft){
-  const fresh=await this.read(id)||draft;
-  const merged:Draft={...fresh,lesson:draft.lesson,questions:draft.questions,run:draft.run,pausedRuns:draft.pausedRuns};
-  await this.save(id,merged);return merged;
+ private async mergeGenerated(id:string,draft:Draft,kind:'lesson'|'quiz'){
+  return this.update(id,fresh=>({...fresh,...(kind==='lesson'?{lesson:draft.lesson}:{questions:draft.questions}),run:draft.run,pausedRuns:draft.pausedRuns}));
  }
  async seedLocal(id:string,draft:Draft){if(!await this.read(id))await this.save(id,draft);}
  async linkLocal(id:string,documentId:string,remoteId:string,revision:string){return this.exclusive(id,()=>this.linkLocalDraft(id,documentId,remoteId,revision));}
@@ -131,7 +136,9 @@ export class LocalAuthoring {
   * RESUMED the cancelled run: reviewers expected a fresh quiz and got the
   * abandoned one continued, which read as the cancel having done nothing. */
  async generate(id:string,kind:'lesson'|'quiz',signal:AbortSignal,progress:(message:string)=>void,quizCount=6,restart=false){
-  return this.exclusive(id,()=>this.generateDraft(id,kind,signal,progress,quizCount,restart),kind);
+  // Both kinds share one checkpoint field. Jobs queue by module; direct callers
+  // fail explicitly instead of racing that shared record.
+  return this.exclusive(id,()=>this.generateDraft(id,kind,signal,progress,quizCount,restart),'generation');
  }
  private async generateDraft(id:string,kind:'lesson'|'quiz',signal:AbortSignal,progress:(message:string)=>void,quizCount:number,restart=false){
   if(kind==='quiz')requireThat(Number.isInteger(quizCount)&&quizCount>=1&&quizCount<=6,'Choose 1–6 questions.');
@@ -147,24 +154,24 @@ export class LocalAuthoring {
   if(!draft.run){
    const book=fingerprint(id+'|'+randomUUID());
    await this.library.seed({id:book,title:draft.snapshot.title,originalName:draft.snapshot.title,origin:'personal',importedAt:new Date().toISOString(),warnings:[],sections:makeSections([{title:draft.snapshot.title,text:draft.snapshot.source}])});
-   draft.run={kind,book,done:0,quizCount:kind==='quiz'?quizCount:undefined,lessonParts:[],questions:[]};draft.operation=undefined;draft.state=undefined;await this.save(id,draft);
+   draft.run={kind,book,done:0,quizCount:kind==='quiz'?quizCount:undefined,lessonParts:[],questions:[]};await this.mergeGenerated(id,draft,kind);
   }
   const run=draft.run,book=await this.library.book(run.book);
   if(kind==='quiz'&&!run.sectionIds){
    run.sectionIds=quizSectionIndices(book.sections.length,run.quizCount||6,legacyQuiz).map(i=>book.sections[i].id);
-   await this.save(id,draft);
+   await this.mergeGenerated(id,draft,kind);
   }
   for(let index=run.done;index<(kind==='quiz'?Math.min(book.sections.length,run.quizCount||6):book.sections.length);index++){
    if(signal.aborted)throw Error('Generation cancelled. Completed work is retained.');
    const section=kind==='quiz'?book.sections.find(s=>s.id===run.sectionIds![index])!:book.sections[index];progress(`Module part ${index+1} of ${book.sections.length}`);
    if(kind==='lesson'){const result=await this.library.generateLesson(book.id,section.id,signal,progress);run.lessonParts.push(result.lesson);}
    else {const used=Math.min(book.sections.length,run.quizCount||6);const count=run.quizCount?Math.floor(run.quizCount/used)+(index<run.quizCount%used?1:0):1;const result=await this.library.generateQuiz(book.id,section.id,count,signal,done=>progress(`${done} questions saved`),progress,run.questions.map(q=>q.question),draft.snapshot.source);run.questions.push(...result.questions);}
-   run.done=index+1;await this.mergeGenerated(id,draft);
+   run.done=index+1;await this.mergeGenerated(id,draft,kind);
    if(kind==='quiz'&&run.questions.length>=6)break;
   }
   if(kind==='lesson')draft.lesson={introduction:run.lessonParts[0].introduction,sections:run.lessonParts.flatMap(p=>p.sections),takeaways:run.lessonParts.flatMap(p=>p.takeaways)};
   else draft.questions=run.questions;
-  draft.run=undefined;return await this.mergeGenerated(id,draft);
+  draft.run=undefined;return await this.mergeGenerated(id,draft,kind);
  }
  async share(id:string,kind:'lesson'|'quiz'){return this.exclusive(id,()=>this.shareDraft(id,kind),kind);}
  private async shareDraft(id:string,kind:'lesson'|'quiz'){
@@ -174,7 +181,10 @@ export class LocalAuthoring {
   requireThat(kind==='lesson'?draft.lesson:draft.questions?.length,'Generate and review the content first.');
   if(draft.shared?.[kind]===fingerprint(JSON.stringify(kind==='lesson'?draft.lesson:draft.questions)))return draft;
   if(draft.operation&&draft.state!=='synced'){requireThat(draft.operation.kind===kind,'A different draft is already waiting to synchronize.');}
-  else{draft.operation={id:randomUUID(),revision:draft.snapshot.revision,kind,reviewed:true,...(kind==='lesson'?{lesson:draft.lesson}:{questions:draft.questions})};draft.state='pending';await this.save(id,draft);}
+  else{await this.update(id,fresh=>{
+   requireThat(!fresh.operation||fresh.state==='synced','A reviewed draft is already waiting to synchronize.');
+   return {...fresh,operation:{id:randomUUID(),revision:fresh.snapshot.revision,kind,reviewed:true,...(kind==='lesson'?{lesson:fresh.lesson}:{questions:fresh.questions})},state:'pending'};
+  });}
   return this.flush(id);
  }
  flush(id:string):Promise<Draft|undefined>{
@@ -187,9 +197,11 @@ export class LocalAuthoring {
   if(draft.localBook&&!draft.snapshot.remote_id){draft.error='Synchronize the book draft before its reviewed content.';await this.save(id,draft);return draft;}
   try{
    const result=await api<{revision:string;quiz_id?:string}>(`/faculty/modules/${draft.snapshot.remote_id||id}/local-authoring/`,{method:'POST',body:draft.operation,timeoutMs:15000});
-   this.library.guard();draft.snapshot.revision=result.revision;draft.state='synced';draft.error=undefined;draft.quiz_id=result.quiz_id;draft.shared={...draft.shared,[draft.operation.kind]:fingerprint(JSON.stringify(draft.operation.kind==='lesson'?draft.operation.lesson:draft.operation.questions))};await this.save(id,draft);
-  }catch(e){this.library.guard();draft.state=e instanceof ApiError&&[400,403,404,409].includes(e.status)?'conflict':'pending';draft.error=e instanceof Error?e.message:String(e);await this.save(id,draft);}
-  return draft;
+   this.library.guard();return await this.update(id,fresh=>{
+    if(fresh.operation?.id!==draft.operation!.id)return fresh;
+    return {...fresh,snapshot:{...fresh.snapshot,revision:result.revision},state:'synced',error:undefined,quiz_id:result.quiz_id??fresh.quiz_id,shared:{...fresh.shared,[draft.operation!.kind]:fingerprint(JSON.stringify(draft.operation!.kind==='lesson'?draft.operation!.lesson:draft.operation!.questions))}};
+   });
+  }catch(e){this.library.guard();return this.update(id,fresh=>fresh.operation?.id!==draft.operation!.id?fresh:{...fresh,state:e instanceof ApiError&&[400,403,404,409].includes(e.status)?'conflict':'pending',error:e instanceof Error?e.message:String(e)});}
  }
 }
 
