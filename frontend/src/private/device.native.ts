@@ -9,6 +9,7 @@ import { parseNative } from './parserBridge';
 import { MAX_BOOK_BYTES, makeReadingSections, requireThat } from './core';
 import { CONTEXT_TOKENS, MAX_MODEL_BYTES, MODEL } from './modelSpec';
 import { Exclusive, cancelled } from './busy';
+import { nativeInferenceThreads } from './performance';
 import type { Completion, Device, LocalFile } from './device.types';
 
 const root=`${FS.documentDirectory}localmind-private/`, MODEL_KEY='@model-v1';
@@ -43,7 +44,7 @@ async function accept(uri:string,name:string,progress:(n:number)=>void,signal?:A
 async function complete(req:Completion){return lock.queue(async()=>{
  cancelled(req.signal);const m=await store.get<Installed>(MODEL_KEY);requireThat(m,'Download or import a model in Offline AI first.');
  requireThat(m.uri.startsWith('file://'),'AI models must be stored locally.');
- if(!context||loaded!==m.uri){await close();await info(m.uri);context=await initLlama({model:m.uri,n_ctx:CONTEXT_TOKENS,n_threads:2,n_gpu_layers:0,use_mlock:false});loaded=m.uri;}
+ if(!context||loaded!==m.uri){await close();await info(m.uri);const cores=Number((globalThis as typeof globalThis & {navigator?:{hardwareConcurrency?:number}}).navigator?.hardwareConcurrency);const threads=nativeInferenceThreads(cores);context=await initLlama({model:m.uri,n_ctx:CONTEXT_TOKENS,n_threads:threads,n_gpu_layers:0,use_mlock:false});loaded=m.uri;}
  cancelled(req.signal);
  const messages=[{role:'system',content:req.system},{role:'user',content:req.prompt}];
  const formatted=await context.getFormattedChat(messages,undefined,{enable_thinking:false});

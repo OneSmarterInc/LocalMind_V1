@@ -29,6 +29,13 @@ export function inferenceThreads(isolated:boolean, sharedMemory:boolean, cores:n
   const total = Number.isFinite(cores) && cores > 0 ? Math.floor(cores) : 2;
   return Math.max(1, Math.min(cap, total - reserve));
 }
+/** Native runtimes do not always expose hardwareConcurrency. Use a conservative
+ * four-thread fallback on modern phones/laptops, while still reserving cores and
+ * capping inference so the UI and OS remain responsive. */
+export function nativeInferenceThreads(cores?:number):number {
+  const total=Number.isFinite(cores)&&Number(cores)>0?Math.floor(Number(cores)):6;
+  return Math.max(2,Math.min(6,total-2));
+}
 export type Checkpoint<T> = {id:string;parts:T[]};
 /** Save validated parts only. A final version is published separately by the caller. */
 export async function resumeParts<T>(options:{

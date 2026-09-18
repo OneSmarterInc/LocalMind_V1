@@ -84,7 +84,7 @@ export class Library {
   async generateLesson(bookId: string, sectionId: string, signal: AbortSignal, progress?: (message:string)=>void) {
     const book = await this.book(bookId); const section = book.sections.find(s => s.id === sectionId); requireThat(section, 'Choose a module in this book');
     const sourceText=pageSource(book.sections, sectionId);
-    let passages=lessonPassages(sourceText,1600);requireThat(passages.length,'This module has no readable text.');
+    let passages=lessonPassages(sourceText,2800);requireThat(passages.length,'This module has no readable text.');
     const d=await device(), model=await d.status();
     const lessonKey=(parts:string[])=>`${this.work(bookId)}checkpoint:lesson:${sectionId}:${fingerprint(JSON.stringify({version:1,passages:parts,title:section.title,model:model.hash||model.name}))}:`;
     // Finish existing 800-character checkpoints before using larger passages.
@@ -97,7 +97,7 @@ export class Library {
       progress:done=>progress?.(`${done} of ${passages.length} lesson parts saved. Generate again after an interruption to resume.`),
       generate:async index=>{
         this.guard();const source=passages[index];
-        const raw=await d.complete({system:GROUNDING,prompt:`Teach this entire source passage in plain language. Explain its definitions, relationships, examples and formulas when present. Do not just name the main idea. Write one introductory sentence, one explanatory section and one takeaway. Each call covers one consecutive part of the module. Use an exact supporting quote.\nMODULE: ${section.title} — part ${index+1} of ${passages.length}\nSTORED BOOK REFERENCE:\n${source}`,schema:groundedSchema(COMPACT_LESSON_SCHEMA,source),maxTokens:1000,temperature:0.2,signal,
+        const raw=await d.complete({system:GROUNDING,prompt:`Teach this entire source passage in plain language. Explain its definitions, relationships, examples and formulas when present. Do not just name the main idea. Write one introductory sentence, one explanatory section and one takeaway. Each call covers one consecutive part of the module. Use an exact supporting quote.\nMODULE: ${section.title} — part ${index+1} of ${passages.length}\nSTORED BOOK REFERENCE:\n${source}`,schema:groundedSchema(COMPACT_LESSON_SCHEMA,source),maxTokens:700,temperature:0.2,signal,
           progress:message=>progress?.(`Part ${index+1}/${passages.length} · ${message}`)});
         return validateLesson(raw,source);
       }});
@@ -135,7 +135,7 @@ export class Library {
     for (let n = questions.length; n < count; n++) {
       let lastError: unknown;
       const retryStart=checkpoint.retryCursor||0;
-      for (let attempt = 0; attempt < 4; attempt++) {
+      for (let attempt = 0; attempt < 3; attempt++) {
         this.guard(); requireThat(!signal.aborted, 'Cancelled. Your earlier quizzes are unchanged.');
         try {
           const offset=Math.floor(n*focuses.length/count)+retryStart+attempt;
@@ -143,7 +143,7 @@ export class Library {
           const candidates=unused.length?unused:focuses;
           const source=candidates[offset%candidates.length];
           const avoid = [...excluded,...questions.map(q => q.question)].map(q => q.slice(0, 160)).join('\n');
-          const raw = await d.complete({ system: GROUNDING, prompt: `Write ONE useful multiple-choice practice question. Exactly four distinct options; answer is a zero-based index (0–3). Write each option as the answer text ONLY — never begin an option with \"A.\", \"B)\", \"1.\" or any other label, because the app adds the letters itself. Include a short explanation (at most 40 words) and an exact source quote. Keep the question and choices concise. Do not simply test whether a sentence appears in the book. Choose a specific fact from the supplied reference that has not been tested, and ask about that fact rather than the module title. If the reference is itself a list of objectives or outcomes, ask about the substance of one of them.\nDo not repeat these questions already accepted in THIS quiz:\n${avoid}\nSTORED BOOK REFERENCE:\n${source}\nQuestion ${n + 1}; attempt ${retryStart + attempt + 1}.`, schema: groundedSchema(COMPACT_MCQ_SCHEMA, source), maxTokens: 700, temperature: 0.25 + attempt * 0.15, signal, progress:message=>detail?.(`Question ${n+1}/${count} · ${message}`) });
+          const raw = await d.complete({ system: GROUNDING, prompt: `Write ONE useful multiple-choice practice question. Exactly four distinct options; answer is a zero-based index (0–3). Write each option as the answer text ONLY — never begin an option with \"A.\", \"B)\", \"1.\" or any other label, because the app adds the letters itself. Include a short explanation (at most 40 words) and an exact source quote. Keep the question and choices concise. Do not simply test whether a sentence appears in the book. Choose a specific fact from the supplied reference that has not been tested, and ask about that fact rather than the module title. If the reference is itself a list of objectives or outcomes, ask about the substance of one of them.\nDo not repeat these questions already accepted in THIS quiz:\n${avoid}\nSTORED BOOK REFERENCE:\n${source}\nQuestion ${n + 1}; attempt ${retryStart + attempt + 1}.`, schema: groundedSchema(COMPACT_MCQ_SCHEMA, source), maxTokens: 450, temperature: 0.25 + attempt * 0.15, signal, progress:message=>detail?.(`Question ${n+1}/${count} · ${message}`) });
           const question = validateMCQ(raw, source, sectionId, randomUUID());
           requireThat(! [...excluded,...questions.map(q=>q.question)].some(q => q.toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim() === question.question.toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim()), `The model could not produce another distinct question. ${questions.length} of ${count} questions are saved. Select Generate quiz again to resume.`);
           this.guard();cancelled(signal);
@@ -153,7 +153,7 @@ export class Library {
           lastError = e; if (signal.aborted || /timed out|storage|quota/i.test(String(e))) throw e;
           checkpoint.retryCursor=retryStart+attempt+1;
           this.guard();await d.put(key,checkpoint);this.guard();
-          detail?.(`Question ${n+1}/${count}: retrying with another passage (${attempt+1}/4).`);
+          detail?.(`Question ${n+1}/${count}: retrying with another passage (${attempt+1}/3).`);
         }
       }
       // Ran out of attempts for this question. If we already have enough to be
