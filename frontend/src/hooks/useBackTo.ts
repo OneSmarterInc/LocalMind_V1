@@ -7,6 +7,7 @@ import { confirmLeave } from "./unsavedGuard";
  * One rule for every "up one level" control: the breadcrumb in the shell header and
  * the "Back to X" button inside a page must do the same thing.
  *
+ * PortalTabs adapts dismissTo to tab history (stock Expo Tabs does not).
  * Dismiss to an existing parent when it is in the stack; otherwise replace
  * the current route for direct-entry links.
  *

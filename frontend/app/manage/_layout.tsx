@@ -1,5 +1,6 @@
+import { portalRouter } from "@/hooks/portalRouter";
 import { Ionicons } from "@expo/vector-icons";
-import { Tabs } from "expo-router";
+import { PortalTabs as Tabs } from "@/ui/PortalTabs";
 import React from "react";
 import { useAuth } from "@/auth/AuthContext";
 import { PortalMeta, shellScreen, useShell } from "@/ui/Shell";
@@ -39,7 +40,7 @@ export default function ManageLayout() {
   };
   const shell = useShell(meta);
   return (
-    <Tabs screenOptions={shell.screenOptions} tabBar={shell.tabBar}>
+    <Tabs backBehavior="fullHistory" UNSTABLE_router={portalRouter} screenOptions={shell.screenOptions} tabBar={shell.tabBar}>
       <Tabs.Screen name="offline-ai" options={{ title: "Offline AI", tabBarIcon: icon("hardware-chip-outline") }} />
       <Tabs.Screen name="index" options={{ title: "Overview", tabBarIcon: icon("home-outline") }} />
       <Tabs.Screen name="subjects" options={{ title: "Subjects", tabBarIcon: icon("library-outline") }} />

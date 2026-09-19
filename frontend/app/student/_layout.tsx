@@ -1,5 +1,6 @@
+import { portalRouter } from "@/hooks/portalRouter";
 import { Ionicons } from "@expo/vector-icons";
-import { Tabs } from "expo-router";
+import { PortalTabs as Tabs } from "@/ui/PortalTabs";
 import React from "react";
 import { OfflineNoticeContext } from "@/offline/OfflineBanner";
 import { PortalMeta, shellScreen, useShell } from "@/ui/Shell";
@@ -38,7 +39,7 @@ export default function StudentLayout() {
   const shell = useShell(STUDENT_META);
   return (
     <OfflineNoticeContext.Provider value>
-      <Tabs screenOptions={shell.screenOptions} tabBar={shell.tabBar}>
+      <Tabs backBehavior="fullHistory" UNSTABLE_router={portalRouter} screenOptions={shell.screenOptions} tabBar={shell.tabBar}>
         <Tabs.Screen name="index" options={{ title: "Overview", tabBarIcon: icon("home-outline") }} />
         <Tabs.Screen name="private-library" options={{ title: "Private library", tabBarIcon: icon("book-outline") }} />
         <Tabs.Screen name="generation-jobs" options={{ title: "Generation jobs", tabBarIcon: icon("time-outline") }} />

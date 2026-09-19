@@ -1,4 +1,4 @@
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import { useDraft } from "@/hooks/useDraft";
 import { confirmLeave } from "@/hooks/unsavedGuard";
 import { useBackTo } from "@/hooks/useBackTo";
@@ -13,9 +13,11 @@ type Kind = "students" | "faculty";
 
 export default function AddPerson() {
   const router = useRouter();
+  const navigation = useNavigation();
   const back = useBackTo();
   const p = useLocalSearchParams<{ kind?: string }>();
   const kind: Kind = p.kind === "faculty" ? "faculty" : "students";
+  useEffect(() => { navigation.setOptions({ backTo: `/admin/users?kind=${kind}`, backLabel: "People" }); }, [navigation, kind]);
   const setKind = (next: Kind) => { void confirmLeave().then(ok => { if (ok) router.setParams({ kind: next }); }); };
   const source = useMemo(() => ({ id: `new-account:${kind}`, fields: {} as Record<string, string>, subjects: [] as string[] }), [kind]);
   const { draft, edit, markSaved } = useDraft(source, { label: () => "the new account", save: async () => (await create.run()) === true });

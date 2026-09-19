@@ -1,6 +1,6 @@
 import * as DocumentPicker from "expo-document-picker";
 import { useBackTo } from "@/hooks/useBackTo";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import { Platform, Text, View } from "react-native";
 import { admin } from "@/api/endpoints";
@@ -14,9 +14,11 @@ type RowT = { row: number; name: string; email: string; outcome: "Created" | "Ac
 
 export default function ImportPeople() {
   const router = useRouter();
+  const navigation = useNavigation();
   const back = useBackTo();
   const p = useLocalSearchParams<{ kind?: string }>();
   const kind: Kind = p.kind === "faculty" ? "faculty" : "students";
+  useEffect(() => { navigation.setOptions({ backTo: `/admin/users?kind=${kind}`, backLabel: "People" }); }, [navigation, kind]);
   const setKind = (next: Kind) => router.setParams({ kind: next });
   const [file, setFile] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
   const [report, setReport] = useState<ImportReport | null>(null);
