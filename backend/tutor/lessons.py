@@ -43,7 +43,6 @@ from django.db import close_old_connections, transaction
 from django.db.models import Case, F, IntegerField, Q, Value, When
 from django.utils import timezone
 
-from ai.source_references import prepare
 from ai.config import task_config
 from ai.gateway import foreground_busy, gateway, trim_source
 
@@ -303,13 +302,9 @@ def _generate(module):
     source, chunk_count = retrieval.coverage_sample(module, budget.source_chars)
     if not source:
         source = trim_source(module.source_text, budget.source_chars)
-    wire_source, wire_schema, restore = prepare(source, LESSON_SCHEMA)
-    result = gateway().generate(task="lesson", system_prompt=GROUNDING + LESSON_TASK + " For source_reference fields, select the Q reference marking the supporting source text. The application restores the exact quote.",
-                              user_prompt=f"MODULE: {module.title}\n\nSOURCE TEXT:\n\"\"\"{wire_source}\"\"\"",
-                              schema=wire_schema, source_chars=len(source), retrieved_chunks=chunk_count, background=True)
-    if result.ok:
-        result.data = restore(result.data)
-    return result
+    return gateway().generate(task="lesson", system_prompt=GROUNDING + LESSON_TASK,
+                              user_prompt=f"MODULE: {module.title}\n\nSOURCE TEXT:\n\"\"\"{source}\"\"\"",
+                              schema=LESSON_SCHEMA, source_chars=len(source), retrieved_chunks=chunk_count, background=True)
 
 
 def _backoff(attempts: int) -> timedelta:

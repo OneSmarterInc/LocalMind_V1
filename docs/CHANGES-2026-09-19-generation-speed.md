@@ -1,5 +1,10 @@
 # Generation speed: 19 September 2026
 
+## Follow-up: reported slowdown
+
+The Q-reference encoding described below has been rolled back after a user reported slower generation. It added prompt markers and instructions without real-model timing evidence. Browser, native and backend generation again use the prior citation format. Reduced quiz repair retries and device timing logs remain. Generation still runs on individual devices when device-only authoring is enabled. The rollback removes a suspected regression; the cause and speed recovery require measurements on an affected laptop. The original change notes below are historical.
+
+
 ## Evidence
 
 Device-only authoring is enabled in the supplied configuration. Lessons and quizzes run on the device; the Python log primarily records the independent AI monitor. Recorded monitor calls take about 10–93 seconds; model loading takes about 1.5–2 seconds. Waitress also reports queued requests. These observations do not establish browser quiz generation time or its failure reason.

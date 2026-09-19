@@ -1,4 +1,3 @@
-import { quoteReferences } from './quoteReferences';
 import * as FS from 'expo-file-system/legacy';
 import * as SQLite from 'expo-sqlite';
 import { initLlama, type LlamaContext } from 'llama.rn';
@@ -42,13 +41,13 @@ async function accept(uri:string,name:string,progress:(n:number)=>void,signal?:A
  await store.put(MODEL_KEY,{uri,name,bytes:result.bytes,hash:result.hash});
  if(old?.uri)await FS.deleteAsync(old.uri,{idempotent:true}).catch(()=>{});progress(1);
 }
-async function complete(req:Completion){const wire=quoteReferences(req.schema,req.prompt);return lock.queue(async()=>{
+async function complete(req:Completion){return lock.queue(async()=>{
  cancelled(req.signal);const m=await store.get<Installed>(MODEL_KEY);requireThat(m,'Download or import a model in Offline AI first.');
  requireThat(m.uri.startsWith('file://'),'AI models must be stored locally.');
  if(!context||loaded!==m.uri){await close();await info(m.uri);const cores=Number((globalThis as typeof globalThis & {navigator?:{hardwareConcurrency?:number}}).navigator?.hardwareConcurrency);const threads=nativeInferenceThreads(cores);context=await initLlama({model:m.uri,n_ctx:CONTEXT_TOKENS,n_threads:threads,n_gpu_layers:0,use_mlock:false});loaded=m.uri;}
  cancelled(req.signal);
  const started=Date.now();
- const messages=[{role:'system',content:req.system+(wire.schema!==req.schema?' For quote fields, output the Q reference marking the supporting source text, not the quotation itself. The application restores the exact quotation before validation and display.':'')},{role:'user',content:wire.prompt}];
+ const messages=[{role:'system',content:req.system},{role:'user',content:req.prompt}];
  const formatted=await context.getFormattedChat(messages,undefined,{enable_thinking:false});
  const tokenized=await context.tokenize(formatted.prompt);
  requireThat(tokenized.tokens.length+req.maxTokens+48<=CONTEXT_TOKENS,'This prompt exceeds local model memory. Choose a shorter module.');
@@ -57,8 +56,8 @@ async function complete(req:Completion){const wire=quoteReferences(req.schema,re
  try {
   cancelled(req.signal);
   const res=await context.completion({messages,n_predict:req.maxTokens,temperature:req.temperature,enable_thinking:false,
-   response_format:{type:'json_object',schema:wire.schema},stop:['<|im_end|>','<|eot_id|>','</s>']});
-  cancelled(req.signal);requireThat(!expired && !('stopped_limit' in res && res.stopped_limit),'Local AI did not finish. No partial answer was saved.');const restored=wire.restore(JSON.parse(res.text));
+   response_format:{type:'json_object',schema:req.schema},stop:['<|im_end|>','<|eot_id|>','</s>']});
+  cancelled(req.signal);requireThat(!expired && !('stopped_limit' in res && res.stopped_limit),'Local AI did not finish. No partial answer was saved.');const restored=JSON.parse(res.text);
   console.info('[LocalMind AI]',{runtime:'native',elapsedMs:Date.now()-started,outputCharacters:res.text.length});
   return restored;
  }catch(e){if(expired&&!req.signal.aborted)throw new Error('Local AI timed out. No incomplete response was saved. Completed lesson parts and quiz questions are retained; generate again to resume.');throw e;}finally{clearTimeout(timer);req.signal.removeEventListener('abort',cancel);}

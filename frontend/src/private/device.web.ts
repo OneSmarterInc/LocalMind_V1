@@ -1,4 +1,3 @@
-import { quoteReferences } from './quoteReferences';
 import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex } from '@noble/hashes/utils';
 import { MAX_BOOK_BYTES, makeReadingSections, requireThat } from './core';
@@ -113,7 +112,6 @@ async function download(progress:(n:number)=>void,signal?:AbortSignal){
 }
 let activeThreads=1;
 async function complete(req:Completion) {
- const wire=quoteReferences(req.schema,req.prompt);
  req.progress?.("Waiting for the local model…");
  return lock.queue(async()=>{
   cancelled(req.signal); const info=await store.get<Installed>(MODEL_KEY);
@@ -139,12 +137,12 @@ async function complete(req:Completion) {
   const timer=setTimeout(()=>abort.abort(),180000);
   try {
     // Context overflow is rejected by the runtime; never trim a stored module silently.
-    const result=await engine!.createChatCompletion({messages:[{role:'system',content:req.system+(wire.schema!==req.schema?' For quote fields, output the Q reference marking the supporting source text, not the quotation itself. The application restores the exact quotation before validation and display.':'')},{role:'user',content:wire.prompt}],
+    const result=await engine!.createChatCompletion({messages:[{role:'system',content:req.system},{role:'user',content:req.prompt}],
       max_tokens:req.maxTokens,temperature:req.temperature,stream:false,abortSignal:abort.signal,
-      chat_template_kwargs:{enable_thinking:false},response_format:{type:'json_schema',json_schema:{name:'study',schema:wire.schema,strict:true}}});
+      chat_template_kwargs:{enable_thinking:false},response_format:{type:'json_schema',json_schema:{name:'study',schema:req.schema,strict:true}}});
     cancelled(req.signal); requireThat(!abort.signal.aborted,'Local AI timed out. No partial answer was saved.');
     const choice=result.choices[0];requireThat(choice && choice.finish_reason!=='length','The response was incomplete. Try fewer questions or a shorter module.');
-    const restored=wire.restore(JSON.parse(choice.message.content));
+    const restored=JSON.parse(choice.message.content);
     console.info('[LocalMind AI]',{runtime:'browser',elapsedMs:Date.now()-started,threads:activeThreads,outputCharacters:choice.message.content.length});
     return restored;
   } catch(e) {
