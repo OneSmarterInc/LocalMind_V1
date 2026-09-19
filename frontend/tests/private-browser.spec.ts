@@ -750,6 +750,10 @@ test('faculty upload survives an offline restart and resumes the content outline
  await page.reload();
  await expect(page.getByText('Book saved — awaiting upload',{exact:true})).toBeVisible();
  await context.setOffline(false);
+ await expect(page.getByText('Book saved — awaiting upload',{exact:true})).toHaveCount(0,{timeout:60000});
+ await expect(page.getByRole('button',{name:'Review uploaded book',exact:true})).toHaveCount(0);
+ await expect(page.getByLabel('Book title',{exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Back to books',exact:true}).click();
  await expect(page.getByRole('button',{name:'Review uploaded book',exact:true})).toBeVisible({timeout:60000});
  await page.getByRole('button',{name:'Review uploaded book',exact:true}).click();
  await expect(page.getByLabel('Module title',{exact:true})).toHaveValue('Energy and living systems',{timeout:60000});

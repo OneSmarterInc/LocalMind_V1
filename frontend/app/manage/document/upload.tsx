@@ -39,7 +39,7 @@ export default function UploadBook() {
     <Screen>
       <PageHeading eyebrow="BOOKS & MODULES" title="Let’s add a book." subtitle="We’ll walk you from source material to student-ready modules."
         right={<Button title="Back to books" variant="secondary" icon="arrow-back" onPress={() => back("/manage/books")} />} />
-      {user?<UploadStatus owner={user.id}/>:null}
+      {user?<UploadStatus owner={user.id} showCompleted={false}/>:null}
       <Stepper steps={["Upload a book", "Review the outline", "Publish to students"]} active={0} />
       <Split
         main={
