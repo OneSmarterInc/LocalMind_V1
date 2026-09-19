@@ -18,6 +18,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -136,7 +137,7 @@ const TONE: Record<DialogTone, { color: string; icon: IconName }> = {
 /** Mounted once in the root layout. Renders whatever the queue holds. */
 export function DialogHost() {
   const [, force] = useState(0);
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   useEffect(() => {
     notify = () => force((n) => n + 1);
     return () => { notify = null; };
@@ -149,7 +150,7 @@ export function DialogHost() {
     dequeue(current.id);
   }, [current]);
 
-  // Keyboard shortcuts on the web build: Escape cancels, Enter confirms.
+  // Escape dismisses. Enter is handled by the focused button, never globally.
   const answerRef = useRef(answer);
   answerRef.current = answer;
   useEffect(() => {
@@ -158,7 +159,6 @@ export function DialogHost() {
     if (!doc) return;
     const onKey = (e: { key?: string; preventDefault?: () => void }) => {
       if (e.key === "Escape") { e.preventDefault?.(); answerRef.current(false); }
-      if (e.key === "Enter") { e.preventDefault?.(); answerRef.current(true); }
     };
     doc.addEventListener("keydown", onKey);
     return () => doc.removeEventListener("keydown", onKey);
@@ -174,7 +174,8 @@ export function DialogHost() {
     <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={() => answer(false)}>
       <Pressable style={s.backdrop} onPress={() => answer(false)}>
         {/* Stops a tap inside the card from reaching the backdrop. */}
-        <Pressable style={[s.dialog, { maxWidth: Math.min(460, width - 32) }]} onPress={() => {}}>
+        <Pressable style={[s.dialog, { maxWidth: Math.min(460, width - 32), maxHeight: height - 32 }]} onPress={() => {}}>
+          <ScrollView contentContainerStyle={{ gap: space.md }} keyboardShouldPersistTaps="handled">
           <View style={s.head}>
             <View style={[s.iconWrap, { backgroundColor: `${tone.color}1F`, borderColor: `${tone.color}55` }]}>
               <Ionicons name={icon} size={22} color={tone.color} />
@@ -210,6 +211,7 @@ export function DialogHost() {
               <Text style={[s.btnText, { color: okText }]}>{current.okLabel}</Text>
             </Pressable>
           </View>
+          </ScrollView>
         </Pressable>
       </Pressable>
     </Modal>

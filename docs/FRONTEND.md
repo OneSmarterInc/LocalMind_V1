@@ -22,7 +22,6 @@ The client is an Expo app (`frontend/`). This page lists every screen and the en
 | Quizzes + recent results | `(student)/quizzes` | `GET /student/quizzes/`, `GET /student/scores/` |
 | Take quiz | `(student)/quiz/[id]` | `POST /student/quizzes/{id}/attempts/`, `POST /student/quiz-attempts/{id}/submit/` |
 | Result + remediation | `(student)/attempt/[id]` | `GET /student/quiz-attempts/{id}/`, `POST .../remediation/` |
-| Assignments | `(student)/assignments`, `(student)/assignment/[id]` | `GET /student/assignments/`, `POST .../{id}/submissions/` |
 | Progress | `(student)/progress` | `GET /student/analytics/overview/`, per-subject analytics |
 
 ## Faculty (and admin via "Content")
@@ -36,7 +35,6 @@ The client is an Expo app (`frontend/`). This page lists every screen and the en
 | Book: status, outline review, publish | `(manage)/document/[id]` | `GET /faculty/documents/{id}/`, `GET/PUT .../outline/`, `POST .../{ready,publish,unpublish,archive}/`, `PATCH /faculty/modules/{id}/`, `POST .../availability/` |
 | Quizzes | `(manage)/quizzes`, `(manage)/quiz/new` | `GET /faculty/quizzes/`, `POST .../generate/`, `POST /faculty/quizzes/` |
 | Quiz: questions / settings / attempts | `(manage)/quiz/[id]` | `GET/PATCH /faculty/quizzes/{id}/`, `POST .../status/`, `GET .../attempts/`, `POST /faculty/quiz-attempts/{id}/re-evaluate/` |
-| Assignments | `(manage)/assignments`, `(manage)/assignment/new`, `(manage)/assignment/[id]` | `GET/POST /faculty/assignments/`, `POST .../generate/`, `GET/PATCH .../{id}/`, `POST .../status/`, `GET .../submissions/`, `POST /faculty/assignment-submissions/{id}/evaluate/` |
 
 ## Administrator
 

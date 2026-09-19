@@ -32,7 +32,7 @@ export default function ChangePassword() {
       <Card>
         <CardHead title="Secure your account" />
         <Input label="Current password" required value={current} onChangeText={setCurrent} secureTextEntry textContentType="password" hint={mustChangePassword ? "Use the initial password from your administrator." : "The password you signed in with."} />
-        <Input label="New password" required value={next} onChangeText={setNext} secureTextEntry textContentType="newPassword" hint="At least eight characters, not entirely numbers, not too similar to your email, and different from the current one." />
+        <Input label="New password" required value={next} onChangeText={setNext} secureTextEntry textContentType="newPassword" hint="At least ten characters, not entirely numbers, not too similar to your email, and different from the current one." />
         <Input label="Confirm new password" required value={confirm} onChangeText={setConfirm} secureTextEntry textContentType="newPassword" error={mismatch ? "The two new passwords do not match." : null} onSubmitEditing={() => action.run()} />
         <ErrorBanner message={action.error} />
         <FormFooter note={mustChangePassword ? "You can use LocalMind once this is done." : "You stay signed in on this device."}>

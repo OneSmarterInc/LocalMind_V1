@@ -18,18 +18,16 @@ urlpatterns = [
     path("api/admin/", include("accounts.urls_admin")),
     path("api/admin/", include("academics.urls_admin")),
     path("api/admin/", include("audit.urls")),
-    # Content work (books, quizzes, assignments, their analytics) has one home,
+    # Content work (books, quizzes, their analytics) has one home,
     # /api/faculty/, for faculty and administrators alike; the permission
     # classes admit both roles. It used to be mounted a second time under
     # /api/admin/, which nothing used and doubled what had to be secured.
     path("api/faculty/", include("academics.urls_faculty")),
     path("api/faculty/", include("documents.urls_manage")),
     path("api/faculty/", include("assessments.urls_manage")),
-    path("api/faculty/", include("assignments.urls_manage")),
     path("api/student/", include("academics.urls_student")),
     path("api/student/", include("learning.urls_student")),
     path("api/student/", include("assessments.urls_student")),
-    path("api/student/", include("assignments.urls_student")),
     path("api/student/", include("tutor.urls_student")),
     path("api/student/", include("activity.urls_student")),
     path("api/student/", include("analytics.urls_student")),

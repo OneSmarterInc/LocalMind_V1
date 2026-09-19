@@ -253,7 +253,7 @@ cd backend
 DJANGO_DEBUG=true python manage.py seed_demo        # Windows: set DJANGO_DEBUG=true first
 ```
 
-Creates one admin, two faculty, four students, two subjects, published content, a quiz and an assignment. Refuses to run unless `DJANGO_DEBUG=true` (or `--force`).
+Creates one admin, two faculty, four students, two subjects, published content and a quiz. Refuses to run unless `DJANGO_DEBUG=true` (or `--force`).
 
 ---
 

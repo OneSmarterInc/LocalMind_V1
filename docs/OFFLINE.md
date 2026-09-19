@@ -1,6 +1,6 @@
 # Running LocalMind offline, on any machine, without Ollama
 
-LocalMind's AI features (quiz and assignment generation, subjective-answer
+LocalMind's AI features (quiz generation, subjective-answer
 evaluation, book outlining, and the student tutor's lessons, Q&A and
 remediation) all go through one gateway (`backend/ai/gateway.py`). This
 document describes the embedded provider that runs the model inside the
@@ -165,8 +165,4 @@ than an empty outline. DOCX parsing is untouched.
 
 ## Behaviour when the model is missing
 
-Nothing breaks. `/api/health/` reports `ai.ready=false` with the reason,
-quiz and assignment generation return their deterministic question sets
-flagged `generator=fallback`, the tutor serves the module text with a note,
-and the launcher prints the `fetch_model` instruction. Run `fetch_model` once
-and restart; no other step is needed.
+The readiness endpoints report the unavailable model and its reason. Previously saved content remains readable. New AI work requires the model used by that workflow: configure the device model for private learning or the server model for server AI. Generation does not fabricate placeholder questions when inference fails. Follow the Offline AI setup screen or the server model setup instructions above.

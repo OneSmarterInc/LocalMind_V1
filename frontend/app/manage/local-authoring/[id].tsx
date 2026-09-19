@@ -4,7 +4,7 @@ import {LocalLessonView} from '@/private/LocalLessonView';
 import {LessonView} from '@/ui/LessonView';
 import React,{useCallback,useEffect,useMemo,useState} from 'react';
 import {Text,View} from 'react-native';
-import {useLocalSearchParams,useRouter} from 'expo-router';
+import {useLocalSearchParams,useNavigation,useRouter} from 'expo-router';
 import {useAuth} from '@/auth/AuthContext';
 import {LocalAuthoring,draftStatus,isFrontMatter,type Draft,type ArchivedDraft} from '@/authoring/local';
 import {clearFailure} from '@/authoring/automatic';
@@ -34,12 +34,14 @@ export default function LocalAuthoringPage(){const {user}=useAuth();return user?
 function Authoring(){
  const {id}=useLocalSearchParams<{id:string}>(),{user}=useAuth(),router=useRouter(),library=useLibrary(),task=useTask();
  const back=useBackTo();
+ const navigation=useNavigation();
  const owner=user!.id;
  const service=useMemo(()=>new LocalAuthoring(owner),[owner]);
  const [tab,setTab]=useState<Tab>('review');
  const [quizCount,setQuizCount]=useState('6'),[questionIndex,setQuestionIndex]=useState(0);
  const [modelReady,setModelReady]=useState(false);
  const [draft,setDraft]=useState<Draft>(),[error,setError]=useState(''),[history,setHistory]=useState<ArchivedDraft[]>([]),[opened,setOpened]=useState('');
+ useEffect(()=>{navigation.setOptions({backTo:draft?.snapshot.document_id&&(!draft.localBook||draft.snapshot.remote_id)?`/manage/document/${draft.snapshot.document_id}?tab=outline&module=${draft.snapshot.remote_id||draft.snapshot.module_id}`:"/manage/books",backLabel:draft?.snapshot.document_id&&(!draft.localBook||draft.snapshot.remote_id)?"Back to outline":"Books & modules"});},[navigation,draft?.localBook,draft?.snapshot.document_id,draft?.snapshot.remote_id,draft?.snapshot.module_id]);
  const localFigures=useAsync(()=>draft?.sourceBook&&draft.sourceSection?service.library.visuals(draft.sourceBook,draft.sourceSection):Promise.resolve([]),[service,draft?.sourceBook,draft?.sourceSection]);
 
  // ONLY this module's own generation.

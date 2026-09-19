@@ -7,7 +7,7 @@ import {useAuth} from '@/auth/AuthContext';
 import {LocalQuizzes} from '@/authoring/quizzes';
 import { confirmLeave } from "@/hooks/unsavedGuard";
 import { carryEditableFields } from "@/hooks/draftPersistence";
-import { useRouter } from "expo-router";
+import { useNavigation, useRouter } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { Platform, Pressable, Text, TextInput, View } from "react-native";
@@ -15,6 +15,7 @@ import { manage } from "@/api/endpoints";
 import type { Attempt, Question, Quiz } from "@/api/types";
 import { useAction, useAsync } from "@/hooks/useAsync";
 import { useDebounced } from "@/hooks/useDebounced";
+import { useTabParam } from "@/hooks/useTabParam";
 import { useDraft } from "@/hooks/useDraft";
 import {
   Badge, Button, Card, CardHead, CellText, Column, DangerZone, DetailList, Dropdown, Empty, ErrorBanner, FormFooter, Grid, Input, Loading,
@@ -221,12 +222,12 @@ export function QuizNewPage() {
 /** Edits typed while a save was creating a new quiz version, handed to that new version's screen. */
 const carryOver = new Map<string, Quiz>();
 
-export function QuizDetailPage({ id, initialTab, note }: { id: string; initialTab?: Tab; note?: string }) {
+export function QuizDetailPage({ id, note }: { id: string; note?: string }) {
   const router = useRouter();
   const q = useAsync(() => manage.quiz(id), [id]);
   const subjects = useAsync(() => manage.subjects(), []);
   const modules = useSubjectModules(q.data?.subject_id);
-  const [tab, setTab] = useState<Tab>(initialTab ?? "questions");
+  const [tab, setTab] = useTabParam<Tab>("questions", ["questions", "sources", "settings", "attempts"]);
   const [fixing, setFixing] = useState(false);
   useEffect(() => { setFixing(false); }, [id]);
   const draftRef = useRef<Quiz | null>(null);
@@ -595,15 +596,32 @@ function AttemptsTab({ quiz, pending, onRelease, releasing }: { quiz: Quiz; pend
 /* ------------------------------------------------------------------ */
 
 export function AttemptReviewPage({ attemptId, quizId }: { attemptId: string; quizId: string }) {
-  const router = useRouter();
   const quiz = useAsync(() => manage.quiz(quizId), [quizId]);
   const attempts = useAsync(() => manage.quizAttempts(quizId), [quizId]);
   const a = attempts.data?.find((x) => x.id === attemptId) ?? null;
-  const [overrides, setOverrides] = useState<Record<string, { score_awarded: number; feedback?: string }>>({});
-  const save = useAction(async () => { await manage.reEvaluate(attemptId, overrides); setOverrides({}); await attempts.reload(); });
+  type Overrides = Record<string, { score_awarded: string; feedback?: string }>;
+  const source = useMemo(() => ({ id: `evaluation:${attemptId}`, values: {} as Overrides }), [attemptId]);
+  const { draft, edit, dirty, discard, markSaved } = useDraft(source, { label: () => "this evaluation", save: async () => (await save.run()) === true });
+  const overrides = draft?.values ?? {};
+  const setOverrides = (fn: (previous: Overrides) => Overrides) => edit(d => ({ ...d, values: fn(d.values) }));
+  const save = useAction(async () => {
+    if (!draft) return false;
+    const sent = draft;
+    const values: Record<string, { score_awarded: number; feedback?: string }> = {};
+    for (const [id, row] of Object.entries(sent.values)) {
+      const score = Number(row.score_awarded);
+      if (!row.score_awarded.trim() || !Number.isFinite(score) || score < 0 || score > 1) throw new Error("Enter a score between 0 and 1 for each edited answer. Blank means ungraded and cannot be saved as zero.");
+      values[id] = { ...row, score_awarded: score };
+    }
+    await manage.reEvaluate(attemptId, values); markSaved(sent); await attempts.reload(); return true;
+  });
   const rerun = useAction(async () => { await manage.reEvaluate(attemptId); await attempts.reload(); });
   const release = useAction(async () => { await manage.releaseQuizResults(quizId, attemptId); await attempts.reload(); });
-  const back = () => router.push({ pathname: "/manage/quiz/[id]", params: { id: quizId, tab: "attempts" } });
+  const goBack = useBackTo();
+  const navigation = useNavigation();
+  const parent = `/manage/quiz/${quizId}?tab=attempts`;
+  useEffect(() => { navigation.setOptions({ backTo: parent, backLabel: "Back to attempts" }); }, [navigation, parent]);
+  const back = () => goBack(parent);
   const z = quiz.data;
   const held = !!a && !!z && !resultVisible(z, a);
   const correct = a?.detailed_results.filter((r) => r.is_correct).length ?? 0;
@@ -612,7 +630,7 @@ export function AttemptReviewPage({ attemptId, quizId }: { attemptId: string; qu
     <Screen refreshing={attempts.loading} onRefresh={attempts.reload}>
       <PageHeading eyebrow="STUDENT ATTEMPT" title={a ? `${a.student_name || a.student_email} · Attempt ${a.attempt_number}` : "Attempt"} subtitle={z && a ? `${z.title} · Submitted ${a.submitted_at ? new Date(a.submitted_at).toLocaleString() : "—"}` : null}
         right={<Button title="Back to attempts" variant="secondary" icon="arrow-back" onPress={back} />} />
-      <ErrorBanner message={attempts.error ?? save.error ?? rerun.error ?? release.error} onRetry={attempts.reload} />
+      <ErrorBanner message={quiz.error ?? attempts.error ?? save.error ?? rerun.error ?? release.error} onRetry={() => { void quiz.reload(); void attempts.reload(); }} />
       {attempts.loading && !a ? <Loading /> : null}
       {attempts.data && !a ? <Notice tone="warning" title="Attempt not found" message="It may belong to an older version of this quiz." /> : null}
       {a && z ? (
@@ -664,16 +682,16 @@ export function AttemptReviewPage({ attemptId, quizId }: { attemptId: string; qu
                     {r.type === "mcq" ? <Badge value={r.is_correct ? "Correct" : "Incorrect"} tone={r.is_correct ? "green" : "red"} /> : (
                       <Grid min={200} gap={12}>
                         <Input label="Score awarded" keyboardType="decimal-pad" value={overrides[r.question_id] ? String(overrides[r.question_id].score_awarded) : r.score_awarded != null ? String(r.score_awarded) : ""}
-                          hint="Each question is scored from 0 to 1." onChangeText={(v) => setOverrides((o) => ({ ...o, [r.question_id]: { ...o[r.question_id], score_awarded: Math.max(0, Math.min(1, Number(v) || 0)) } }))} />
+                          hint="Each question is scored from 0 to 1." onChangeText={(v) => setOverrides((o) => ({ ...o, [r.question_id]: { ...o[r.question_id], score_awarded: v } }))} />
                         <Input label="Feedback" multiline value={overrides[r.question_id]?.feedback ?? r.feedback ?? ""} style={{ minHeight: 70 }}
-                          onChangeText={(v) => setOverrides((o) => ({ ...o, [r.question_id]: { score_awarded: o[r.question_id]?.score_awarded ?? r.score_awarded ?? 0, feedback: v } }))} />
+                          onChangeText={(v) => setOverrides((o) => ({ ...o, [r.question_id]: { score_awarded: o[r.question_id]?.score_awarded ?? (r.score_awarded == null ? "" : String(r.score_awarded)), feedback: v } }))} />
                       </Grid>
                     )}
                   </View>
                 ))}
                 <FormFooter note={written.length ? "Changes use the existing faculty re-evaluation action." : "Multiple-choice answers are marked automatically."}>
-                  <Button title="Cancel" variant="secondary" onPress={() => setOverrides({})} disabled={!Object.keys(overrides).length} />
-                  <Button title="Save evaluation" icon="checkmark" onPress={() => save.run()} busy={save.busy} disabled={!Object.keys(overrides).length} />
+                  <Button title="Cancel" variant="secondary" onPress={discard} disabled={!dirty} />
+                  <Button title="Save evaluation" icon="checkmark" onPress={() => save.run()} busy={save.busy} disabled={!dirty} />
                 </FormFooter>
               </Card>
             }

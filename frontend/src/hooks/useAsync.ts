@@ -21,6 +21,13 @@ export function useAsync<T>(fn: () => Promise<T>, deps: unknown[] = []) {
   // Only the most recent request may update the screen: a slower earlier search or filter must not
   // overwrite newer results when it finally answers.
   const latest = useRef(0);
+  const previousDeps = useRef(deps);
+  const changedResource = previousDeps.current.length !== deps.length || deps.some((v, i) => !Object.is(v, previousDeps.current[i]));
+  if (changedResource) {
+    previousDeps.current = deps;
+    ++latest.current;
+    setData(null); setError(null); setErrorCode(null); setLoading(true);
+  }
   const run = useCallback(async () => {
     const mine = ++latest.current;
     setLoading(true); setError(null); setErrorCode(null);

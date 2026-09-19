@@ -18,9 +18,8 @@ export function useTabParam<T extends string>(fallback: T, valid: readonly T[]) 
 
   // A link that arrives with a different tab (or a Back that restores one) wins.
   useEffect(() => {
-    if (fromUrl && fromUrl !== tab) setTabState(fromUrl);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fromUrl]);
+    setTabState(fromUrl ?? fallback);
+  }, [fromUrl, fallback]);
 
   const setTab = useCallback(
     (next: T) => {

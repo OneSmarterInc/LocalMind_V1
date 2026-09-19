@@ -115,7 +115,7 @@ backend/
   documents/     upload, parsing, outline generation and review, publishing
   learning/      Chapter, Module, ModuleProgress, student reading endpoints
   assessments/   quizzes, attempts, deterministic and AI evaluation, versioning
-  assignments/   assignments, submissions, faculty evaluation
+  assignments/   historical records and migrations only (feature retired)
   tutor/         structured lessons, grounded Q&A, remediation
   activity/      application sessions, heartbeat, time on task
   analytics/     scoped metrics for student, faculty and admin

@@ -25,6 +25,8 @@ def _module_payload(module, progress, include_source):
     }
     if include_source:
         data["source_text"] = module.source_text
+        from documents.services.visual_delivery import module_visuals
+        data["source_visuals"] = module_visuals(module)
     return data
 
 

@@ -47,7 +47,7 @@ export interface ModuleBrief {
   start_page?: number | null; end_page?: number | null; progress?: Progress | null;
 }
 export interface ModuleFull extends ModuleBrief {
-  chapter_id: string; source_text: string; source_heading_index?: number | null; is_user_edited?: boolean;
+  chapter_id: string; source_text: string; source_visuals?: import("@/ui/SourceFigures").Figure[]; source_heading_index?: number | null; is_user_edited?: boolean;
   document_id?: string; document_title?: string; chapter_title?: string;
   /** Position in the book and who teaches it (student module detail). */
   module_number?: number | null; module_count?: number; faculty_names?: string[];
@@ -143,25 +143,6 @@ export interface Attempt {
 export interface StartAttempt { attempt_id: string; attempt_number: number; started_at: string; resumed: boolean; time_limit_minutes: number | null; questions: Question[] }
 
 export interface RubricItem { criterion: string; points: number }
-export interface Assignment {
-  id: string; title: string; description?: string; instructions?: string; subject_id: string; module_id: string | null; chapter_id: string | null;
-  rubric: RubricItem[]; max_score: number; generator: string; status: "draft" | "published" | "closed";
-  available_from: string | null; due_at: string | null; allow_late: boolean; allow_resubmission: boolean; max_attempts?: number | null;
-  submission_count?: number; my_submission?: Submission | null; created_at: string;
-  /** Modules the brief and rubric were drafted from, when a set was chosen. */
-  source_module_ids?: string[];
-  results_release?: "immediate" | "held" | "scheduled";
-  results_release_at?: string | null;
-  results_released_at?: string | null;
-  pending_release_count?: number;
-}
-export interface Submission {
-  id: string; assignment_id: string; assignment_title?: string; student_id?: string; student_email?: string; student_name?: string; attempt_number: number;
-  content: string; submitted_at: string; is_late: boolean; time_spent_seconds: number; status: "submitted" | "evaluated" | "returned";
-  score: number | null; feedback: string; rubric_scores: { criterion: string; points: number }[]; evaluated_at: string | null;
-  results_released_at?: string | null;
-}
-
 export interface LessonSection { visual_ids?: string[]; heading: string; explanation: string; source_reference: string }
 export interface Lesson { source_visuals?: import("@/ui/SourceFigures").Figure[]; title: string; learning_objectives: string[]; sections: LessonSection[]; key_terms: { term: string; definition: string }[]; summary: string }
 /**

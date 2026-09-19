@@ -42,7 +42,7 @@ INSTALLED_APPS = [
     "documents",
     "learning",
     "assessments",
-    "assignments",
+    "assignments",  # Historical records/migrations only; no active feature routes.
     "tutor",
     "activity",
     "analytics",

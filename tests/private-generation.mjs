@@ -24,19 +24,14 @@ async function setup(source){
 const mcq=(req,name)=>({question:name,options:['A','B','C','D'],answer:0,explanation:'From the source.',quote:req.schema.properties.quote.enum[0]});
 const lesson=req=>({introduction:'Introduction',sections:[{heading:'Explanation',content:'Explanation of the passage.',quote:req.schema.properties.sections.items.properties.quote.enum[0]}],takeaways:['Takeaway']});
 const source=Array.from({length:90},(_,i)=>`Fact ${i}: This source describes a distinct concept and its practical meaning.`).join('\n');
-test('retries move to new bounded references and resume after exhausted duplicates',async()=>{
- const lib=await setup(source);let calls=0;respond=req=>mcq(req,++calls===1?'First question':'First question');
- await assert.rejects(lib.generateQuiz(bookId,'s1',2,new AbortController().signal,()=>{}),/distinct/);
- assert.equal(requests.length,5);
- const failedPrompts=requests.slice(1).map(r=>r.prompt);
- assert.equal(new Set(failedPrompts).size,4);
- assert.equal(new Set(requests.slice(1).map(r=>JSON.stringify(r.schema.properties.quote.enum))).size,4);
- const checkpoint=[...records.values()].find(v=>v.retryCursor===4);assert.equal(checkpoint.parts.length,1);
- respond=req=>mcq(req,'Second question');
+test('bounded duplicate retries save a labelled partial quiz without inventing questions',async()=>{
+ const lib=await setup(source);respond=req=>req.schema.properties.questions?{questions:[]}:mcq(req,'First question');
  const result=await lib.generateQuiz(bookId,'s1',2,new AbortController().signal,()=>{});
- assert.equal(result.questions.length,2);assert.equal(requests.length,6);
- assert.match(requests.at(-1).prompt,/attempt 5/);
- assert.ok(requests.every(r=>r.prompt.split('STORED BOOK REFERENCE:\n')[1].length<1000));
+ assert.equal(result.questions.length,1);assert.equal(result.requestedCount,2);
+ assert.equal(new Set(result.questions.map(q=>q.question)).size,1);
+ assert.ok(requests.length<=12,'duplicate retries must remain bounded');
+ assert.equal((await lib.quizzes(bookId,'s1'))[0].requestedCount,2);
+ assert.ok(result.questions.every(q=>source.includes(q.quote)));
 });
 test('larger lesson passages reduce calls while retaining every source character',async()=>{
  const lib=await setup(source);respond=lesson;
@@ -64,7 +59,7 @@ test('an exhausted section can recover using other text from its own module',asy
  const quiz=await lib.generateQuiz(bookId,'s1',1,new AbortController().signal,()=>{},()=>{},['What are the chapter objectives?'],opening+'\n'+other);
  assert.equal(quiz.questions.length,1);
  assert.equal(quiz.questions[0].question,'What does ransomware do?');
- assert.equal(requests.length,2);
+ assert.equal(requests.length,3);
 });
 
 test('private quizzes never borrow another module automatically',async()=>{
@@ -72,7 +67,7 @@ test('private quizzes never borrow another module automatically',async()=>{
  const lib=await setup(opening);
  const book=await lib.book(bookId);book.sections.push({id:'s2',title:'Other module',source:'UNRELATED SECRET TOPIC'});await lib.seed(book);
  respond=req=>mcq(req,'Repeated question');
- await assert.rejects(lib.generateQuiz(bookId,'s1',1,new AbortController().signal,()=>{},()=>{},['Repeated question']),/distinct/);
+ await assert.rejects(lib.generateQuiz(bookId,'s1',1,new AbortController().signal,()=>{},()=>{},['Repeated question']),/No question could be generated/);
  assert.ok(requests.every(r=>!r.prompt.includes('UNRELATED SECRET TOPIC')));
  assert.equal((await lib.quizzes(bookId,'s1')).length,0);
 });

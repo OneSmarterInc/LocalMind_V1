@@ -1,7 +1,7 @@
 import * as DocumentPicker from "expo-document-picker";
 import { useBackTo } from "@/hooks/useBackTo";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Platform, Text, View } from "react-native";
 import { admin } from "@/api/endpoints";
 import type { ImportReport } from "@/api/types";
@@ -16,10 +16,12 @@ export default function ImportPeople() {
   const router = useRouter();
   const back = useBackTo();
   const p = useLocalSearchParams<{ kind?: string }>();
-  const [kind, setKind] = useState<Kind>(p.kind === "faculty" ? "faculty" : "students");
+  const kind: Kind = p.kind === "faculty" ? "faculty" : "students";
+  const setKind = (next: Kind) => router.setParams({ kind: next });
   const [file, setFile] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
   const [report, setReport] = useState<ImportReport | null>(null);
   const [showColumns, setShowColumns] = useState(false);
+  useEffect(() => { setFile(null); setReport(null); }, [kind]);
   const spec = useAsync(() => admin.importTemplate(kind), [kind]);
   const pick = async () => {
     const r = await DocumentPicker.getDocumentAsync({ type: ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"], copyToCacheDirectory: true });

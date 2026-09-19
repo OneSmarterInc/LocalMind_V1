@@ -27,7 +27,7 @@ const META: PortalMeta = {
     { title: "AI monitoring policies", section: "AI monitoring", path: "/admin/monitor-policies" },
     { title: "Audit log", section: "Audit log", path: "/admin/audit" },
     { title: "System readiness", section: "System status", path: "/admin/system" },
-    { title: "Content workspace", section: "Books, quizzes and assignments", path: "/admin/content" },
+    { title: "Content workspace", section: "Books and quizzes", path: "/admin/content" },
     { title: "My profile", section: "Account", path: "/admin/profile" },
     { title: "Change password", section: "Account", path: "/change-password" },
   ],

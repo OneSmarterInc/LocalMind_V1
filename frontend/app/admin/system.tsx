@@ -15,8 +15,9 @@ const ICONS: Record<string, IconName> = { backend: "server-outline", database: "
 
 export default function SystemReadiness() {
   const back = useBackTo();
-  const q = useAsync(() => admin.aiStatus(), []);
-  const refresh = useAction(async () => { q.setData(await admin.aiStatus(true)); });
+  const [checkedAt, setCheckedAt] = useState<string | null>(null);
+  const q = useAsync(async () => { const status = await admin.aiStatus(); setCheckedAt(new Date().toISOString()); return status; }, []);
+  const refresh = useAction(async () => { q.setData(await admin.aiStatus(true)); setCheckedAt(new Date().toISOString()); });
   const [showAll, setShowAll] = useState(false);
   const d = q.data;
   const components = d?.system?.components ?? [];
@@ -41,14 +42,13 @@ export default function SystemReadiness() {
     { key: "s", label: "State", flex: 0.8, render: (c) => <Badge value={WORD[c.status] ?? c.status} tone={TONE[c.status] ?? "neutral"} /> },
     { key: "d", label: "Details", flex: 2.2, render: (c) => <Text style={{ fontSize: 12, color: colors.text }} numberOfLines={3}>{c.summary}</Text> },
   ];
-  const checkedAt = new Date().toISOString();
   const refreshButton = <Button title={aiDown && !showAll ? "Check again" : "Refresh status"} icon="refresh" onPress={() => refresh.run()} busy={refresh.busy} />;
 
   if (d && aiDown && !showAll) {
     const runtime = d.runtime || d.provider;
     return (
       <Screen refreshing={q.loading} onRefresh={q.reload}>
-        <PageHeading eyebrow="SYSTEM READINESS · ERROR" title="The AI model needs attention." subtitle="Reading remains available. New AI generation cannot run yet." right={refreshButton} />
+        <PageHeading eyebrow="SYSTEM READINESS · ERROR" title="The AI model needs attention." subtitle="Server AI generation needs attention. Saved content and a configured device model remain available." right={refreshButton} />
         <ErrorBanner message={q.error ?? refresh.error} onRetry={q.reload} />
         <Notice tone="danger" title={modelProblem?.status === "MISSING" ? "Model file not found." : "The AI model is not ready."} message={modelProblem?.summary || d.error || "The configured model could not be loaded."} />
         <Card>
@@ -93,7 +93,7 @@ export default function SystemReadiness() {
             </Card>
             <Card>
               <CardHead title="Offline does not mean the same thing everywhere" />
-              <Text style={{ fontSize: 12, lineHeight: 20, color: colors.text }}>The full platform can run on a reachable local server. If a student’s device loses access to that server, only previously saved reading content remains available.</Text>
+              <Text style={{ fontSize: 12, lineHeight: 20, color: colors.text }}>The full platform can run on a reachable local server. If a student’s device loses access to that server, saved content, local practice, and generation with a configured device model remain available. Server actions resume when the connection returns.</Text>
             </Card>
           </Grid>
         </>

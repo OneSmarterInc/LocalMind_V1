@@ -10,6 +10,7 @@ const React=require('react');
 const {renderToStaticMarkup}=require('react-dom/server');
 const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'lm-auth-navigation-'));
 const fixtures={
+ '@/hooks/webHistory':`export const installWebHistoryGuard=()=>{};`,
  'expo-router':`import React from 'react';
  export function Stack({children}){return React.createElement('nav',null,children)}
  Stack.Screen=({name})=>React.createElement('span',{'data-screen':name});

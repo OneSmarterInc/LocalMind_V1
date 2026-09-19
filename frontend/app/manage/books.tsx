@@ -14,6 +14,7 @@ export default function Books() {
   const {user}=useAuth();
   const { subject: subjectParam } = useLocalSearchParams<{ subject?: string }>();
   const [subject, setSubject] = useState(subjectParam ?? "");
+  useEffect(() => { setSubject(subjectParam ?? ""); }, [subjectParam]);
   const [status, setStatus] = useState("");
   const [search, setSearch] = useState("");
   const statuses = useFilterChoices("document_status");

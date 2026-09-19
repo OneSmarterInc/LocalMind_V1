@@ -70,7 +70,7 @@ export default function OfflineLibrary() {
         <Card>
           <CardHead title="Needs the institution server" />
           <ListRow plain icon="help-circle-outline" tone="amber" title="Official result confirmation" subtitle="Downloaded MCQ quizzes can be attempted offline. Immediate results are marked locally; answers are regraded by the server after synchronization." />
-          <ListRow plain icon="create-outline" tone="amber" title="Assignment submissions and released results" subtitle="Sending official work or receiving a faculty result release needs a reachable server." />
+          <ListRow plain icon="create-outline" tone="amber" title="Released course results" subtitle="Receiving a new faculty result release needs a reachable server." />
           <ListRow plain icon="cloud-download-outline" tone="amber" title="New shared books and course updates" subtitle="Download while connected; use the saved private copy afterward. A local-network institution server can work without public internet." />
         </Card>
       </Grid>

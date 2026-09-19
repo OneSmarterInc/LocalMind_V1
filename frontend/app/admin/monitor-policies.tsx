@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useDraft } from "@/hooks/useDraft";
 import { useBackTo } from "@/hooks/useBackTo";
-import React, { useEffect, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { admin } from "@/api/endpoints";
 import type { MonitorPolicy, MonitorSeverity } from "@/api/types";
@@ -24,20 +25,24 @@ function Check({ on, onPress, label }: { on: boolean; onPress: () => void; label
 export default function MonitorPolicies() {
   const back = useBackTo();
   const q = useAsync(() => admin.monitorPolicies(), []);
-  const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const source = useMemo(() => q.data ? { id: "monitor-policies", values: Object.fromEntries(q.data.map(p => [p.issue_type, toDraft(p)])) } : null, [q.data]);
+  const { draft, edit, dirty, discard, markSaved } = useDraft(source, { label: () => "monitoring policies", save: async () => (await save.run()) === true });
+  const drafts: Record<string, Draft> = draft?.values ?? {};
+  const setDrafts = (fn: (previous: Record<string, Draft>) => Record<string, Draft>) => edit(d => ({ ...d, values: fn(d.values) }));
   const [saved, setSaved] = useState(false);
-  useEffect(() => { if (q.data) setDrafts(Object.fromEntries(q.data.map((p) => [p.issue_type, toDraft(p)]))); }, [q.data]);
   const policies = q.data ?? [];
   const invalid = (d: Draft) => d.conf.trim() === "" || Number.isNaN(Number(d.conf)) || Number(d.conf) < 0 || Number(d.conf) > 100;
   const changed = policies.filter((p) => { const d = drafts[p.issue_type]; return d && (d.enabled !== p.enabled || d.sev !== p.min_severity || Number(d.conf) !== Math.round(p.min_confidence * 100)); });
   const anyInvalid = policies.some((p) => drafts[p.issue_type] && invalid(drafts[p.issue_type]));
   const set = (type: string, patch: Partial<Draft>) => { setSaved(false); setDrafts((x) => ({ ...x, [type]: { ...x[type], ...patch } })); };
   const save = useAction(async () => {
+    if (!draft || anyInvalid) return false;
+    const sent = draft;
     for (const p of changed) {
       const d = drafts[p.issue_type];
       await admin.updatePolicy(p.issue_type, { enabled: d.enabled, min_confidence: Number(d.conf) / 100, min_severity: d.sev });
     }
-    await q.reload(); setSaved(true);
+    markSaved(sent); await q.reload(); setSaved(true); return true;
   });
   return (
     <Screen refreshing={q.loading} onRefresh={q.reload}>
@@ -68,7 +73,7 @@ export default function MonitorPolicies() {
             );
           })}
           <FormFooter note={saved && !changed.length ? "Policies saved." : changed.length ? `${changed.length} unsaved change${changed.length === 1 ? "" : "s"}.` : "No unsaved changes."}>
-            <Button title="Cancel" variant="secondary" disabled={!changed.length} onPress={() => { setDrafts(Object.fromEntries(policies.map((p) => [p.issue_type, toDraft(p)]))); }} />
+            <Button title="Cancel" variant="secondary" disabled={!dirty} onPress={discard} />
             <Button title="Save policies" icon="checkmark" disabled={!changed.length || anyInvalid} busy={save.busy} onPress={() => save.run()} />
           </FormFooter>
         </Card>

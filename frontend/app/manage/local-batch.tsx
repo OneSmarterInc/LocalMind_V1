@@ -1,6 +1,6 @@
 import React,{useEffect,useMemo,useState} from 'react';
 import { useBackTo } from "@/hooks/useBackTo";
-import {useLocalSearchParams,useRouter} from 'expo-router';
+import {useLocalSearchParams,useNavigation,useRouter} from 'expo-router';
 import {useAuth} from '@/auth/AuthContext';
 import {manage} from '@/api/endpoints';
 import {ApiError} from '@/api/client';
@@ -23,6 +23,8 @@ export default function LocalBatch(){const {user}=useAuth();return user?<Batch k
 function Batch({owner}:{owner:string}){
  const {document:id}=useLocalSearchParams<{document:string}>(),router=useRouter(),library=useLibrary();
  const back=useBackTo();
+ const navigation=useNavigation();
+ useEffect(()=>{navigation.setOptions({backTo:id?`/manage/document/${id}?tab=outline`:"/manage/books",backLabel:"Back to outline"});},[navigation,id]);
  const service=useMemo(()=>new LocalAuthoring(owner),[owner]);
  const [preparing,setPreparing]=useState(true),[modelReady,setModelReady]=useState(false);
  const [rows,setRows]=useState<Draft[]>([]),[error,setError]=useState('');

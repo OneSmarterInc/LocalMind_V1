@@ -1,4 +1,5 @@
-import { useRouter } from "expo-router";
+import { draftStash as stash, draftEpoch } from "./draftStash";
+import { useNavigation, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BackHandler, Platform } from "react-native";
 import { confirmLeave, registerGuard } from "./unsavedGuard";
@@ -12,6 +13,24 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
  */
 export function useUnsavedWarning(active: boolean) {
   const router = useRouter();
+  const navigation = useNavigation();
+  const allowing = useRef(false);
+  const asking = useRef(false);
+  useEffect(() => {
+    if (!active) return;
+    return navigation.addListener("beforeRemove", (event) => {
+      if (allowing.current) return;
+      event.preventDefault();
+      if (asking.current) return;
+      asking.current = true;
+      void confirmLeave().then((ok) => {
+        if (ok) {
+          allowing.current = true;
+          try { navigation.dispatch(event.data.action); } finally { allowing.current = false; }
+        }
+      }).finally(() => { asking.current = false; });
+    });
+  }, [active, navigation]);
   useEffect(() => {
     if (!active) return;
     if (Platform.OS === "web") {
@@ -30,7 +49,7 @@ export function useUnsavedWarning(active: boolean) {
 }
 
 /** Unsaved drafts left on another record of the same kind, by record id (kept for this app session). */
-const stash = new Map<string, { draft: unknown; label: string }>();
+
 
 /**
  * A local editable copy of one server record (identified by its `id`).
@@ -41,6 +60,7 @@ const stash = new Map<string, { draft: unknown; label: string }>();
  * - While dirty, in-app navigation and the back button ask Save / Discard / Stay.
  */
 export function useDraft<T extends { id: string }>(source: T | null | undefined, opts: { label: (d: T) => string; save: () => Promise<boolean> }) {
+  const sessionEpoch = useRef(draftEpoch());
   const dirtyAfterSave = useRef(false);
   const [draft, setDraft] = useState<T | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -52,14 +72,19 @@ export function useDraft<T extends { id: string }>(source: T | null | undefined,
   const expectReload = useRef(false);
   const optsRef = useRef(opts); optsRef.current = opts;
 
+  useEffect(() => () => {
+    const current = draftRef.current;
+    if (current && dirtyRef.current && sessionEpoch.current === draftEpoch()) stash.set(current.id, { draft: clone(current), label: optsRef.current.label(current) });
+  }, []);
+
   const setClean = (v: boolean) => { dirtyRef.current = !v; setDirty(!v); };
 
   useEffect(() => {
     if (source == null) return;
     const current = draftRef.current;
-    if (current && current.id !== source.id) {
+    if (!current || current.id !== source.id) {
       // The screen now shows another record.
-      if (dirtyRef.current) {
+      if (current && dirtyRef.current) {
         const label = optsRef.current.label(current);
         stash.set(current.id, { draft: clone(current), label });
         setLeftBehind({ id: current.id, label });
@@ -109,5 +134,5 @@ export function useDraft<T extends { id: string }>(source: T | null | undefined,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dirty, draft?.id, discard]);
   useUnsavedWarning(dirty);
-  return { draft, edit, dirty, discard, markSaved, changedMeanwhile, leftBehind, forgetLeftBehind };
+  return { draft: source && draft?.id === source.id ? draft : null, edit, dirty, discard, markSaved, changedMeanwhile, leftBehind, forgetLeftBehind };
 }

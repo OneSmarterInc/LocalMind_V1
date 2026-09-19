@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useState } from "react";
+import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
+import React, { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { student } from "@/api/endpoints";
 import type { Chapter } from "@/api/types";
@@ -12,7 +12,9 @@ const statusLabel = (st: string) => (st === "completed" ? "Completed" : st === "
 export default function StudentBook() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const navigation = useNavigation();
   const q = useAsync(() => student.document(id), [id]);
+  useEffect(() => { navigation.setOptions({ backTo: q.data?.subject_id ? `/student/subject/${q.data.subject_id}` : "/student/subjects", backLabel: q.data?.subject_id ? "Back to subject" : "My subjects" }); }, [navigation, q.data?.subject_id]);
   const subjects = useAsync(() => student.subjects(), []);
   const subject = subjects.data?.find((s) => s.id === q.data?.subject_id);
   const chapters = (q.data?.chapters ?? []).map((c) => ({ ...c, modules: c.modules.filter((m) => !m.source_missing) }));

@@ -1,6 +1,6 @@
 # LocalMind Client
 
-Expo (React Native) app for iOS, Android and web, built against the LocalMind backend's three portals. One codebase, three experiences: students read, learn with the tutor, take quizzes and submit assignments; faculty publish books, review outlines, author assessments and evaluate; administrators run people, subjects and the audit trail. Administrators can also step into the faculty experience (the "Content workspace" link at the foot of the sidebar), because the backend lets admin tokens use the faculty portal.
+Expo (React Native) app for iOS, Android and web, built against the LocalMind backend's three portals. One codebase, three experiences: students read, learn with the tutor, take quizzes; faculty publish books, review outlines, author assessments and evaluate; administrators run people, subjects and the audit trail. Administrators can also step into the faculty experience (the "Content workspace" link at the foot of the sidebar), because the backend lets admin tokens use the faculty portal.
 
 ## Run
 

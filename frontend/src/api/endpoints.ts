@@ -71,10 +71,7 @@ export const student = {
   attempt: (id: string) => courseAttempt(id),
   scores: (q: Q = {}) => allPages<T.Attempt>("/student/scores/", q).then(async rows=>Object.assign([...await pendingResults(),...rows],{incomplete:rows.incomplete})),
   remediation: (attemptId: string) => api<{ overview: string; items: { question: string; explanation: string; source_reference?: string }[]; generator: string }>(`/student/quiz-attempts/${attemptId}/remediation/`, { method: "POST" }),
-  assignments: (q: Q = {}) => api<T.Assignment[]>("/student/assignments/", { query: q }),
-  submitAssignment: (id: string, content: string, time_spent_seconds: number) =>
-    api<T.Submission>(`/student/assignments/${id}/submissions/`, { method: "POST", body: { content, time_spent_seconds } }),
-  submissions: () => allPages<T.Submission>("/student/assignment-submissions/"),
+
   overview: () => api<any>("/student/analytics/overview/"),
   subjectAnalytics: (id: string) => api<any>(`/student/analytics/subjects/${id}/`),
 };
@@ -125,17 +122,7 @@ export const manage = {
   reEvaluate: (attemptId: string, overrides?: Record<string, { score_awarded: number; feedback?: string }>) =>
     api<T.Attempt>(`/faculty/quiz-attempts/${attemptId}/re-evaluate/`, { method: "POST", body: overrides ? { overrides } : {} }),
 
-  assignments: (q: Q = {}) => allPages<T.Assignment>("/faculty/assignments/", q),
-  assignment: (id: string) => api<T.Assignment>(`/faculty/assignments/${id}/`),
-  createAssignment: (body: Record<string, unknown>) => api<T.Assignment>("/faculty/assignments/", { method: "POST", body }),
-  generateAssignment: (body: Record<string, unknown>) => api<T.Assignment>("/faculty/assignments/generate/", { method: "POST", body }),
-  updateAssignment: (id: string, body: Record<string, unknown>) => api<T.Assignment>(`/faculty/assignments/${id}/`, { method: "PATCH", body }),
-  assignmentStatus: (id: string, status: string) => api<T.Assignment>(`/faculty/assignments/${id}/status/`, { method: "POST", body: { status } }),
-  deleteAssignment: (id: string) => api<{ detail: string }>(`/faculty/assignments/${id}/`, { method: "DELETE" }),
-  submissions: (id: string) => allPages<T.Submission>(`/faculty/assignments/${id}/submissions/`),
-  releaseAssignmentResults: (id: string, submissionId?: string) =>
-    api<{ released: number; pending: number }>(`/faculty/assignments/${id}/release-results/`, { method: "POST", body: submissionId ? { submission_id: submissionId } : {} }),
-  evaluate: (submissionId: string, body: { score: number; feedback: string }) => api<T.Submission>(`/faculty/assignment-submissions/${submissionId}/evaluate/`, { method: "POST", body }),
+
 
   overview: () => api<any>("/faculty/analytics/overview/"),
   subjectSummary: (id: string) => api<any>(`/faculty/analytics/subjects/${id}/`),

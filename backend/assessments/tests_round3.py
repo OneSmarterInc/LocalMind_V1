@@ -99,19 +99,6 @@ class Round3QuizTests(TestCase):
             self.assertIsNone(res.data[key], key)
         self.assertEqual(self.fc.get(f"/api/faculty/quizzes/{q['id']}/").data["title"], "Check")
 
-    def test_assignment_dates_clear_and_submissions_show_release_time(self):
-        due = (timezone.now() + timedelta(days=3)).isoformat()
-        a = self.fc.post("/api/faculty/assignments/", {"module_id": str(self.module.id), "title": "Essay", "max_score": 10, "due_at": due,
-                                                      "results_release": "held", "rubric": [{"criterion": "A", "points": 10}]}, format="json").data
-        cleared = self.fc.patch(f"/api/faculty/assignments/{a['id']}/", {"due_at": None}, format="json")
-        self.assertIsNone(cleared.data["due_at"])
-        self.fc.post(f"/api/faculty/assignments/{a['id']}/status/", {"status": "published"}, format="json")
-        sub = self.sc.post(f"/api/student/assignments/{a['id']}/submissions/", {"content": "text"}, format="json").data
-        self.fc.post(f"/api/faculty/assignment-submissions/{sub['id']}/evaluate/", {"score": 8, "feedback": "Good"}, format="json")
-        rows = self.fc.get(f"/api/faculty/assignments/{a['id']}/submissions/").data
-        rows = rows["results"] if isinstance(rows, dict) else rows
-        self.assertIn("results_released_at", rows[0])
-        self.assertIsNone(rows[0]["results_released_at"])
 
     def test_hold_details_flag_only_the_questions_the_findings_name(self):
         from ai_monitor.models import Evaluation

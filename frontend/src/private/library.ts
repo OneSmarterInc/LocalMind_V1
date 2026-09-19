@@ -8,7 +8,7 @@ import { device } from './device';
 import { cancelled } from './busy';
 import type { LocalFile } from './device.types';
 import { MAX_READING_CHARS, MAX_SECTION_CHARS, ANSWER_SCHEMA, groundedSchema, GROUNDING, COMPACT_LESSON_SCHEMA, COMPACT_MCQ_SCHEMA, compactMcqBatchSchema, markQuiz, requireThat, bookReference, pageSource, lessonPassages, text, validateAnswer, validateBook, validateLesson, validateMCQ, type PrivateBook, type Lesson, type MCQ, type SourceVisual } from './core';
-export type QuizVersion = { id: string; bookId: string; sectionId: string; createdAt: string; questions: MCQ[] };
+export type QuizVersion = { id: string; bookId: string; sectionId: string; createdAt: string; requestedCount?: number; questions: MCQ[] };
 export type LessonVersion = { id: string; sectionId: string; createdAt: string; lesson: Lesson };
 export type PracticeResult = { id: string; quizId: string; createdAt: string; answers: Record<string, number> } & ReturnType<typeof markQuiz>;
 export type PrivateChat = { id: string; question: string; answer: string; quote: string; supported: boolean; createdAt: string };
@@ -121,7 +121,6 @@ export class Library {
     const focuses=[...new Set([...sources,...alternatives])].filter(source=>source.trim().length>=8);
     requireThat(focuses.length,'This module has too little readable text for a grounded quiz.');
     const questions=checkpoint.parts;progress(questions.length);
-    const floor=Math.min(count,2);
     const normalized=(value:string)=>value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim();
     const duplicate=(question:string)=>[...excluded,...questions.map(q=>q.question)].some(q=>normalized(q)===normalized(question));
     let exhausted=0;
@@ -185,9 +184,9 @@ export class Library {
 
     requireThat(questions.length >= 1, 'No question could be generated from this module. Its source is too thin or too repetitive for a grounded quiz.');
     // A thin module may honestly support fewer questions than requested; keep useful grounded work.
-    if(questions.length<floor)detail?.(`${questions.length} grounded question(s) could be produced from this module.${lastReason?` Last rejection: ${lastReason}`:''}`);
+    if(questions.length<count)detail?.(`${questions.length} grounded question(s) could be produced from this module.${lastReason?` Last rejection: ${lastReason}`:''}`);
     await this.book(bookId);this.guard();requireThat(!signal.aborted,'Cancelled');
-    const version: QuizVersion = { id: checkpoint.id, bookId, sectionId, createdAt: new Date().toISOString(), questions };
+    const version: QuizVersion = { id: checkpoint.id, bookId, sectionId, createdAt: new Date().toISOString(), requestedCount: count, questions };
     await d.put(`${this.work(bookId)}quiz:${sectionId}:${version.id}`, version); this.guard();await d.removePrefix(key); return version;
   }
   async attempts(bookId: string, quizId: string): Promise<PracticeResult[]> { await this.book(bookId); const rows = await (await device()).list<PracticeResult>(`${this.work(bookId)}attempt:${quizId}:`); this.guard(); return rows.sort((a,b)=>b.createdAt.localeCompare(a.createdAt)); }

@@ -1,3 +1,4 @@
+import { SourceFigures } from "@/ui/SourceFigures";
 import { Ionicons } from "@expo/vector-icons";
 import { useBackTo } from "@/hooks/useBackTo";
 import { useTabParam } from "@/hooks/useTabParam";
@@ -39,7 +40,7 @@ export default function StudentModule() {
 
   // The breadcrumb's section link goes back to the book this module belongs to.
   useEffect(() => {
-    if (m?.document_id) navigation.setOptions({ backTo: `/student/document/${m.document_id}` });
+    if (m?.document_id) navigation.setOptions({ backTo: `/student/document/${m.document_id}`, backLabel: "Back to book" });
   }, [navigation, m?.document_id]);
 
   // Reading time: foreground seconds, sent every minute and when leaving.
@@ -169,6 +170,7 @@ function ReadCard({ module, onLesson }: { module: ModuleFull; onLesson?: () => v
       </View>
       <View style={{ maxWidth: 750, gap: 15, marginTop: 6 }}>
         <SourceContent text={module.source_text} />
+        <SourceFigures visuals={module.source_visuals ?? []} />
       </View>
       {onLesson ? <FormFooter note="Continue at your own pace."><Button title="Explore the lesson" icon="arrow-forward" onPress={onLesson} /></FormFooter> : null}
     </Card>

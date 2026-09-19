@@ -36,6 +36,7 @@ export default function DocumentScreen() {
   const [prepareError,setPrepareError]=useState("");
   const { height } = useWindowDimensions();
   const [tabChoice, setTabChoice] = useState<DocTab | null>(tabParam ?? null);
+  useEffect(() => { setTabChoice(tabParam && ["outline", "pictures", "lessons", "publish", "live"].includes(tabParam) ? tabParam : null); }, [id, tabParam]);
   const [preview, setPreview] = useState<{ id: string; title: string; quizStatus: string; quizId: string | null } | null>(null);
   const doc = useAsync(() => manage.document(id), [id]);
   const subjects = useAsync(() => manage.subjects(), []);
@@ -114,6 +115,7 @@ export default function DocumentScreen() {
       setPending(null);
     }
     setTabChoice(next);
+    router.setParams({ tab: next });
   };
   const act = useAction(async (action: "process" | "ready" | "publish" | "unpublish" | "archive") => {
     if (pending?.dirty) {
@@ -253,7 +255,7 @@ export default function DocumentScreen() {
             </View>
           </Card>
         </Grid>
-        <DangerZone title="Delete book permanently" text="Deleting a book also removes its chapters, modules, quizzes, assignments, attempts, and submissions. This is different from unpublishing.">
+        <DangerZone title="Delete book permanently" text="Deleting a book also removes its chapters, modules, quizzes and attempts. This is different from unpublishing.">
           <Button title="Delete book" variant="danger" icon="trash-outline" onPress={() => remove.run()} busy={remove.busy} />
         </DangerZone>
       </Screen>

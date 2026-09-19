@@ -1,3 +1,4 @@
+import { keyboardList } from "./keyboardList";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import {
@@ -80,7 +81,7 @@ export function Card({ children, style, onPress, accent, flush }: { children: Re
 
 /** Equal-width columns that wrap on narrow screens. */
 export function Grid({ children, min = 300, gap = 20 }: { children: React.ReactNode; min?: number; gap?: number }) {
-  return <View style={{ flexDirection: "row", flexWrap: "wrap", gap }}>{React.Children.map(children, (c) => (c ? <View style={{ flex: 1, minWidth: min }}>{c}</View> : null))}</View>;
+  return <View style={{ flexDirection: "row", flexWrap: "wrap", gap }}>{React.Children.map(children, (c) => (c ? <View style={{ flexGrow: 1, flexShrink: 1, flexBasis: min, minWidth: 0, maxWidth: "100%" }}>{c}</View> : null))}</View>;
 }
 
 /** As many equal columns as the window holds, at least `min` wide each. */
@@ -318,11 +319,11 @@ export function OptionCard({ title, text, selected, onPress, multi, disabled, ri
 export function PageTabs<T extends string>({ tabs, value, onChange }: { tabs: { key: T; label: string; icon?: IconName; count?: number | null }[]; value: T; onChange: (k: T) => void }) {
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ flexGrow: 1 }}>
-      <View style={s.tabs} accessibilityRole="tablist">
+      <View style={s.tabs} accessibilityRole="tablist" {...keyboardList("tab")}>
         {tabs.map((tb) => {
           const on = tb.key === value;
           return (
-            <Pressable key={tb.key} onPress={() => onChange(tb.key)} accessibilityRole="tab" accessibilityLabel={tb.label} accessibilityState={{ selected: on }} aria-selected={on}>
+            <Pressable key={tb.key} tabIndex={on ? 0 : -1} onPress={() => onChange(tb.key)} accessibilityRole="tab" accessibilityLabel={tb.label} accessibilityState={{ selected: on }} aria-selected={on}>
               {(st: PressState) => (
                 <View style={[s.tab, on && s.tabOn]}>
                   <Text style={{ fontSize: 12, color: on || st.hovered ? colors.primary : colors.muted, fontWeight: on ? "600" : "400" }}>{tb.label}</Text>
@@ -430,20 +431,20 @@ export function ProgressBar({ value, height = 6, tone = "green" }: { value: numb
 
 /** A pressable row with an icon tile, two lines of text and something on the right. */
 export function ListRow({ title, subtitle, right, onPress, badge, icon, tone, plain }: { title: string; subtitle?: string | null; right?: React.ReactNode; onPress?: () => void; badge?: string; icon?: IconName; tone?: Tone; plain?: boolean }) {
-  const inner = (hovered: boolean) => (
-    <View style={[plain ? s.listItem : s.listCard, hovered && onPress && { backgroundColor: "#FCFDFB", borderColor: "#C6D6C7" }]}>
-      {icon ? <TileIcon icon={icon} tone={tone} /> : null}
-      <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
-        <Text style={s.listTitle} numberOfLines={2}>{title}</Text>
-        {subtitle ? <Text style={s.listSub} numberOfLines={2}>{subtitle}</Text> : null}
-      </View>
-      {badge ? <Badge value={badge} /> : null}
-      {right}
-      {onPress ? <Ionicons name="chevron-forward" size={17} color={colors.muted} /> : null}
+  const content = <>
+    {icon ? <TileIcon icon={icon} tone={tone} /> : null}
+    <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+      <Text style={s.listTitle} numberOfLines={2}>{title}</Text>
+      {subtitle ? <Text style={s.listSub} numberOfLines={2}>{subtitle}</Text> : null}
     </View>
-  );
-  if (!onPress) return inner(false);
-  return <Pressable onPress={onPress} accessibilityRole="button">{(st: PressState) => <View style={st.pressed ? { opacity: 0.9 } : null}>{inner(!!st.hovered)}</View>}</Pressable>;
+    {badge ? <Badge value={badge} /> : null}
+  </>;
+  return <View style={plain ? s.listItem : s.listCard}>
+    {onPress ? <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={title} style={{ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 12 }}>
+      {content}<Ionicons name="chevron-forward" size={17} color={colors.muted} />
+    </Pressable> : content}
+    {right}
+  </View>;
 }
 
 export type Column<T> = { key: string; label: string; flex?: number; width?: number; align?: "left" | "right" | "center"; render: (row: T) => React.ReactNode };
@@ -677,7 +678,7 @@ export function Dropdown<T extends string>({ value, options, onChange, label, pl
       <Modal visible={open} transparent animationType="none" onRequestClose={() => setOpen(false)}>
         <Pressable style={StyleSheet.absoluteFill} onPress={() => setOpen(false)} accessibilityLabel="Close list" />
         {box ? (
-          <View style={[s.menu, { left: box.left, top: box.top, width: box.width }]}>
+          <View style={[s.menu, { left: box.left, top: box.top, width: box.width }]} {...keyboardList("menuitem", () => setOpen(false))}>
             <ScrollView style={{ maxHeight: box.maxHeight - 8 }}>
               {options.map((o) => (
                 <Pressable key={o.value || "_"} onPress={() => { onChange(o.value); setOpen(false); }} accessibilityRole="menuitem" accessibilityState={{ selected: o.value === value }}>

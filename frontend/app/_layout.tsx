@@ -1,3 +1,4 @@
+import { installWebHistoryGuard } from "@/hooks/webHistory";
 import {GenerationHost} from '@/private/GenerationJobs';
 import ParserHost from "@/private/ParserHost";
 import { Stack, type ErrorBoundaryProps } from "expo-router";
@@ -37,6 +38,8 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 if (Platform.OS === "web" && typeof window !== "undefined" && window.isSecureContext && "serviceWorker" in navigator && !__DEV__) {
   window.addEventListener("load", () => { navigator.serviceWorker.register("/sw.js").catch(() => {}); });
 }
+
+installWebHistoryGuard();
 
 /** Resolve the saved session before evaluating deep-link permissions. Once
  * ready, keep the navigator mounted through redirects and account changes. */

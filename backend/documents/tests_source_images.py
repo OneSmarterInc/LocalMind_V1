@@ -56,7 +56,9 @@ class SourceImageTests(TestCase):
         with patch('ai.gateway.gateway', side_effect=AssertionError('No inference for imagery')):
             lesson = client.get('/api'+path).data['lesson']
             bundle = client.get('/api/student/offline/').data['entries'][path]['lesson']
-        for delivered in [snapshot['source_visuals'], lesson['source_visuals'], bundle['source_visuals']]:
+        read = client.get(f'/api/student/modules/{self.module.pk}/').data
+        offline_read = client.get('/api/student/offline/').data['entries'][f'/student/modules/{self.module.pk}/']
+        for delivered in [snapshot['source_visuals'], lesson['source_visuals'], bundle['source_visuals'], read['source_visuals'], offline_read['source_visuals']]:
             self.assertEqual(base64.b64decode(delivered[0]['data_url'].split(',')[1]),self.raw)
         self.assertEqual(lesson['sections'][0]['visual_ids'],['p1-figure'])
         outsider = make_student(email='outsider-image@example.com')

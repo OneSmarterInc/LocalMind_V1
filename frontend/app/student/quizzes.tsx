@@ -62,7 +62,7 @@ export default function StudentQuizzes() {
       <PageHeading eyebrow="CHECK YOUR UNDERSTANDING" title="My quizzes" subtitle="See what is ready, what you have completed, and what happens next." />
       <IncompleteNote rows={scores.data} noun="quiz results" />
       <Notice tone="success" title={ready ? `You have ${ready} quiz${ready === 1 ? "" : "zes"} ready.` : "No quizzes waiting right now."} message="Open a quiz to see its instructions before you begin." />
-      <ErrorBanner message={quizzes.error} onRetry={reload} />
+      <ErrorBanner message={quizzes.error || scores.error || books.error || cat.error} onRetry={reload} />
       <Card flush>
         <TableToolbar right={<><Dropdown value={subject} onChange={v=>{setSubject(v);setBook("all");}} accessibilityLabel="Filter by subject" options={[{ value: "all", label: "All subjects" }, ...codes.map((c) => ({ value: c, label: c }))]} /><Dropdown value={book} onChange={setBook} accessibilityLabel="Filter by book" options={[{value:"all",label:"All books"},...(books.data??[]).map(b=>({value:b.id,label:b.title}))]} /></>}>
           <Input icon="search" placeholder="Search this list…" value={search} onChangeText={setSearch} compact accessibilityLabel="Search quizzes" />

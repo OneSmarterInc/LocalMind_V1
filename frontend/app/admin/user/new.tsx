@@ -1,6 +1,8 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useDraft } from "@/hooks/useDraft";
+import { confirmLeave } from "@/hooks/unsavedGuard";
 import { useBackTo } from "@/hooks/useBackTo";
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { View } from "react-native";
 import { admin } from "@/api/endpoints";
 import { useAction, useAsync } from "@/hooks/useAsync";
@@ -13,21 +15,30 @@ export default function AddPerson() {
   const router = useRouter();
   const back = useBackTo();
   const p = useLocalSearchParams<{ kind?: string }>();
-  const [kind, setKind] = useState<Kind>(p.kind === "faculty" ? "faculty" : "students");
-  const [f, setF] = useState<Record<string, string>>({ batch: "" });
-  const [subjectIds, setSubjectIds] = useState<string[]>([]);
+  const kind: Kind = p.kind === "faculty" ? "faculty" : "students";
+  const setKind = (next: Kind) => { void confirmLeave().then(ok => { if (ok) router.setParams({ kind: next }); }); };
+  const source = useMemo(() => ({ id: `new-account:${kind}`, fields: {} as Record<string, string>, subjects: [] as string[] }), [kind]);
+  const { draft, edit, markSaved } = useDraft(source, { label: () => "the new account", save: async () => (await create.run()) === true });
+  const f = draft?.fields ?? {};
+  const subjectIds = draft?.subjects ?? [];
+  const setF = (value: Record<string, string> | ((previous: Record<string, string>) => Record<string, string>)) => edit(d => ({ ...d, fields: typeof value === "function" ? value(d.fields) : value }));
+  const setSubjectIds = (value: string[] | ((previous: string[]) => string[])) => edit(d => ({ ...d, subjects: typeof value === "function" ? value(d.subjects) : value }));
   const [issued, setIssued] = useState<{ row: IssuedCredential; notice: string } | null>(null);
+  useEffect(() => { setIssued(null); }, [kind]);
   const subjects = useAsync(() => admin.subjects({ status: "active" }), []);
   const set = (k: string) => (v: string) => setF((x) => ({ ...x, [k]: v }));
   const faculty = kind === "faculty";
   const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((f.email ?? "").trim());
   const create = useAction(async () => {
+    if (issued || !draft || draft.id !== source.id || !emailOk || !f.full_name?.trim()) return false;
+    const sent = draft;
     const keys = faculty ? ["employee_id", "department", "designation", "phone"] : ["roll_number", "program", "batch", "phone"];
     const profile = Object.fromEntries(keys.filter((k) => f[k]?.trim()).map((k) => [k, f[k].trim()]));
     const u = await admin.createUser(kind, { email: f.email?.trim().toLowerCase(), full_name: f.full_name?.trim(), profile, ...(faculty && subjectIds.length ? { subject_ids: subjectIds } : {}) });
+    markSaved(sent);
     const notice = `${faculty ? "Faculty account" : "Student account"} for ${u.full_name} created.`;
-    if (u.initial_password) { setIssued({ row: { full_name: u.full_name, email: u.email, initial_password: u.initial_password }, notice }); setF({}); setSubjectIds([]); return; }
-    router.replace({ pathname: "/admin/users", params: { kind, notice } });
+    if (u.initial_password) { setIssued({ row: { full_name: u.full_name, email: u.email, initial_password: u.initial_password }, notice }); return true; }
+    router.replace({ pathname: "/admin/users", params: { kind, notice } }); return true;
   });
   return (
     <Screen>
@@ -72,7 +83,7 @@ export default function AddPerson() {
             <ErrorBanner message={create.error} />
             <FormFooter note="The initial password is shown once after the account is created.">
               <Button title="Cancel" variant="secondary" onPress={() => back({ pathname: "/admin/users", params: { kind } })} />
-              <Button title="Create account" icon="add" onPress={() => create.run()} busy={create.busy} disabled={!emailOk || !f.full_name?.trim()} />
+              <Button title="Create account" icon="add" onPress={() => create.run()} busy={create.busy} disabled={!!issued || !emailOk || !f.full_name?.trim()} />
             </FormFooter>
           </Card>
         }

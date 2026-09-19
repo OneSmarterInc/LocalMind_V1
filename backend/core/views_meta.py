@@ -12,7 +12,6 @@ from rest_framework.views import APIView
 from academics.models import SubjectStatus
 from accounts.models import AccountStatus, Role
 from assessments.models import AssessmentKind, AssessmentStatus, AttemptStatus
-from assignments.models import AssignmentStatus, SubmissionStatus
 from documents.models import DocumentStatus
 
 # Lifecycle states that still exist on old rows but can no longer be reached:
@@ -47,8 +46,6 @@ class ChoicesView(APIView):
             "quiz_status": AssessmentStatus,
             "quiz_kind": AssessmentKind,
             "attempt_status": AttemptStatus,
-            "assignment_status": AssignmentStatus,
-            "submission_status": SubmissionStatus,
             "account_status": AccountStatus,
             "role": Role,
         }

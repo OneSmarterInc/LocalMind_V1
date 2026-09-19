@@ -45,7 +45,6 @@ export default function ManageLayout() {
       <Tabs.Screen name="subjects" options={{ title: "Subjects", tabBarIcon: icon("library-outline") }} />
       <Tabs.Screen name="private-library" options={{ title: "Private study books", tabBarIcon: icon("library-outline") }} />
       <Tabs.Screen name="books" options={{ title: "Books & modules", tabBarIcon: icon("book-outline") }} />
-      <Tabs.Screen name="assignments" options={{ href: null, title: "Quizzes" }} />
       <Tabs.Screen name="quizzes" options={{ title: "Quizzes", tabBarIcon: icon("help-circle-outline") }} />
       <Tabs.Screen name="profile" options={{ href: admin ? null : undefined, title: "My profile", tabBarIcon: icon("person-circle-outline") }} />
       <Tabs.Screen name="subject/[id]" options={shellScreen({ href: null, title: "Subject" }, { backTo: "/manage/subjects", backLabel: "Subjects" })} />
@@ -59,10 +58,7 @@ export default function ManageLayout() {
       <Tabs.Screen name="document/upload" options={shellScreen({ href: null, title: "Upload a book" }, { backTo: "/manage/books", backLabel: "Books & modules" })} />
       <Tabs.Screen name="quiz/[id]" options={shellScreen({ href: null, title: "Quiz" }, { backTo: "/manage/quizzes", backLabel: "Quizzes" })} />
       <Tabs.Screen name="attempt/[id]" options={shellScreen({ href: null, title: "Attempt" }, { backTo: "/manage/quizzes", backLabel: "Quizzes" })} />
-      <Tabs.Screen name="submission/[id]" options={shellScreen({ href: null, title: "Submission" }, { backTo: "/manage/quizzes", backLabel: "Quizzes" })} />
       <Tabs.Screen name="quiz/new" options={shellScreen({ href: null, title: "Create quiz" }, { backTo: "/manage/quizzes", backLabel: "Quizzes" })} />
-      <Tabs.Screen name="assignment/[id]" options={shellScreen({ href: null, title: "Assignment" }, { backTo: "/manage/quizzes", backLabel: "Quizzes" })} />
-      <Tabs.Screen name="assignment/new" options={shellScreen({ href: null, title: "Create assignment" }, { backTo: "/manage/quizzes", backLabel: "Quizzes" })} />
     </Tabs>
   );
 }

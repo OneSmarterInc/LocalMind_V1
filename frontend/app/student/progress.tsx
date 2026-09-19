@@ -31,7 +31,7 @@ export default function StudentProgress() {
     <Screen refreshing={ov.loading} onRefresh={reload}>
       <PageHeading eyebrow="MY PROGRESS" title="See how far you’ve come." subtitle="Your completed modules, released quiz results, and time spent learning." />
       <IncompleteNote rows={scores.data} noun="quiz results" />
-      <ErrorBanner message={ov.error || cat.error} onRetry={reload} />
+      <ErrorBanner message={ov.error || cat.error || scores.error || quizzes.error} onRetry={reload} />
       <StatRow>
         <Stat label="My subjects" icon="library-outline" value={d?.subjects_enrolled} helper="Enrolled" />
         <Stat label="Modules completed" icon="checkmark-done-outline" value={d ? `${d.modules.completed} of ${d.modules.total}` : null} helper={d ? `${pct(d.modules.completion_percentage)} complete` : null} positive />

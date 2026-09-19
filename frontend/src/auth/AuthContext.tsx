@@ -1,3 +1,4 @@
+import { clearDraftStash } from "@/hooks/draftStash";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {prepareAppFiles} from "@/offline/appFiles";
 import {onConnectivityChange} from "@/offline/connectivity";
@@ -30,14 +31,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // person on this device must not see another student's lessons or scores.
   const clear = useCallback(async () => {
     // Drop the scope first: a download or request still in flight can no longer write.
-    setOfflineScope(null); stopOfflineSync(); await clearAll();
+    clearDraftStash(); setOfflineScope(null); stopOfflineSync(); await clearAll();
     await tokenStore.set(null); setUser(null); setMustChange(false); setSessionId(null);
   }, []);
 
   /** Remember who this device's offline copy belongs to, and keep it fresh for every role. */
   const adopt = useCallback(async (me: User) => {
     const owner = await readEntry<string>(META.owner);
-    if (owner && owner !== me.id) { setOfflineScope(null); stopOfflineSync(); await clearAll(); }
+    if (owner && owner !== me.id) { clearDraftStash(); setOfflineScope(null); stopOfflineSync(); await clearAll(); }
     setOfflineScope(me.id);
     await writeEntry(META.owner, me.id);
     await writeEntry(META.me, me);
@@ -55,9 +56,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } catch (e) {
           // No server: carry on with the saved profile so a student can keep
           // studying what was downloaded. Only a real rejection signs out.
-          const saved = e instanceof ApiError && e.code === "NETWORK" ? await readEntry<User>(META.me) : undefined;
+          const rejected = e instanceof ApiError && (e.status === 401 || e.status === 403);
+          const saved = !rejected ? await readEntry<User>(META.me) : undefined;
           if (saved) { setOfflineScope(saved.id); setUser(saved); setMustChange(saved.must_change_password); setSessionId(t.session_id ?? null); if (!saved.must_change_password) void startOfflineSync(saved.role); }
-          else await clear();
+          else if (rejected) await clear();
         }
       }
       setReady(true);

@@ -62,13 +62,6 @@ class NoTransactionDuringModelCallTests(TransactionTestCase):
         self.assertEqual(res.status_code, 201, res.content)
         self.assertEqual(gw.return_value.generate.call_count, 1)
 
-    def test_assignment_generation(self):
-        with patch("assignments.services.gateway") as gw:
-            gw.return_value.generate.side_effect = _no_transaction_open
-            res = self.fc.post("/api/faculty/assignments/generate/", {"module_id": str(self.module.id)}, format="json")
-        self.assertIn(res.status_code, (200, 201), res.content)
-        self.assertEqual(gw.return_value.generate.call_count, 1)
-
     def test_submit_and_reevaluate_with_subjective_grading(self):
         res = self.fc.post("/api/faculty/quizzes/", {"module_id": str(self.module.id), "title": "Q", "questions": [MCQ, SUBJ]}, format="json")
         self.assertIn(res.status_code, (200, 201), res.content)

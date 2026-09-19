@@ -78,7 +78,6 @@ class StudentOfflineBundleView(APIView):
         student = request.user
         put("/student/subjects/")
         all_quizzes = put("/student/quizzes/") or []
-        put("/student/assignments/")
         put("/student/analytics/overview/")
         subjects = {d.subject_id for d in services.student_documents(student)}
         for subject_id in subjects:

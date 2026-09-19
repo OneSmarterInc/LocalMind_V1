@@ -1,3 +1,4 @@
+import { keyboardList } from "./keyboardList";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useMemo, useState } from "react";
 import { Modal, Pressable, ScrollView, TouchableWithoutFeedback, View, useWindowDimensions } from "react-native";
@@ -48,6 +49,7 @@ export function SelectField({
   return (
     <>
       <Pressable
+        accessibilityRole="button" accessibilityLabel={`${label}: ${current?.label ?? "Choose"}`} accessibilityState={{ expanded: open }}
         onPress={() => setOpen(true)}
         style={({ pressed }) => [{
           flexDirection: "row",
@@ -65,7 +67,7 @@ export function SelectField({
         <Ionicons name={icon} size={15} color={value ? colors.primary : colors.muted} />
         <P small style={{ flex: 1, color: value ? colors.text : colors.muted }}>{current ? current.label : label}</P>
         {value ? (
-          <Pressable onPress={() => onChange("")} hitSlop={8}>
+          <Pressable accessibilityRole="button" accessibilityLabel={`Clear ${label}`} onPress={(event) => { event.stopPropagation(); onChange(""); }} hitSlop={8}>
             <Ionicons name="close-circle" size={16} color={colors.muted} />
           </Pressable>
         ) : <Ionicons name="chevron-down" size={15} color={colors.muted} />}
@@ -88,9 +90,10 @@ export function SelectField({
               }}>
                 <P style={{ fontWeight: "700" }}>{label}</P>
                 <Input compact autoFocus value={q} onChangeText={setQ} placeholder={placeholder} />
-                <ScrollView style={{ maxHeight: height * 0.55 }} keyboardShouldPersistTaps="handled">
+                <ScrollView style={{ maxHeight: height * 0.55 }} keyboardShouldPersistTaps="handled" {...keyboardList("radio", () => setOpen(false))}>
                   {matches.map((o) => (
                     <Pressable
+                      accessibilityRole="radio" accessibilityLabel={o.label} accessibilityState={{ checked: o.value === value }}
                       key={o.value || "__all"}
                       onPress={() => choose(o.value)}
                       style={({ pressed }) => [{

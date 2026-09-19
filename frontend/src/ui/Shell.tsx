@@ -186,16 +186,17 @@ function NavItem({ label, icon, iconName, focused, onPress }: { label: string; i
 /* ------------------------------------------------------------------ */
 
 function Sheet({ visible, title, onClose, children, width = 520 }: { visible: boolean; title: string; onClose: () => void; children: React.ReactNode; width?: number }) {
+  const { height } = useWindowDimensions();
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <TouchableWithoutFeedback onPress={onClose}><View style={s.overlay} /></TouchableWithoutFeedback>
       <View style={[s.sheetWrap, { pointerEvents: "box-none" }]}>
-        <View style={[s.sheet, { maxWidth: width }]} accessibilityRole="none" accessibilityViewIsModal>
+        <View style={[s.sheet, { maxWidth: width, maxHeight: height - 32 }]} accessibilityRole="none" accessibilityViewIsModal>
           <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 16 }}>
             <Text style={{ flex: 1, fontSize: 18, fontWeight: "600", color: colors.ink }} accessibilityRole="header">{title}</Text>
             <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close" hitSlop={8}><Ionicons name="close" size={20} color={colors.muted} /></Pressable>
           </View>
-          {children}
+          <ScrollView keyboardShouldPersistTaps="handled">{children}</ScrollView>
         </View>
       </View>
     </Modal>

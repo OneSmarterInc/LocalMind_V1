@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import { errorMessage } from "@/api/client";
 import { useDebounced } from "@/hooks/useDebounced";
@@ -36,16 +36,20 @@ export function StudentPicker({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const latest = useRef(0);
   const run = useCallback(async (query: string) => {
+    const request = ++latest.current;
     setLoading(true);
     setError(null);
     try {
-      setResults(await search(query, subjectId));
+      const rows = await search(query, subjectId);
+      if (request === latest.current) setResults(rows);
     } catch (e) {
+      if (request !== latest.current) return;
       setResults([]);
       setError(errorMessage(e));
     } finally {
-      setLoading(false);
+      if (request === latest.current) setLoading(false);
     }
   }, [search, subjectId]);
 
@@ -53,7 +57,11 @@ export function StudentPicker({
   // for the first page of candidates, so clearing the field refreshes the list
   // rather than leaving stale matches on screen.
   const query = useDebounced(q);
-  useEffect(() => { void run(query.trim()); }, [query, run]);
+  useEffect(() => { void run(query.trim()); return () => {
+    // Invalidate all requests from the previous query, including manual retries.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    ++latest.current;
+  }; }, [query, run]);
 
   const toggle = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
   const visibleIds = useMemo(() => results.map((r) => r.id), [results]);
