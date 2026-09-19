@@ -143,7 +143,7 @@ export class Library {
       const remaining=count-questions.length;
       const wanted=Math.min(3,remaining);
       const pool=unusedFocuses();
-      const source=pool[Math.floor(questions.length*pool.length/count)%pool.length];
+      const source=pool[(Math.floor(questions.length*pool.length/count)+exhausted)%pool.length];
       const avoid=[...excluded,...questions.map(q=>q.question)].map(q=>q.slice(0,160)).join('\n');
       let accepted=0;
       try {
@@ -166,15 +166,18 @@ export class Library {
         for(let attempt=0;attempt<2&&!repaired;attempt++){
           this.guard();requireThat(!signal.aborted,'Cancelled. Your earlier quizzes are unchanged.');
           const retryPool=unusedFocuses();
-          const retrySource=retryPool[(questions.length+attempt)%retryPool.length];
+          const retrySource=retryPool[(questions.length+attempt+exhausted)%retryPool.length];
           const retryAvoid=[...excluded,...questions.map(q=>q.question)].map(q=>q.slice(0,160)).join('\n');
           try {
             detail?.(`Question ${questions.length+1}/${count} · repairing only the missing item (${attempt+1}/2)`);
-            const raw=await d.complete({system:GROUNDING,prompt:`Write ONE useful multiple-choice practice question. Exactly four distinct options; answer is a zero-based index (0-3). Options are answer text only with no A/B/C/D labels. Include a concise explanation and an exact source quote. Test a specific fact not already covered.\nDo not repeat these questions:\n${retryAvoid}\nSTORED BOOK REFERENCE:\n${retrySource}`,schema:groundedSchema(COMPACT_MCQ_SCHEMA,retrySource),maxTokens:450,temperature:0.3+attempt*0.1,signal,progress:message=>detail?.(`Question ${questions.length+1}/${count} · ${message}`)});
+            const raw=await d.complete({system:GROUNDING,prompt:`Write ONE useful multiple-choice practice question. Exactly four distinct options; answer is a zero-based index (0-3). Options are answer text only with no A/B/C/D labels. Include a concise explanation and an exact source quote. Test a specific fact not already covered.${lastReason?` Fix this previous validation problem: ${lastReason.slice(0,240)}.`:''}\nDo not repeat these questions:\n${retryAvoid}\nSTORED BOOK REFERENCE:\n${retrySource}`,schema:groundedSchema(COMPACT_MCQ_SCHEMA,retrySource),maxTokens:450,temperature:0.3+attempt*0.1,signal,progress:message=>detail?.(`Question ${questions.length+1}/${count} · ${message}`)});
             repaired=accept(raw,retrySource);
             if(repaired){repairedAny=true;await save();progress(questions.length);}
           } catch(e){if(signal.aborted||/timed out|storage|quota/i.test(String(e)))throw e;}
         }
+        // Two attempts failed on this item. Repeating them for every missing
+        // slot repeats the same work; let the next round choose another passage.
+        if(!repaired)break;
       }
       if(!accepted && !repairedAny && questions.length<count){
         if(++exhausted>=2)break;

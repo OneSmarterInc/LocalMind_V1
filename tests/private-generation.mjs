@@ -71,3 +71,11 @@ test('private quizzes never borrow another module automatically',async()=>{
  assert.ok(requests.every(r=>!r.prompt.includes('UNRELATED SECRET TOPIC')));
  assert.equal((await lib.quizzes(bookId,'s1')).length,0);
 });
+
+test('an entirely rejected three-question batch does not retry every empty slot',async()=>{
+ const lib=await setup(source);
+ respond=()=>({questions:[]});
+ await assert.rejects(lib.generateQuiz(bookId,'s1',3,new AbortController().signal,()=>{}),/No question could be generated/);
+ assert.equal(requests.length,6,'two rounds, each with one batch and two targeted repairs');
+ assert.equal((await lib.quizzes(bookId,'s1')).length,0);
+});

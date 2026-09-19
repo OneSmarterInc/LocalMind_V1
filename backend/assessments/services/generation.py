@@ -33,6 +33,7 @@ import math
 import random
 import re
 
+from ai.source_references import prepare
 from ai.config import task_config
 from ai.gateway import gateway
 from core.exceptions import APIError, ValidationFailed
@@ -365,14 +366,15 @@ def _ask(module, title, source, n_mcq, n_subjective, avoid, collector, seed, dep
     avoid_block = ""
     if avoid:
         avoid_block = "\nALREADY ASKED ABOUT THIS TOPIC (ask about other facts):\n" + "\n".join(f"- {q}" for q in avoid[:12]) + "\n"
-    user = (f"TOPIC: {title}\n\nTEXTBOOK SECTION:\n\"\"\"{source}\"\"\"\n{avoid_block}\n"
+    wire_source, wire_schema, restore = prepare(source, {"type": "object", "properties": props, "required": required})
+    user = (f"TOPIC: {title}\n\nTEXTBOOK SECTION:\n\"\"\"{wire_source}\"\"\"\n{avoid_block}\n"
             f"TASK: Write {' and '.join(tasks)} about this topic. Output only the JSON.")
     budget = task_config("quiz")
     max_tokens = TOKENS_OVERHEAD + n_mcq * TOKENS_PER_MCQ + n_subjective * TOKENS_PER_SUBJECTIVE
     if depth:
         max_tokens = int(max_tokens * 1.5)
-    result = gateway().generate(task="quiz", system_prompt=SYSTEM_PROMPT, user_prompt=user,
-                                schema={"type": "object", "properties": props, "required": required},
+    result = gateway().generate(task="quiz", system_prompt=SYSTEM_PROMPT + " For quote fields, select the Q reference marking the supporting source text. The application restores the exact quote.", user_prompt=user,
+                                schema=wire_schema,
                                 source_chars=len(source), retrieved_chunks=1, max_tokens=min(max_tokens, budget.max_tokens),
                                 retry_codes=RETRY_ON, background=background)
     if result.failed:
@@ -389,7 +391,7 @@ def _ask(module, title, source, n_mcq, n_subjective, avoid, collector, seed, dep
             collector.fatal = True
         logger.warning("Quiz batch for module %s failed: %s", getattr(module, "pk", None), result.error_code)
         return 0, 0
-    data = result.data or {}
+    data = restore(result.data or {})
     got_m = got_s = 0
     for raw in (data.get("mcq_questions") or [])[:n_mcq]:
         q, why = _mcq_from_model(raw if isinstance(raw, dict) else {}, getattr(module, "pk", None), seed)
