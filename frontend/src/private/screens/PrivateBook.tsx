@@ -1,7 +1,7 @@
 import {LocalLessonView} from '../LocalLessonView';
 import { useBackTo } from "@/hooks/useBackTo";
-import {generationJobs} from '../jobs';
-import {jobScope,useGenerationJobs} from '../useGenerationJobs';
+import {generationJobs,DOUBTS_PAUSED_MESSAGE} from '../jobs';
+import {jobScope,useGenerationJobs,useDoubtsBlocked} from '../useGenerationJobs';
 import React,{useEffect,useRef,useState} from 'react';
 import {Pressable,ScrollView,View} from 'react-native';
 import {useLocalSearchParams,useRouter} from 'expo-router';
@@ -36,6 +36,7 @@ export default function PrivateBook(){
 }
 function ModuleLearning({bookId,section,next,initialTab,onSourceSaved}:{bookId:string;section:Section;next:()=>void;initialTab?:string;onSourceSaved:()=>Promise<unknown>}){
  const library=useLibrary()!,router=useRouter();
+ const doubtsBlocked=useDoubtsBlocked();
  const jobs=useGenerationJobs(library.prefix).filter(j=>j.bookId===bookId&&j.sectionId===section.id);
  const completed=jobs.filter(j=>j.state==='completed').map(j=>j.id).join(',');
  const [tab,setTabState]=useState<Tab>('read'),[count,setCount]=useState('6');
@@ -75,7 +76,7 @@ function ModuleLearning({bookId,section,next,initialTab,onSourceSaved}:{bookId:s
   {tab==='lesson'?<><Row><Button title={lesson?'Regenerate lesson':'Generate lesson'} icon="sparkles-outline" onPress={generateLesson} disabled={task.busy}/>{lessons.data?.length?<Dropdown label="Saved lesson" value={lesson?.id||''} onChange={setLessonId} options={lessons.data.map((l,i)=>({value:l.id,label:`Version ${lessons.data!.length-i} · ${new Date(l.createdAt).toLocaleString()}`}))}/>:null}</Row>{lesson?<LocalLessonView lesson={lesson.lesson} visuals={figures.data||[]}/>:<P muted>Generate an explanation from this module with your local AI model.</P>}</>:null}
   {tab==='quiz'?<><Row><Dropdown label="Questions" value={count} onChange={v=>{if(!task.busy)setCount(v);}} options={Array.from({length:10},(_,i)=>({value:String(i+1),label:String(i+1)}))}/><Button title={quiz?'Generate another quiz':'Generate quiz'} icon="sparkles-outline" onPress={()=>{void confirmLeave().then(ok=>{if(ok)generateQuiz();});}} disabled={task.busy}/>{quizzes.data?.length?<Dropdown label="Saved quiz" value={quiz?.id||''} onChange={v=>{void confirmLeave().then(ok=>{if(ok)setQuizId(v);});}} options={quizzes.data.map((q,i)=>({value:q.id,label:`Version ${quizzes.data!.length-i} · ${q.questions.length} questions`}))}/>:null}</Row>
    {quiz?<QuizPractice key={quiz.id} quiz={quiz}/>:<P muted>Create a quiz to practise. A failed or incomplete generation never becomes a completed quiz.</P>}</>:null}
-  {tab==='ask'?<><P muted>Your private doubts stay on this device.</P>{(chats.data||[]).map(c=><Chat key={c.id} chat={c}/>)}<Input label="Your question" value={question} onChangeText={changeQuestion} multiline maxLength={1000} placeholder="What would you like to understand?" editable={viewReady&&!task.busy}/><Button title="Ask local AI" icon="send-outline" onPress={ask} disabled={!viewReady||task.busy||!question.trim()}/></>:null}
+  {tab==='ask'?<>{doubtsBlocked?<Notice title="Doubts temporarily unavailable" message={DOUBTS_PAUSED_MESSAGE}/>:null}<P muted>Your private doubts stay on this device.</P>{(chats.data||[]).map(c=><Chat key={c.id} chat={c}/>)}<Input label="Your question" value={question} onChangeText={changeQuestion} multiline maxLength={1000} placeholder="What would you like to understand?" editable={viewReady&&!task.busy&&!doubtsBlocked}/><Button title="Ask local AI" icon="send-outline" onPress={ask} disabled={!viewReady||task.busy||doubtsBlocked||!question.trim()}/></>:null}
   {(tab==='read'||tab==='lesson')&&<SourceVisuals bookId={bookId} sectionId={section.id} pagesOnly={tab==='lesson'}/>}
   <Row><Button title="Offline AI setup" small variant="secondary" onPress={()=>{void confirmLeave().then(ok=>{if(ok)router.push('/student/offline-ai');});}}/></Row>
  </Card>;

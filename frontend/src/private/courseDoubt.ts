@@ -1,3 +1,4 @@
+import {generationJobs} from './jobs';
 import {api,ApiError,currentSession,SessionChangedError} from '@/api/client';
 import type {AskResponse,ModuleFull} from '@/api/types';
 import {saveCourseDoubt,courseDoubtHistory} from '@/offline/coursework';
@@ -15,6 +16,7 @@ export async function localCourseHistory(owner:string,moduleId:string){
  const rows=await(await device()).list<PrivateChat>(`${l.prefix}course:${moduleId}:chat:`);l.guard();return [...rows.map(r=>({...r,conversationId:undefined as string|undefined})),...await courseDoubtHistory(moduleId)].sort((a,b)=>a.createdAt.localeCompare(b.createdAt));
 }
 export async function answerCourse(owner:string,moduleId:string,question:string,conversationId:string|undefined,signal:AbortSignal):Promise<{online?:AskResponse;local?:PrivateChat}>{
+ generationJobs.requireDoubtsAvailable();
  const library=new Library(owner),session=currentSession(),d=await device();
  const guard=()=>{cancelled(signal);if(currentSession()!==session||offlineScope()!==owner)throw new SessionChangedError();};
  const denied=`${library.prefix}course:${moduleId}:denied`;guard();text(question,1000,'question');
@@ -42,6 +44,7 @@ export async function answerCourse(owner:string,moduleId:string,question:string,
  // this module" on a question the module plainly answers. Constraining the
  // field at decode time makes an unmatched quotation impossible rather than
  // fatal.
+ generationJobs.requireDoubtsAvailable();
  const reply=await d.complete({system:GROUNDING,prompt:`Answer only from this stored course reference. If it does not support the answer, set supported=false.\nREFERENCE:\n${ref}\nEARLIER QUESTIONS:\n${history.map(h=>h.question.slice(0,250)).join('\n')}\nQUESTION:\n${question}`,schema:groundedSchema(ANSWER_SCHEMA,ref,question),maxTokens:650,temperature:0.1,signal});
  guard();const answer=validateAnswer(reply,ref);
  // A source edit/download revocation while inference runs invalidates the result.

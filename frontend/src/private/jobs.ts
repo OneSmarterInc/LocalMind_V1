@@ -1,3 +1,4 @@
+export const DOUBTS_PAUSED_MESSAGE = "Content generation is in progress. Ask a doubt will be available when generation finishes. You can continue reading and taking saved quizzes.";
 /** App-lifetime jobs. Results are persisted by the library; no page owns cancellation. */
 export type JobState='queued'|'running'|'completed'|'failed'|'cancelled';
 export type Job={id:number;scope:string;bookId:string;sectionId:string;kind:string;label:string;documentId?:string;documentIds?:string[];state:JobState;note:string;error:string;
@@ -20,9 +21,12 @@ export class JobQueue{
  constructor(private concurrency=2,private doubtLane=false){}
  subscribe=(fn:()=>void)=>{this.listeners.add(fn);return()=>{this.listeners.delete(fn);};};
  snapshot=()=>this.snapshotJobs;
+ hasContentGeneration=()=>this.entries.some(j=>j.kind!=='doubt'&&['queued','running'].includes(j.state));
+ requireDoubtsAvailable(){if(this.hasContentGeneration())throw Error(DOUBTS_PAUSED_MESSAGE);}
  private emit(){this.snapshotJobs=this.entries.map(j=>({...j}));for(const fn of this.listeners)fn();}
  list(scope:string):Job[]{return this.entries.filter(j=>j.scope===scope).map(j=>({...j}));}
  enqueue(meta:Omit<Job,'id'|'state'|'note'|'error'>,run:NonNullable<Entry['run']>){
+  if(meta.kind==='doubt')this.requireDoubtsAvailable();
   const old=this.entries.find(j=>j.scope===meta.scope&&j.bookId===meta.bookId&&j.sectionId===meta.sectionId&&j.kind===meta.kind&&['queued','running'].includes(j.state));if(old)return old.id;
   // The book-wide lock exists to stop two WHOLE-BOOK preparations running over
   // each other. It used to reject every per-module job as well, so a second

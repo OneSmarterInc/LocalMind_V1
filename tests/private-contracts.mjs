@@ -97,12 +97,37 @@ test('balanced page splitting does not orphan a tiny trailing heading',()=>{
  const input=('An entire sentence about charge. '.repeat(104))+'\n1.3 Conductors';const rows=c.makeSections([{title:'Page',text:input}]);
  assert.ok(rows.every(s=>s.source.length>500));assert.equal(rows.map(s=>s.source).join('').replace(/\s/g,''),input.replace(/\s/g,''));
 });
-test('doubt lane starts while two long study jobs are active',async()=>{
- const {JobQueue}=require(path.join(tmp,'jobs.js')),queue=new JobQueue(2,true);const release=[];
- const run=()=>new Promise(resolve=>release.push(resolve));
- for(const [i,kind] of ['lesson','quiz','lesson','doubt','doubt'].entries())queue.enqueue({scope:'u',bookId:'b',sectionId:String(i),kind,label:kind},run);
- assert.deepEqual(queue.list('u').map(j=>j.state),['running','running','queued','running','queued']);
- queue.cancelOtherScopes('');release.forEach(r=>r());await queue.cancelBook('u','b');
+test('doubts are rejected during generation and restored only after all jobs settle',async()=>{
+ const {JobQueue}=require(path.join(tmp,'jobs.js')),queue=new JobQueue(1,true);let release;
+ const first=queue.enqueue({scope:'u',bookId:'b',sectionId:'1',kind:'lesson',label:'Lesson'},()=>new Promise(r=>{release=r;}));
+ const second=queue.enqueue({scope:'u',bookId:'b',sectionId:'2',kind:'quiz',label:'Quiz'},async()=>{});
+ const meta={scope:'other',bookId:'different',sectionId:'3',kind:'doubt',label:'Doubt'};
+ assert.equal(queue.hasContentGeneration(),true);
+ assert.throws(()=>queue.enqueue(meta,async()=>{}),/Content generation is in progress/);
+ assert.equal(queue.list('other').length,0,'blocked doubt must never enter the queue');
+ queue.cancel(second);queue.cancel(first);
+ assert.equal(queue.hasContentGeneration(),true,'cancellation must wait for the model to stop');
+ release();await queue.cancelBook('u','b');
+ assert.equal(queue.hasContentGeneration(),false);
+ let answered=false;queue.enqueue(meta,async()=>{answered=true;});
+ assert.equal(answered,true);await queue.cancelBook('other','different');
+});
+test('success and failure both restore doubts and notify subscribers',async()=>{
+ const {JobQueue}=require(path.join(tmp,'jobs.js'));
+ for(const fails of [false,true]){
+  const queue=new JobQueue();const states=[];let finish;
+  queue.subscribe(()=>states.push(queue.hasContentGeneration()));
+  queue.enqueue({scope:'u',bookId:'b',sectionId:'1',kind:'staff-auto',label:'Book'},async()=>{await new Promise(r=>{finish=r;});if(fails)throw Error('Model failure');});
+  assert.throws(()=>queue.requireDoubtsAvailable(),/generation/);finish();
+  for(let i=0;i<10;i++)await Promise.resolve();
+  assert.equal(queue.list('u')[0].state,fails?'failed':'completed');
+  assert.doesNotThrow(()=>queue.requireDoubtsAvailable());assert.equal(states[0],true);assert.equal(states.at(-1),false);
+ }
+});
+test('a doubt alone does not disable doubts as content generation',async()=>{
+ const {JobQueue}=require(path.join(tmp,'jobs.js')),queue=new JobQueue(2,true);
+ queue.enqueue({scope:'u',bookId:'b',sectionId:'1',kind:'doubt',label:'Question'},async()=>{});
+ assert.equal(queue.hasContentGeneration(),false);await queue.cancelBook('u','b');
 });
 test('PDF small caps normalize display casing without changing ordinary scientific text',async()=>{
  const {readablePdfText}=await import('../frontend/scripts/pdf-layout.mjs');

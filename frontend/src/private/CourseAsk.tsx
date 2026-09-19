@@ -1,3 +1,5 @@
+import {useDoubtsBlocked} from './useGenerationJobs';
+import {DOUBTS_PAUSED_MESSAGE} from './jobs';
 import React,{useEffect,useRef,useState} from 'react';
 import {View} from 'react-native';
 import {useRouter} from 'expo-router';
@@ -10,6 +12,7 @@ import {useTask} from './useTask';
 export default function CourseAsk({moduleId}:{moduleId:string}){ const {user}=useAuth(); return user?<CourseAskInner key={`${user.id}:${moduleId}`} moduleId={moduleId}/>:null; }
 function CourseAskInner({moduleId}:{moduleId:string}){
  const {user}=useAuth(),router=useRouter(),task=useTask();
+ const doubtsBlocked=useDoubtsBlocked();
  const userId=user?.id,{setError,cancel}=task;
  const [question,setQuestion]=useState(''),[messages,setMessages]=useState<(Message&{local?:boolean})[]>([]),[conversation,setConversation]=useState<string>(),[restoring,setRestoring]=useState(true);
  const active=useRef(true);
@@ -35,7 +38,7 @@ function CourseAskInner({moduleId}:{moduleId:string}){
   })();return()=>{current=false;active.current=false;cancel();};
  },[moduleId,userId,setError,cancel]);
  const send=()=>task.run(async signal=>{
-  if(!user||restoring)return;const q=question.trim();const result=await answerCourse(user.id,moduleId,q,conversation,signal);if(signal.aborted||!active.current)return;
+  if(!user||restoring||doubtsBlocked)return;const q=question.trim();const result=await answerCourse(user.id,moduleId,q,conversation,signal);if(signal.aborted||!active.current)return;
   const now=new Date().toISOString();const local=!!result.local;
   const message:Message&{local?:boolean}=result.online?result.online.message:{id:result.local!.id,role:'assistant',content:result.local!.answer,grounded:result.local!.supported,source_reference:result.local!.quote,created_at:result.local!.createdAt,local:true};
   if(result.online)setConversation(result.online.conversation_id);
@@ -43,8 +46,9 @@ function CourseAskInner({moduleId}:{moduleId:string}){
  });
  return <Card><H2>Ask a doubt</H2><Notice title="AI on this device" message="Questions are answered locally from your course source. Course conversations save on this device and synchronize with your institution when connected."/>
   {messages.map(m=><View key={m.id} style={{padding:14,borderRadius:8,backgroundColor:m.role==='user'?'#EAF2ED':colors.bg,gap:6}}><P small muted>{m.role==='user'?'You':m.local?'Local AI · this device':'Course tutor'}</P><P>{m.content}</P>{m.source_reference?<P small muted>From the module: {m.source_reference}</P>:null}</View>)}
+  {doubtsBlocked?<Notice title="Doubts temporarily unavailable" message={DOUBTS_PAUSED_MESSAGE}/>:null}
   {restoring?<P muted>Restoring your conversation…</P>:null}<ErrorBanner message={task.error}/>
-  <Input label="Your question" value={question} onChangeText={setQuestion} multiline maxLength={1000} editable={!task.busy&&!restoring} placeholder="What would you like to understand?"/>
-  <Row><Button title="Ask" icon="send-outline" onPress={send} busy={task.busy} disabled={!question.trim()||restoring}/>{task.busy?<Button title="Cancel" variant="secondary" onPress={task.cancel}/>:<Button title="Offline AI setup" variant="secondary" onPress={()=>router.push('/student/offline-ai')}/>}</Row>
+  <Input label="Your question" value={question} onChangeText={setQuestion} multiline maxLength={1000} editable={!task.busy&&!restoring&&!doubtsBlocked} placeholder="What would you like to understand?"/>
+  <Row><Button title="Ask" icon="send-outline" onPress={send} busy={task.busy} disabled={!question.trim()||restoring||doubtsBlocked}/>{task.busy?<Button title="Cancel" variant="secondary" onPress={task.cancel}/>:<Button title="Offline AI setup" variant="secondary" onPress={()=>router.push('/student/offline-ai')}/>}</Row>
  </Card>;
 }
