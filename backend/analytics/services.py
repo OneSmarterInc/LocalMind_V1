@@ -165,7 +165,7 @@ def student_subject_detail(student, subject, window=(None, None), released_only=
     for m in modules:
         p = progress.get(m.id)
         rows.append({
-            "module_id": str(m.id), "title": m.title, "chapter": m.chapter.title, "document": m.chapter.document.title,
+            "module_id": str(m.id), "document_id": str(m.chapter.document_id), "title": m.title, "chapter": m.chapter.title, "document": m.chapter.document.title,
             "availability": m.availability,
             "status": p.status if p else "not_started",
             "best_quiz_percentage": p.best_quiz_percentage if p else None,
@@ -300,7 +300,7 @@ def subject_modules(actor, subject):
         p, q = prog.get(m.id, {}), quiz.get(m.id, {})
         started = sum(p.values())
         rows.append({
-            "module_id": str(m.id), "title": m.title, "chapter": m.chapter.title, "document": m.chapter.document.title,
+            "module_id": str(m.id), "document_id": str(m.chapter.document_id), "title": m.title, "chapter": m.chapter.title, "document": m.chapter.document.title,
             "availability": m.availability, "source_missing": m.source_missing,
             "students_started": started, "students_completed": p.get("completed", 0), "students_needs_review": p.get("needs_review", 0),
             "students_not_started": max(0, n_students - started),

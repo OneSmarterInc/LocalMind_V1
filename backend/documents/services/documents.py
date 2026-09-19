@@ -593,3 +593,32 @@ def set_chapter_availability(actor, chapter, availability, request=None):
             continue
         set_module_availability(actor, module, availability, request)
     return modules
+
+
+@transaction.atomic
+def restore(actor, document, request=None):
+    _require_manage(actor, document.subject)
+    document = Document.objects.select_for_update().get(pk=document.pk)
+    if document.status != DocumentStatus.ARCHIVED:
+        raise Conflict("Only archived books can be restored.", code="INVALID_STATE")
+    document.status = DocumentStatus.UNDER_REVIEW if document.chapters.exists() else DocumentStatus.UPLOADED
+    document.archived_at = None
+    document.save(update_fields=["status", "archived_at", "updated_at"])
+    audit.record(actor, "document.restored", document, {}, request)
+    return document
+
+
+@transaction.atomic
+def delete_module(actor, module, request=None):
+    document = Document.objects.select_for_update().get(pk=module.chapter.document_id)
+    _require_manage(actor, document.subject)
+    if document.status not in EDITABLE_STATUSES:
+        raise Conflict("Restore the book before editing its modules.", code="INVALID_STATE")
+    if outline_service._module_is_referenced(module):
+        raise Conflict("This module has saved activity or linked assessments. Lock it instead to preserve those records.", code="MODULE_IN_USE")
+    label = module.title
+    audit.record(actor, "module.deleted", module, {"title": label}, request)
+    outline_service._drop_module(module)
+    document.content_version += 1
+    document.save(update_fields=["content_version", "updated_at"])
+    return label

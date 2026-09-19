@@ -102,7 +102,8 @@ export const manage = {
   generateAutoQuizzes: (documentId: string) => api<{ queued: number }>(`/faculty/documents/${documentId}/auto-quizzes/`, { method: "POST", body: {} }),
   generateLessons: (documentId: string, force = false) =>
     api<T.LessonSummary & { queued: number }>(`/faculty/documents/${documentId}/lessons/`, { method: "POST", body: { force } }),
-  transition: (id: string, action: "ready" | "publish" | "unpublish" | "archive") => api<T.Document>(`/faculty/documents/${id}/${action}/`, { method: "POST" }),
+  deleteModule: (id: string) => api(`/faculty/modules/${id}/`, { method: "DELETE" }),
+  transition: (id: string, action: "ready" | "publish" | "unpublish" | "archive" | "restore") => api<T.Document>(`/faculty/documents/${id}/${action}/`, { method: "POST" }),
   deleteDocument: (id: string) => api<{ detail: string }>(`/faculty/documents/${id}/`, { method: "DELETE" }),
   module: (id: string) => api<T.ModuleFull & { chapter_title?: string; document_id?: string; document_title?: string }>(`/faculty/modules/${id}/`),
   editModule: (id: string, body: { title?: string; source_text?: string }) => api<T.ModuleFull>(`/faculty/modules/${id}/`, { method: "PATCH", body }),

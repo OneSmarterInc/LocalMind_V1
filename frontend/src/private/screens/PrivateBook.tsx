@@ -1,11 +1,12 @@
+import {pendingDoubt,queueDoubt} from "../pendingDoubts";
 import {LocalLessonView} from '../LocalLessonView';
 import { useBackTo } from "@/hooks/useBackTo";
 import {generationJobs,DOUBTS_PAUSED_MESSAGE} from '../jobs';
 import {jobScope,useGenerationJobs,useDoubtsBlocked} from '../useGenerationJobs';
 import React,{useEffect,useRef,useState} from 'react';
-import {Pressable,ScrollView,View} from 'react-native';
+import {Pressable,View} from 'react-native';
 import {useLocalSearchParams,useRouter} from 'expo-router';
-import {Screen,PageHeading,Card,Row,H2,P,Button,Badge,Notice,ErrorBanner,Loading,PageTabs,Input,Split,Dropdown,confirmAsync,colors} from '@/ui';
+import {ListRow,Empty,Screen,PageHeading,Card,Row,H2,P,Button,Badge,Notice,ErrorBanner,Loading,PageTabs,Input,Dropdown,confirmAsync,colors} from '@/ui';
 import {SourceVisuals} from '../SourceVisuals';
 import {SourceContent} from '@/ui/SourceContent';
 import {useAsync} from '@/hooks/useAsync';
@@ -19,26 +20,33 @@ import {confirmLeave,registerGuard} from '@/hooks/unsavedGuard';
 type Tab='read'|'lesson'|'quiz'|'ask';
 export default function PrivateBook(){
  const {id,section:targetSection,tab:targetTab}=useLocalSearchParams<{id:string;section?:string;tab?:string}>(),library=useLibrary();
- const back=useBackTo();
+ const back=useBackTo(),router=useRouter();
  const book=useAsync(()=>{if(!library)throw Error('Open the library after signing in.');return library.book(id);},[id,library]);
  const [sectionId,setSectionId]=useState(''),[query,setQuery]=useState('');
+ const [showModules,setShowModules]=useState(!targetSection);
  useEffect(()=>{let alive=true;if(library&&book.data)void library.viewState(id,'section').then(saved=>{if(alive)setSectionId(book.data!.sections.find(s=>s.id===(targetSection||saved))?.id||book.data!.sections[0].id);});return()=>{alive=false;};},[book.data,id,library,targetSection]);
- const selectSection=(value:string)=>{setSectionId(value);void library?.saveViewState(id,'section',value).catch(()=>{});};
+ const selectSection=(value:string)=>{setSectionId(value);setShowModules(false);router.setParams({section:value});void library?.saveViewState(id,'section',value).catch(()=>{});};
  const b=book.data,s=b?.sections.find(x=>x.id===sectionId);
- const sidebar=<Card><H2>Modules</H2><P muted>Open any module. Quiz results never lock the next one.</P><Input value={query} onChangeText={setQuery} placeholder="Find a module"/><ScrollView style={{maxHeight:550}}>
-  {(b?.sections||[]).filter(x=>x.title.toLowerCase().includes(query.toLowerCase())).map((x)=><Pressable key={x.id} accessibilityRole="button" accessibilityState={{selected:x.id===sectionId}} onPress={()=>{void confirmLeave().then(ok=>{if(ok)selectSection(x.id);});}} style={{padding:12,borderRadius:8,marginBottom:5,backgroundColor:x.id===sectionId?colors.primary:'transparent'}}><P style={{color:x.id===sectionId?'white':colors.text}}>{x.title}</P></Pressable>)}
- </ScrollView></Card>;
  return <Screen><PageHeading title={b?.title||'Private book'} subtitle="Personal study · Saved only on this device" right={<Button title="Back to library" variant="secondary" onPress={()=>back('/student/private-library')}/>}/><ErrorBanner message={book.error} onRetry={book.reload}/>
   {book.loading&&!b?<Loading/>:null}
-  {b?.warnings.length?<Notice tone="warning" title="About this import" message={b.warnings.join('\n')}/>:null}
-  {b&&s&&library?<Split side={sidebar} main={<ModuleLearning key={`${library.prefix}:${id}:${s.id}`} bookId={id} initialTab={targetTab} onSourceSaved={book.reload} section={s} hasNext={b.sections.findIndex(x=>x.id===s.id)<b.sections.length-1} next={()=>{const n=b.sections.findIndex(x=>x.id===s.id)+1;if(b.sections[n])void confirmLeave().then(ok=>{if(ok)selectSection(b.sections[n].id);});}}/>}/>:null}
+  {b?.warnings.length?<Notice autoDismiss tone="warning" title="About this import" message={b.warnings.join('\n')}/>:null}
+  {b&&library&&showModules?<Card><H2>Modules</H2><Input value={query} onChangeText={setQuery} icon="search" placeholder="Search modules" accessibilityLabel="Search private book modules" />
+    {b.sections.filter((x,i)=>`${x.title} ${i+1}`.toLowerCase().includes(query.toLowerCase())).map(x=><ListRow key={x.id} title={x.title} subtitle={`Module ${b.sections.indexOf(x)+1}`} icon="book-outline" onPress={()=>selectSection(x.id)} />)}
+    {!b.sections.some((x,i)=>`${x.title} ${i+1}`.toLowerCase().includes(query.toLowerCase()))?<Empty text="No matching modules."/>:null}
+  </Card>:null}
+  {b&&s&&library&&!showModules?<>
+    <Row style={{alignItems:'flex-end'}}><Dropdown label="Module" value={sectionId} onChange={value=>{void confirmLeave().then(ok=>{if(ok)selectSection(value);});}} width={360} options={b.sections.map((x,i)=>({value:x.id,label:`${i+1}. ${x.title}`}))}/><Button title="All modules" variant="secondary" onPress={()=>{void confirmLeave().then(ok=>{if(ok)setShowModules(true);});}}/></Row>
+    <ModuleLearning key={`${library.prefix}:${id}:${s.id}`} bookId={id} initialTab={targetTab} onSourceSaved={book.reload} section={s} hasNext={b.sections.findIndex(x=>x.id===s.id)<b.sections.length-1} next={()=>{const n=b.sections.findIndex(x=>x.id===s.id)+1;if(b.sections[n])void confirmLeave().then(ok=>{if(ok)selectSection(b.sections[n].id);});}}/>
+    <View style={{flexDirection:'row',flexWrap:'wrap',justifyContent:'space-between',gap:12}}>{[-1,1].map(offset=>{const next=b.sections[b.sections.indexOf(s)+offset];return <View key={offset} style={{flex:1,minWidth:220}}><Button title={next?`${offset<0?'Previous':'Next'} module · ${b.sections.indexOf(next)+1}`:offset<0?'First module':'Last module'} icon={offset<0?'arrow-back':'arrow-forward'} variant="secondary" full disabled={!next} onPress={()=>{void confirmLeave().then(ok=>{if(ok&&next)selectSection(next.id);});}}/>{next?<P small muted>{next.title}</P>:null}</View>;})}</View>
+  </>:null}
  </Screen>;
 }
 function ModuleLearning({bookId,section,next,hasNext,initialTab,onSourceSaved}:{bookId:string;section:Section;next:()=>void;hasNext:boolean;initialTab?:string;onSourceSaved:()=>Promise<unknown>}){
  const library=useLibrary()!,router=useRouter();
  const doubtsBlocked=useDoubtsBlocked();
  const jobs=useGenerationJobs(library.prefix).filter(j=>j.bookId===bookId&&j.sectionId===section.id);
- const completed=jobs.filter(j=>j.state==='completed').map(j=>j.id).join(',');
+ const completed=jobs.map(j=>`${j.id}:${j.state}`).join(',');
+ const pending=useAsync(()=>pendingDoubt(library,bookId,section.id),[library,bookId,section.id,completed]);
  const [tab,setTabState]=useState<Tab>('read'),[count,setCount]=useState('6');
  const figures=useAsync(()=>library.visuals(bookId,section.id),[library,bookId,section.id]);
  const lessons=useAsync(()=>library.lessons(bookId,section.id),[library,bookId,section.id,completed]);
@@ -73,7 +81,7 @@ function ModuleLearning({bookId,section,next,hasNext,initialTab,onSourceSaved}:{
  const generatedQuiz=useRef('');
  useEffect(()=>{if(generatedQuiz.current&&quizzes.data?.some(q=>q.id===generatedQuiz.current)){setQuizId(generatedQuiz.current);generatedQuiz.current='';}},[quizzes.data]);
  const generateQuiz=()=>{const total=Number(count);enqueue('quiz',async(signal,progress)=>{const result=await library.generateQuiz(bookId,section.id,total,signal,n=>progress(`Prepared question ${n} of ${total}`),progress);generatedQuiz.current=result.id;return result;});};
- const ask=()=>{const q=question.trim();enqueue('doubt',(signal,progress)=>library.ask(bookId,section.id,q,signal,progress));};
+ const ask=(retry?:string)=>{const q=(retry||question).trim();void queueDoubt(library,bookId,section.id,q,(signal,progress)=>library.ask(bookId,section.id,q,signal,progress)).then(()=>{changeQuestion('');void pending.reload();}).catch(e=>setLocalError(String(e)));};
  return <Card><Row><H2>{section.title}</H2><Badge value="All modules open" tone="green"/></Row>
   <PageTabs value={tab} onChange={t=>{if(t!==tab)void confirmLeave().then(ok=>{if(ok)setTab(t);});}} tabs={[{key:'read',label:'Read'},{key:'lesson',label:'Lesson'},{key:'quiz',label:'Practice quiz'},{key:'ask',label:'Ask a doubt'}]}/>
   <ErrorBanner message={task.error||figures.error||lessons.error||quizzes.error||chats.error}/>
@@ -82,12 +90,12 @@ function ModuleLearning({bookId,section,next,hasNext,initialTab,onSourceSaved}:{
   {!section.source.trim()?<Notice message="This page is available as an image. No usable text was recognised, so local AI cannot explain it."/>:null}
   {tab==='read'?<>{editing?<><Input label="Correct extracted source" value={sourceDraft} onChangeText={setSourceDraft} multiline maxLength={section.readingUnit?MAX_READING_CHARS:MAX_SECTION_CHARS}/><P muted>Compare with the original page. Saving cancels unfinished jobs for this book; existing lessons and quizzes remain as earlier versions. Regenerate them to use the correction.</P><Row><Button title="Save source correction" onPress={()=>{void saveSource();}} busy={savingSource}/><Button title="Cancel correction" variant="secondary" disabled={savingSource} onPress={()=>setEditing(false)}/></Row></>:<><SourceContent text={section.source}/><Button title="Correct extracted text" variant="secondary" onPress={()=>{setSourceDraft(section.source);setEditing(true);}}/></>}<Row><Button title="Generate a lesson" onPress={()=>{void confirmLeave().then(ok=>{if(ok){setTab('lesson');generateLesson();}});}} disabled={active('lesson')}/><Button title={hasNext?"Next module":"Final module"} variant="secondary" disabled={!hasNext} onPress={next}/></Row></>:null}
   {tab==='lesson'?<><Row><Button title={lesson?'Regenerate lesson':'Generate lesson'} icon="sparkles-outline" onPress={generateLesson} disabled={task.busy}/>{lessons.data?.length?<Dropdown label="Saved lesson" value={lesson?.id||''} onChange={setLessonId} options={lessons.data.map((l,i)=>({value:l.id,label:`Version ${lessons.data!.length-i} · ${new Date(l.createdAt).toLocaleString()}`}))}/>:null}</Row>{lesson?<LocalLessonView lesson={lesson.lesson} visuals={figures.data||[]}/>:<P muted>Generate an explanation from this module with your local AI model.</P>}</>:null}
-  {tab==='quiz'?<><Row><Dropdown label="Questions" value={count} onChange={v=>{if(!task.busy)setCount(v);}} options={Array.from({length:10},(_,i)=>({value:String(i+1),label:String(i+1)}))}/><Button title={quiz?'Generate another quiz':'Generate quiz'} icon="sparkles-outline" onPress={()=>{void confirmLeave().then(ok=>{if(ok)generateQuiz();});}} disabled={task.busy}/>{quizzes.data?.length?<Dropdown label="Saved quiz" value={quiz?.id||''} onChange={v=>{void confirmLeave().then(ok=>{if(ok)setQuizId(v);});}} options={quizzes.data.map((q,i)=>({value:q.id,label:`Version ${quizzes.data!.length-i} · ${q.questions.length} questions`}))}/>:null}</Row>
+  {tab==='quiz'?<><Row style={{alignItems:'flex-end'}}> <Dropdown label="Questions" value={count} onChange={v=>{if(!task.busy)setCount(v);}} options={Array.from({length:10},(_,i)=>({value:String(i+1),label:String(i+1)}))}/><Button title={quiz?'Generate another quiz':'Generate quiz'} icon="sparkles-outline" onPress={()=>{void confirmLeave().then(ok=>{if(ok)generateQuiz();});}} disabled={task.busy}/>{quizzes.data?.length?<Dropdown label="Saved quiz" value={quiz?.id||''} onChange={v=>{void confirmLeave().then(ok=>{if(ok)setQuizId(v);});}} options={quizzes.data.map((q,i)=>({value:q.id,label:`Version ${quizzes.data!.length-i} · ${q.questions.length} questions`}))}/>:null}</Row>
    {quiz?.requestedCount&&quiz.questions.length<quiz.requestedCount?<Notice tone="warning" title="Shorter quiz saved" message={`${quiz.questions.length} of ${quiz.requestedCount} requested questions could be grounded in this module. You can practise these questions or generate another version.`}/>:null}
-   {quiz?<QuizPractice key={quiz.id} quiz={quiz}/>:<P muted>Create a quiz to practise. If the source supports fewer questions than requested, a shorter quiz is saved and labelled with its question count.</P>}</>:null}
-  {tab==='ask'?<>{doubtsBlocked?<Notice title="Doubts temporarily unavailable" message={DOUBTS_PAUSED_MESSAGE}/>:null}<P muted>Your private doubts stay on this device.</P>{(chats.data||[]).map(c=><Chat key={c.id} chat={c}/>)}<Input label="Your question" value={question} onChangeText={changeQuestion} multiline maxLength={1000} placeholder="What would you like to understand?" editable={viewReady&&!task.busy&&!doubtsBlocked}/><Button title="Ask local AI" icon="send-outline" onPress={ask} disabled={!viewReady||task.busy||doubtsBlocked||!question.trim()}/></>:null}
+   {quiz?<QuizPractice key={quiz.id} quiz={quiz}/>:<P muted>Generate practice questions from this module.</P>}</>:null}
+  {tab==='ask'?<>{doubtsBlocked?<Notice autoDismiss={false} title="Doubts temporarily unavailable" message={DOUBTS_PAUSED_MESSAGE}/>:null}<P muted>Your private doubts stay on this device.</P>{(chats.data||[]).map(c=><Chat key={c.id} chat={c}/>)}{pending.data?<View style={{padding:14,borderRadius:8,backgroundColor:colors.bg,gap:8}}><P>You: {pending.data.question}</P><P small muted>{active('doubt')?'Preparing your answer…':pending.data.error||'Answer interrupted. Your question is saved.'}</P>{!active('doubt')?<Button title="Retry answer" variant="secondary" disabled={doubtsBlocked} onPress={()=>ask(pending.data!.question)}/>:null}</View>:null}<Input label="Your question" value={question} onChangeText={changeQuestion} multiline maxLength={1000} placeholder="What would you like to understand?" editable={viewReady&&!task.busy&&!doubtsBlocked}/><Button title="Ask local AI" icon="send-outline" onPress={()=>ask()} disabled={!viewReady||task.busy||doubtsBlocked||!question.trim()}/></>:null}
   {(tab==='read'||tab==='lesson')&&<SourceVisuals bookId={bookId} sectionId={section.id} pagesOnly={tab==='lesson'}/>}
-  <Row><Button title="Offline AI setup" small variant="secondary" onPress={()=>{void confirmLeave().then(ok=>{if(ok)router.push('/student/offline-ai');});}}/></Row>
+  <Row><Button title="AI settings" small variant="secondary" onPress={()=>{void confirmLeave().then(ok=>{if(ok)router.push('/student/offline-ai');});}}/></Row>
  </Card>;
 }
 function Chat({chat}:{chat:PrivateChat}){return <View style={{gap:8,padding:14,backgroundColor:colors.bg,borderRadius:8}}><P style={{fontWeight:'600'}}>You: {chat.question}</P><P>{chat.answer}</P>{!!chat.quote&&<P muted small>From the book: {chat.quote}</P>}</View>;}
@@ -120,8 +128,8 @@ function QuizPractice({quiz}:{quiz:QuizVersion}){
      ``stripOptionLabel`` runs on the way out as well as on the way in: quizzes
      generated before the parser removed labels are stored with "A. " inside
      the option, and would otherwise render "A. A. Cloud computing". */}
- {quiz.questions.map((q,n)=><View key={q.id} style={{gap:8,paddingVertical:12,borderBottomWidth:1,borderColor:colors.border}}><H2>{n+1}. {q.question}</H2>{q.options.map((o,i)=><Pressable key={i} accessibilityRole="radio" accessibilityLabel={`${String.fromCharCode(65+i)}. ${stripOptionLabel(o)}`} aria-checked={answers[q.id]===i} aria-disabled={!ready||!!result||task.busy} accessibilityState={{checked:answers[q.id]===i,disabled:!ready||!!result||task.busy}} disabled={!ready||!!result||task.busy} onPress={()=>choose(q.id,i)} style={{flexDirection:'row',alignItems:'flex-start',gap:10,borderWidth:1,borderColor:answers[q.id]===i?colors.primary:colors.border,paddingHorizontal:12,paddingVertical:11,borderRadius:8,backgroundColor:answers[q.id]===i?'#EAF2ED':'white'}}><P style={{fontWeight:'700',minWidth:16}}>{String.fromCharCode(65+i)}</P><P style={{flex:1}}>{stripOptionLabel(o)}</P></Pressable>)}{result?<Notice tone={result.checks[n].correct?'success':'warning'} title={result.checks[n].correct?'Correct':`Correct answer: ${String.fromCharCode(65+q.answer)} — ${stripOptionLabel(q.options[q.answer])}`} message={`${q.explanation}\nFrom the book: ${q.quote}`}/>:null}</View>)}
- {result?<Notice tone="success" title={`${result.correct} of ${result.total} correct`} message="Private practice only. This result is saved here, not sent to faculty and never locks another module."/>:<Button title="Check my answers" onPress={check} busy={task.busy} disabled={!ready||Object.keys(answers).length!==quiz.questions.length}/>}
+ {quiz.questions.map((q,n)=><View key={q.id} style={{gap:8,paddingVertical:12,borderBottomWidth:1,borderColor:colors.border}}><H2>{n+1}. {q.question}</H2>{q.options.map((o,i)=><Pressable key={i} accessibilityRole="radio" accessibilityLabel={`${String.fromCharCode(65+i)}. ${stripOptionLabel(o)}`} aria-checked={answers[q.id]===i} aria-disabled={!ready||!!result||task.busy} accessibilityState={{checked:answers[q.id]===i,disabled:!ready||!!result||task.busy}} disabled={!ready||!!result||task.busy} onPress={()=>choose(q.id,i)} style={{flexDirection:'row',alignItems:'flex-start',gap:10,borderWidth:1,borderColor:answers[q.id]===i?colors.primary:colors.border,paddingHorizontal:12,paddingVertical:11,borderRadius:8,backgroundColor:answers[q.id]===i?'#EAF2ED':'white'}}><P style={{fontWeight:'700',minWidth:16}}>{String.fromCharCode(65+i)}</P><P style={{flex:1}}>{stripOptionLabel(o)}</P></Pressable>)}{result?<Notice autoDismiss={false} tone={result.checks[n].correct?'success':'warning'} title={result.checks[n].correct?'Correct':`Correct answer: ${String.fromCharCode(65+q.answer)} — ${stripOptionLabel(q.options[q.answer])}`} message={`${q.explanation}\nFrom the book: ${q.quote}`}/>:null}</View>)}
+ {result?<Notice autoDismiss={false} tone="success" title={`${result.correct} of ${result.total} correct`} message="Private practice only. This result is saved here, not sent to faculty and never locks another module."/>:<Button title="Check my answers" onPress={check} busy={task.busy} disabled={!ready||Object.keys(answers).length!==quiz.questions.length}/>}
  <Button title="Start this quiz again" variant="secondary" disabled={!ready||task.busy} onPress={()=>task.run(async()=>{if(await confirmAsync('Start again?','Clear the current answers. Previous checked results remain in your history.','Start again','Keep answers')){await serial.current;await library.saveDraft(quiz.bookId,quiz.id,{});if(alive.current){persisted.current={};answersRef.current={};dirty.current=false;setAnswers({});setResult(null);setSaved(true);}}})}/>
  {!!history.data?.length&&<><H2>Previous practice</H2>{history.data.map(r=><P key={r.id}>{new Date(r.createdAt).toLocaleString()} · {r.correct}/{r.total} correct</P>)}</>}
  </View>;

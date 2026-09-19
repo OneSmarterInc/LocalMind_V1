@@ -30,8 +30,8 @@ export default function Monitoring() {
       {notice ? <Notice tone="success" message={notice} /> : null}
       {st && !st.enabled ? <Notice tone="warning" title="The AI monitor is switched off" message="Nothing is being evaluated (AI_MONITOR_ENABLED=false or AI_MONITOR_MODE=off)." /> : null}
       {st && st.enabled && !st.judge_ready ? <Notice tone="warning" title="Judge model unavailable" message={`${st.judge_detail}. Deterministic checks still run; ambiguous cases are recorded as “abstain” until a judge is ready.`} /> : null}
-      {st?.pending_backlog ? <Notice title={`${st.pending_backlog} interaction${st.pending_backlog === 1 ? " is" : "s are"} waiting for evaluation.`} message="Evaluate a batch now, or let the background checker work through them."
-        action={<Button title={`Evaluate ${Math.min(25, st.pending_backlog)}`} small variant="secondary" icon="play-outline" busy={backlog.busy} onPress={() => backlog.run()} />} /> : null}
+      {st?.pending_backlog ? <Notice title={`${st.pending_backlog} interaction${st.pending_backlog === 1 ? "" : "s"} awaiting evaluation`} message="Review pending interactions now."
+        action={<Button title="Evaluate now" small variant="secondary" icon="play-outline" busy={backlog.busy} onPress={() => backlog.run()} />} /> : null}
       {tab === "incidents" ? (
         <StatRow>
         <Stat label="Open incidents" icon="alert-circle-outline" value={d?.open_incidents} helper={d ? `${d.incidents} in the last ${d.window_days} days` : null} />

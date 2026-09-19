@@ -11,7 +11,7 @@ export function SubjectCard({ row, index, onPress }: { row: CatalogSubject; inde
   const pctDone = row.total ? Math.round((row.completed / row.total) * 100) : 0;
   const faculty = row.subject.faculty_names?.join(", ");
   return (
-    <Card onPress={onPress} style={{ minHeight: 220 }}>
+    <Card onPress={onPress} style={{ minHeight: 210, borderTopWidth: 3, borderTopColor: ["#8caf97", "#95b3ce", "#c9b481"][index % 3] }}>
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
         <TileIcon icon="library-outline" tone={TONES[index % 3]} size={43} />
         <Badge value={row.subject.code} tone="neutral" />
@@ -27,7 +27,7 @@ export function SubjectCard({ row, index, onPress }: { row: CatalogSubject; inde
       </View>
       <ProgressBar value={pctDone} />
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderTopWidth: 1, borderTopColor: colors.rowLine, paddingTop: 10, marginTop: 2 }}>
-        <Text style={{ fontSize: 11, color: colors.muted }}>Continue learning</Text>
+        <Text style={{ fontSize: 11, color: colors.primary, fontWeight: "600" }}>Continue learning</Text>
         <Ionicons name="arrow-forward" size={15} color={colors.ink} />
       </View>
     </Card>

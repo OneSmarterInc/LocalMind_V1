@@ -21,7 +21,7 @@ import {
   Badge, Button, Card, CardHead, CellText, Column, DangerZone, DetailList, Dropdown, Empty, ErrorBanner, FormFooter, Grid, Input, Loading,
   Notice, OptionCard, PageHeading, PageTabs, Screen, Split, StepList, Table, TableToolbar, TextLink, Tone, colors, confirmAsync, confirmDeleteAsync, fmtSeconds, pct,
 RequestFailed, } from "@/ui";
-import { DateTimeField } from "@/ui/DateTimeField";
+import { DateTimeField, requireValidDates } from "@/ui/DateTimeField";
 import { ResultsRelease, type ReleaseMode } from "@/ui/ResultsRelease";
 import { resultVisible } from "@/ui/releaseState";
 import { type SubjectModule, useSubjectModules } from "@/screens/manage/subjectModules";
@@ -54,6 +54,10 @@ export function QuizListPage() {
   const list = useAsync(() => manage.quizzes({ status: status && status !== "held" ? status : undefined, subject: subject || undefined }), [status, subject]);
   const subjects = useAsync(() => manage.subjects(), []);
   const rows = useMemo(() => (list.data ?? []).filter((z) => (status !== "held" || z.held_for_review) && (!book || z.document_ids?.includes(book)) && (!needle || z.title.toLowerCase().includes(needle))).sort((a,b)=>b.created_at.localeCompare(a.created_at)), [list.data, needle, status, book]);
+  const remove = useAction(async (z: Quiz) => {
+    if (!(await confirmAsync("Delete quiz?", `Delete “${z.title}” and its attempts? This cannot be undone.`, "Delete quiz", "Cancel", { tone: "danger" }))) return;
+    await manage.deleteQuiz(z.id); await list.reload();
+  });
   const code = (z: Quiz) => subjects.data?.find((s) => s.id === z.subject_id)?.code ?? "";
   const action = (z: Quiz) => (z.held_for_review ? "Review quiz" : (z.attempt_count ?? 0) > 0 ? "View results" : z.status === "draft" ? "Edit quiz" : "Open quiz");
   const open = (z: Quiz) => router.push({ pathname: "/manage/quiz/[id]", params: action(z) === "View results" ? { id: z.id, tab: "attempts" } : { id: z.id } });
@@ -63,13 +67,13 @@ export function QuizListPage() {
     { key: "s", label: "Status", flex: 1, render: (z) => { const st = quizStatus(z); return <Badge value={st.label} tone={st.tone} />; } },
     { key: "a", label: "Attempts", flex: 0.7, render: (z) => String(z.attempt_count ?? 0) },
     { key: "r", label: "Results", flex: 1, render: (z) => ((z.pending_release_count ?? 0) > 0 ? `${z.pending_release_count} results held` : (z.attempt_count ?? 0) > 0 ? "All released" : "—") },
-    { key: "x", label: "", flex: 1, render: (z) => <Button title={action(z)} small icon={action(z) === "Review quiz" ? "arrow-forward" : undefined} variant={action(z) === "Review quiz" ? "primary" : "secondary"} onPress={() => open(z)} /> },
+    { key: "x", label: "Actions", width: 250, align: "right", render: (z) => <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "flex-end" }}><Button title={action(z)} small icon={action(z) === "Review quiz" ? "arrow-forward" : undefined} variant={action(z) === "Review quiz" ? "primary" : "secondary"} onPress={() => open(z)} /><Button title="Delete" icon="trash-outline" small variant="danger" disabled={remove.busy} onPress={() => remove.run(z)} /></View> },
   ];
   return (
     <Screen refreshing={list.loading} onRefresh={list.reload}>
       <PageHeading eyebrow="ASSESSMENT WORKSPACE" title="Quizzes" subtitle="Create, review, publish, and release results without changing workspaces."
         right={<Button title="Create a quiz" icon="add" onPress={() => router.push("/manage/quiz/new")} />} />
-      <ErrorBanner message={list.error} onRetry={list.reload} />
+      <ErrorBanner message={list.error ?? remove.error} onRetry={list.reload} />
       <Card flush>
         <TableToolbar right={<>
           <Dropdown value={subject} onChange={v=>{setSubject(v);setBook('');}} accessibilityLabel="Filter by subject" options={[{ value: "", label: "All subjects" }, ...(subjects.data ?? []).map((s) => ({ value: s.id, label: s.code }))]} />
@@ -97,24 +101,35 @@ export function SourceModuleChooser({ subjectId, onSubject, value, onChange }: {
   const modules = useSubjectModules(subjectId, true);
   const active = (subjects.data ?? []).filter((s) => s.status === "active");
   useEffect(() => { if (!subjectId && active.length) onSubject(active[0].id); }, [subjectId, active, onSubject]);
-  const books = [...new Set((modules.data ?? []).map((m) => m.document_title))];
+  const [bookFilter, setBookFilter] = useState("");
+  const [search, setSearch] = useState("");
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  useEffect(() => { setBookFilter(""); setSearch(""); setCollapsed({}); }, [subjectId]);
+  const books = [...new Map((modules.data ?? []).map(m => [m.document_id, { id: m.document_id, title: m.document_title }])).values()];
+
   return (
     <>
       <Dropdown label="Subject" value={subjectId} onChange={(v) => { onSubject(v); onChange([]); }} placeholder="Choose a subject" width="100%" options={active.map((s) => ({ value: s.id, label: `${s.code} · ${s.name}` }))} />
       <View style={{ gap: 6 }}>
         <Text style={{ fontSize: 12, fontWeight: "600", color: colors.ink }}>Source modules <Text style={{ color: colors.danger, fontWeight: "400" }}>*</Text></Text>
-        <Text style={{ fontSize: 11, color: colors.muted }}>Select one module or combine several from the same subject. No extra dropdown is needed for a single module.</Text>
+        <Text style={{ fontSize: 11, color: colors.muted }}>Select modules from one or more books in this subject.</Text>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
+          <Input compact icon="search" placeholder="Search modules" accessibilityLabel="Search source modules" value={search} onChangeText={setSearch} containerStyle={{ flex: 1, minWidth: 200 }} />
+          <Dropdown value={bookFilter} onChange={setBookFilter} options={[{value:"",label:"All books"},...books.map(b=>({value:b.id,label:b.title}))]} accessibilityLabel="Filter source books" />
+        </View>
+        <Text style={{ color: colors.muted, fontSize: 12 }}>{value.length} modules selected</Text>
         <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 9, backgroundColor: "#F8FAF7", padding: 10, gap: 2 }}>
           {modules.error && !modules.data ? <RequestFailed onRetry={modules.reload} /> : modules.loading && !modules.data ? <Loading lines={1} /> : null}
           {modules.data && modules.data.length === 0 ? <Text style={{ fontSize: 12, color: colors.muted, padding: 8 }}>This subject has no published modules yet.</Text> : null}
-          {books.map((b) => (
-            <View key={b}>
-              {books.length > 1 ? <Text style={{ fontSize: 11, fontWeight: "600", color: colors.muted, paddingHorizontal: 6, paddingTop: 8 }}>{b}</Text> : null}
-              {(modules.data ?? []).filter((m) => m.document_title === b).map((m) => (
-                <CheckRow key={m.id} label={m.title} meta={`Module ${m.number}`} checked={value.includes(m.id)} onPress={() => onChange(value.includes(m.id) ? value.filter((x) => x !== m.id) : [...value, m.id])} />
-              ))}
-            </View>
-          ))}
+          {books.filter(b=>!bookFilter||b.id===bookFilter).map(b => {
+            const all = (modules.data ?? []).filter(m=>m.document_id===b.id);
+            const visible = all.filter(m=>`${m.title} ${m.chapter} ${m.number}`.toLowerCase().includes(search.toLowerCase()));
+            if (!visible.length) return null;
+            return <View key={b.id} style={{ paddingVertical: 6 }}>
+              <Button title={`${b.title} · ${all.filter(m=>value.includes(m.id)).length}/${all.length} selected`} variant="ghost" icon={collapsed[b.id]&&!search?"chevron-forward":"chevron-down"} onPress={()=>setCollapsed(c=>({...c,[b.id]:!c[b.id]}))} />
+              {(!collapsed[b.id]||!!search) && visible.map(m=><CheckRow key={m.id} label={m.title} meta={`Module ${m.number}`} checked={value.includes(m.id)} onPress={()=>onChange(value.includes(m.id)?value.filter(x=>x!==m.id):[...value,m.id])} />)}
+            </View>;
+          })}
         </View>
       </View>
     </>
@@ -246,6 +261,7 @@ export function QuizDetailPage({ id, note }: { id: string; note?: string }) {
   }, [id, q.data, edit]);
 
   const save = useAction(async () => {
+    requireValidDates();
     if (!draft) return false;
     // The draft saves to its own quiz, never to whichever quiz the route shows now.
     const sent = JSON.parse(JSON.stringify(draft)) as Quiz;
@@ -389,11 +405,11 @@ export function QuizDetailPage({ id, note }: { id: string; note?: string }) {
                 <Grid min={200} gap={16}>
                   <Input label="Pass percentage" value={String(d.pass_percentage)} keyboardType="number-pad" onChangeText={(v) => edit((z) => ({ ...z, pass_percentage: Number(v) || 0 }))} editable={editable} />
                 </Grid>
-                <Grid min={200} gap={16}>
                   <Input label="Time limit (minutes)" value={d.time_limit_minutes ? String(d.time_limit_minutes) : ""} placeholder="No limit" keyboardType="number-pad" onChangeText={(v) => edit((z) => ({ ...z, time_limit_minutes: Number(v) || null }))} editable={editable} />
+                <Grid min={260} gap={16}>
                   <DateTimeField label="Available from" value={d.available_from} onChange={(v) => edit((z) => ({ ...z, available_from: v }))} disabled={!editable} hint="Empty means available as soon as it is published." />
+                <DateTimeField label="Due date" value={d.due_at} onChange={(v) => edit((z) => ({ ...z, due_at: v }))} disabled={!editable} />
                 </Grid>
-                <DateTimeField label="Due date" value={d.due_at} onChange={(v) => edit((z) => ({ ...z, due_at: v }))} disabled={!editable} width={360} />
                 <Text style={{ fontSize: 15, fontWeight: "600", color: colors.ink, marginTop: 6 }}>When can students see results?</Text>
                 <ResultsRelease value={(d.results_release ?? "immediate") as ReleaseMode} at={d.results_release_at ?? null} disabled={!editable} onChange={(m, at) => edit((z) => ({ ...z, results_release: m, results_release_at: at }))} />
                 <FormFooter note="Evaluation and result visibility are separate.">
@@ -605,6 +621,7 @@ export function AttemptReviewPage({ attemptId, quizId }: { attemptId: string; qu
   const overrides = draft?.values ?? {};
   const setOverrides = (fn: (previous: Overrides) => Overrides) => edit(d => ({ ...d, values: fn(d.values) }));
   const save = useAction(async () => {
+    requireValidDates();
     if (!draft) return false;
     const sent = draft;
     const values: Record<string, { score_awarded: number; feedback?: string }> = {};
@@ -619,8 +636,8 @@ export function AttemptReviewPage({ attemptId, quizId }: { attemptId: string; qu
   const release = useAction(async () => { await manage.releaseQuizResults(quizId, attemptId); await attempts.reload(); });
   const goBack = useBackTo();
   const navigation = useNavigation();
-  const parent = `/manage/quiz/${quizId}?tab=attempts`;
-  useEffect(() => { navigation.setOptions({ backTo: parent, backLabel: "Back to attempts" }); }, [navigation, parent]);
+  const parent = "/manage/quizzes";
+  useEffect(() => { navigation.setOptions({ backTo: parent, backLabel: "Back to quizzes" }); }, [navigation, parent]);
   const back = () => goBack(parent);
   const z = quiz.data;
   const held = !!a && !!z && !resultVisible(z, a);
@@ -629,7 +646,7 @@ export function AttemptReviewPage({ attemptId, quizId }: { attemptId: string; qu
   return (
     <Screen refreshing={attempts.loading} onRefresh={attempts.reload}>
       <PageHeading eyebrow="STUDENT ATTEMPT" title={a ? `${a.student_name || a.student_email} · Attempt ${a.attempt_number}` : "Attempt"} subtitle={z && a ? `${z.title} · Submitted ${a.submitted_at ? new Date(a.submitted_at).toLocaleString() : "—"}` : null}
-        right={<Button title="Back to attempts" variant="secondary" icon="arrow-back" onPress={back} />} />
+        right={<Button title="Back to quizzes" variant="secondary" icon="arrow-back" onPress={back} />} />
       <ErrorBanner message={quiz.error ?? attempts.error ?? save.error ?? rerun.error ?? release.error} onRetry={() => { void quiz.reload(); void attempts.reload(); }} />
       {attempts.loading && !a ? <Loading /> : null}
       {attempts.data && !a ? <Notice tone="warning" title="Attempt not found" message="It may belong to an older version of this quiz." /> : null}

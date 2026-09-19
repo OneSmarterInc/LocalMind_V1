@@ -41,7 +41,7 @@ function Authoring(){
  const [quizCount,setQuizCount]=useState('6'),[questionIndex,setQuestionIndex]=useState(0);
  const [modelReady,setModelReady]=useState(false);
  const [draft,setDraft]=useState<Draft>(),[error,setError]=useState(''),[history,setHistory]=useState<ArchivedDraft[]>([]),[opened,setOpened]=useState('');
- useEffect(()=>{navigation.setOptions({backTo:draft?.snapshot.document_id&&(!draft.localBook||draft.snapshot.remote_id)?`/manage/document/${draft.snapshot.document_id}?tab=outline&module=${draft.snapshot.remote_id||draft.snapshot.module_id}`:"/manage/books",backLabel:draft?.snapshot.document_id&&(!draft.localBook||draft.snapshot.remote_id)?"Back to outline":"Books & modules"});},[navigation,draft?.localBook,draft?.snapshot.document_id,draft?.snapshot.remote_id,draft?.snapshot.module_id]);
+ useEffect(()=>{navigation.setOptions({backTo:draft?.snapshot.document_id&&(!draft.localBook||draft.snapshot.remote_id)?`/manage/document/${draft.snapshot.document_id}?tab=lessons&module=${draft.snapshot.remote_id||draft.snapshot.module_id}`:"/manage/books",backLabel:draft?.snapshot.document_id&&(!draft.localBook||draft.snapshot.remote_id)?"Back to lessons & quizzes":"Books & modules"});},[navigation,draft?.localBook,draft?.snapshot.document_id,draft?.snapshot.remote_id,draft?.snapshot.module_id]);
  const localFigures=useAsync(()=>draft?.sourceBook&&draft.sourceSection?service.library.visuals(draft.sourceBook,draft.sourceSection):Promise.resolve([]),[service,draft?.sourceBook,draft?.sourceSection]);
 
  // ONLY this module's own generation.
@@ -123,7 +123,7 @@ function Authoring(){
   <PageHeading eyebrow="LOCAL AUTHORING" title={draft?.snapshot.title||'Local authoring'}
    subtitle="Generated on this device. Review it, then synchronize it to the institution."
    right={<Row>
-    {draft&&(!draft.localBook||draft.snapshot.remote_id)?<Button title="Back to outline" icon="arrow-back" variant="secondary" onPress={()=>back({pathname:"/manage/document/[id]",params:{id:draft.snapshot.document_id,tab:"outline",module:draft.snapshot.remote_id||draft.snapshot.module_id}})}/>:null}
+    {draft&&(!draft.localBook||draft.snapshot.remote_id)?<Button title="Back to lessons & quizzes" icon="arrow-back" variant="secondary" onPress={()=>back({pathname:"/manage/document/[id]",params:{id:draft.snapshot.document_id,tab:"lessons",module:draft.snapshot.remote_id||draft.snapshot.module_id}})}/>:null}
     <Button title="Books & modules" icon="library-outline" variant="secondary" onPress={()=>router.push('/manage/books')}/>
    </Row>}/>
 

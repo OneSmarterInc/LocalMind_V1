@@ -50,7 +50,7 @@ export class JobQueue{
   * that had already been cancelled because the job was still `running`.
   * With this flag a row can hide its own button and show its own progress
   * without speaking for any other row. */
- cancel(id:number){const j=this.entries.find(j=>j.id===id);if(!j||!['queued','running'].includes(j.state)||j.cancelling)return;j.cancelling=true;j.controller.abort();if(j.state==='queued'){j.state='cancelled';j.note='Cancelled';j.run=undefined;j.finish();}else j.note='Cancelling…';this.emit();}
+ cancel(id:number){const j=this.entries.find(j=>j.id===id);if(!j||!['queued','running'].includes(j.state)||j.cancelling)return;j.cancelling=true;j.controller.abort();if(j.state==='queued'){j.state='cancelled';j.cancelling=false;j.note='Cancelled';j.run=undefined;j.finish();}else j.note='Cancelling…';this.emit();}
  cancelOtherScopes(scope:string){for(const j of this.entries)if(j.scope!==scope)this.cancel(j.id);}
  async cancelDocument(scope:string,documentId:string,moduleIds:string[]=[]){const jobs=this.entries.filter(j=>j.scope===scope&&(j.documentId===documentId||j.documentIds?.includes(documentId)||j.bookId===documentId||moduleIds.includes(j.bookId)));for(const j of jobs)this.cancel(j.id);await Promise.all(jobs.map(j=>j.settled));}
  async cancelBook(scope:string,bookId:string){const jobs=this.entries.filter(j=>j.scope===scope&&j.bookId===bookId);for(const j of jobs)this.cancel(j.id);await Promise.all(jobs.map(j=>j.settled));}
@@ -58,7 +58,7 @@ export class JobQueue{
   while(true){const running=this.entries.filter(j=>j.state==='running');
    const j=this.entries.find(j=>j.state==='queued'&&!running.some(r=>conflicts(j,r))&&(this.doubtLane?(j.kind==='doubt'?!running.some(r=>r.kind==='doubt'):running.filter(r=>r.kind!=='doubt').length<this.concurrency):this.active<this.concurrency));if(!j)break;this.active++;j.state='running';j.note='Preparing on this device';this.emit();
    void(async()=>{try{await j.run!(j.controller.signal,s=>{if(!j.controller.signal.aborted){j.note=s;this.emit();}});j.state=j.controller.signal.aborted?'cancelled':'completed';j.note=j.state==='completed'?'Saved on this device':'Cancelled';}
-    catch(e){j.state=j.controller.signal.aborted?'cancelled':'failed';j.error=j.state==='failed'?(e instanceof Error?e.message:String(e)):'';}
+    catch(e){j.state=j.controller.signal.aborted?'cancelled':'failed';j.error=j.state==='failed'?(e instanceof Error?e.message:String(e)):'';j.note=j.state==='cancelled'?'Cancelled':'Generation failed';}
     finally{j.run=undefined;j.cancelling=false;j.finish();this.active--;this.emit();this.pump();}})();
   }
  }

@@ -604,6 +604,8 @@ def overview(days: int = 30) -> dict:
                     + Assessment.objects.filter(generator="ai", created_at__gte=since).count())
     evals = Evaluation.objects.filter(created_at__gte=since)
     done = evals.filter(stage=EvaluationStage.DONE)
+    covered = (Evaluation.objects.filter(stage=EvaluationStage.DONE, message__role="assistant", message__created_at__gte=since).values("message_id").distinct().count()
+               + Evaluation.objects.filter(stage=EvaluationStage.DONE, assessment__generator="ai", assessment__created_at__gte=since).values("assessment_id").distinct().count())
     incidents = Incident.objects.filter(created_at__gte=since)
     feedback = Feedback.objects.filter(created_at__gte=since)
     labelled = feedback.count()
@@ -614,9 +616,9 @@ def overview(days: int = 30) -> dict:
     return {
         "window_days": days,
         "interactions": interactions,
-        "evaluated": done.count(),
+        "evaluated": covered,
         "failed_evaluations": evals.filter(stage=EvaluationStage.FAILED).count(),
-        "coverage_percent": round(100.0 * done.count() / interactions, 1) if interactions else None,
+        "coverage_percent": round(100.0 * covered / interactions, 1) if interactions else None,
         "judge_invocations": done.filter(judge_invoked=True).count(),
         "verdicts": {v: done.filter(verdict=v).count() for v in Verdict.values},
         "incidents": incidents.count(),

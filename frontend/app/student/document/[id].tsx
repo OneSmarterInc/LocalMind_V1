@@ -5,13 +5,14 @@ import { Pressable, Text, View } from "react-native";
 import { student } from "@/api/endpoints";
 import type { Chapter } from "@/api/types";
 import { useAsync } from "@/hooks/useAsync";
-import { Badge, Button, Card, DetailList, ErrorBanner, ListRow, Loading, Notice, PageHeading, ProgressBar, Screen, Split, colors, RequestFailed } from "@/ui";
+import { Input, Badge, Button, Card, DetailList, ErrorBanner, ListRow, Loading, Notice, PageHeading, ProgressBar, Screen, Split, colors, RequestFailed } from "@/ui";
 
 const statusLabel = (st: string) => (st === "completed" ? "Completed" : st === "in_progress" ? "In progress" : st === "needs_review" ? "Needs review" : "Not started");
 
 export default function StudentBook() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const [search, setSearch] = useState("");
   const navigation = useNavigation();
   const q = useAsync(() => student.document(id), [id]);
   useEffect(() => { navigation.setOptions({ backTo: q.data?.subject_id ? `/student/subject/${q.data.subject_id}` : "/student/subjects", backLabel: q.data?.subject_id ? "Back to subject" : "My subjects" }); }, [navigation, q.data?.subject_id]);
@@ -31,7 +32,7 @@ export default function StudentBook() {
       {q.error && !q.data ? <RequestFailed onRetry={q.reload} /> : q.loading && !q.data ? <Loading /> : null}
       {q.data ? (
         <Split
-          main={<View style={{ gap: 14 }}>{chapters.map((ch, i) => <ChapterBlock key={ch.id} chapter={ch} index={i} numberOf={numberOf} onOpen={(mid) => router.push(`/student/module/${mid}`)} />)}</View>}
+          main={<View style={{ gap: 14 }}><Input icon="search" placeholder="Search modules" accessibilityLabel="Search book modules" value={search} onChangeText={setSearch} />{chapters.map((ch, i) => ({ch: {...ch, modules: ch.modules.filter(m=>`${m.title} ${ch.title} ${numberOf(m.id)}`.toLowerCase().includes(search.toLowerCase()))},i})).filter(({ch})=>ch.modules.length).map(({ch, i}) => <ChapterBlock key={`${ch.id}:${!!search}`} chapter={ch} index={i} numberOf={numberOf} onOpen={(mid) => router.push(`/student/module/${mid}`)} />)}</View>}
           side={
             <>
               <Card>

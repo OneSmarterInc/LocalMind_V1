@@ -92,7 +92,7 @@ function DetailsTab({ subject: s, onChanged }: { subject: any; onChanged: () => 
             <View style={{ height: 1, backgroundColor: colors.border }} />
             <Button title="Open content workspace" variant="secondary" icon="book-outline" full onPress={() => router.push({ pathname: "/manage/books", params: { subject: s.id } })} />
             <View style={{ height: 1, backgroundColor: colors.border }} />
-            {s.status === "active" ? <Button title="Discontinue subject" variant="secondary" full onPress={() => status.run("discontinued")} busy={status.busy} /> : <Button title="Reactivate subject" full onPress={() => status.run("active")} busy={status.busy} />}
+            {s.status === "active" ? <Button title="Discontinue subject" variant="secondary" full onPress={() => status.run("discontinued")} busy={status.busy} /> : <Button title={s.status === "archived" ? "Unarchive subject" : "Reactivate subject"} full onPress={() => status.run("active")} busy={status.busy} />}
             {s.status !== "archived" ? <Button title="Archive subject" variant="secondary" icon="archive-outline" full onPress={() => status.run("archived")} busy={status.busy} /> : null}
             <ErrorBanner message={status.error} />
           </Card>

@@ -37,13 +37,11 @@ export default function PrivateLibrary(){
  });
  // An institution book is "already added" when a device book was imported from it
  // (matched by its source id) or when the same file content is already saved.
- const addedSourceIds=new Set((books.data||[]).map(b=>b.sourceId).filter(Boolean) as string[]);
- const addedHashes=new Set((books.data||[]).map(b=>b.sourceHash).filter(Boolean) as string[]);
- const isAdded=(b:SharedBook)=>addedSourceIds.has(`${b.kind}:${b.id}`)||addedHashes.has(b.sha256);
+ const matchingBook=(b:SharedBook)=>(books.data||[]).find(x=>x.sourceId===`${b.kind}:${b.id}`||x.sourceHash===b.sha256);
  return <Screen refreshing={books.loading} onRefresh={books.reload}>
   <PageHeading title="Private library" subtitle="Your books. Your pace. Lessons, quizzes and doubts stay on this device." right={<Button title="Offline AI" icon="hardware-chip-outline" variant="secondary" onPress={()=>router.push('/student/offline-ai')} disabled={task.busy}/>} />
   <ErrorBanner message={task.error||books.error} onRetry={books.reload}/>
-  {!!task.note&&!task.error&&<Notice message={task.note}/>}
+  {!!task.note&&!task.error&&<Notice autoDismiss={!task.busy} message={task.note}/>}
   <Row><Button title="Upload my book" icon="add-outline" onPress={upload} busy={task.busy}/><Badge value={model.data?.installed?'Local model downloaded':'Set up Offline AI'} tone={model.data?.installed?'green':'amber'}/></Row>
   {task.busy&&<Button title="Cancel import" variant="secondary" onPress={task.cancel}/>}
   <PageTabs value={tab} onChange={t=>{if(!task.busy)setTab(t);}} tabs={[{key:'device',label:'On this device',count:books.data?.length},{key:'institution',label:'From my institution'}]}/>
@@ -55,13 +53,13 @@ export default function PrivateLibrary(){
    {!books.loading&&!!books.data?.length&&!filteredBooks.length?<Empty title="No matching books" text="Try a different search or clear the search field."/>:null}
    {filteredBooks.map(b=><ListRow key={b.id} title={b.title} subtitle={`${b.sections.length} modules · ${b.origin==='shared'?'Institution copy':'Your own book'} · Saved on this device`} icon="book-outline" onPress={()=>{if(!task.busy)open(b.id);}} right={<Button title="Remove" small variant="danger" disabled={task.busy} onPress={()=>task.run(async()=>{if(library&&await confirmAsync('Remove this private book?','Its locally generated lessons, quizzes, results and doubts will also be removed. The institution book and official grades are not changed.','Remove','Keep book')){await library.remove(b.id);await books.reload();}})}/>}/>) }
   </Card>:<Card><H2>Books shared with you</H2>
-   <P muted>Published books from your subjects and books shared for private study. Download once; then learn independently.</P>
+   <P muted>Published books from your subjects and books shared for private study. Identical files share one saved copy and practice history.</P>
    {!online?<Notice tone="warning" message="Connect to your institution once to add another shared book. Your saved books still work offline."/>:null}
    <ErrorBanner message={available.error} onRetry={available.reload}/>
    {available.loading?<Loading/>:null}
    {online&&!available.loading&&!available.error&&!available.data?.length?<Empty title="No shared books yet" text="Your admin or faculty can upload one in Books for private study. Published books from enrolled subjects also appear here."/>:null}
    {!available.loading&&!!available.data?.length&&!filteredAvailable.length?<Empty title="No matching shared books" text="Try a different search or clear the search field."/>:null}
-   {filteredAvailable.map(b=>{const added=isAdded(b);return <ListRow key={`${b.kind}:${b.id}`} title={b.title} subtitle={`${b.subject}${b.file_size?` · ${fileSize(b.file_size)}`:''}${added?' · Already in your library':''}`} icon={added?'checkmark-circle-outline':'cloud-download-outline'} right={added?<Badge value="Already added" tone="green" icon="checkmark-circle-outline"/>:<Button title="Add to my library" small disabled={task.busy} onPress={()=>add(b)}/>}/>;})}
+   {filteredAvailable.map(b=>{const saved=matchingBook(b);const added=!!saved;return <ListRow key={`${b.kind}:${b.id}`} title={b.title} subtitle={`${b.subject}${b.file_size?` · ${fileSize(b.file_size)}`:''}${saved?` · Saved as ${saved.title}`:''}`} icon={added?'checkmark-circle-outline':'cloud-download-outline'} right={added?<Button title="Open saved copy" small variant="secondary" onPress={()=>saved&&open(saved.id)}/>:<Button title="Add to my library" small disabled={task.busy} onPress={()=>add(b)}/>}/>;})}
   </Card>}
   <Notice title="Private means on this device" message="Personal books and practice are not sent to faculty or used as course grades. Keep the same app/browser profile; clearing its storage removes the saved library. AI output is unreviewed practice—check it against your book."/>
  </Screen>;

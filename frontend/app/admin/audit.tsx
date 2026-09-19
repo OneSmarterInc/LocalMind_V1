@@ -1,3 +1,4 @@
+import { Sheet } from "@/ui/Shell";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useState } from "react";
 import { ScrollView, Text, View } from "react-native";
@@ -107,7 +108,7 @@ export default function Audit() {
   const [since, setSince] = useState("");
   const [until, setUntil] = useState("");
   const [more, setMore] = useState(false);
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<AuditLog | null>(null);
   const [page, setPage] = useState(1);
   const who = useDebounced(actor);
   const targetId = useDebounced(target);
@@ -149,7 +150,7 @@ export default function Audit() {
                 const tone = toneFor(verb);
                 return (
                   <View key={log.id}>
-                    <View style={{ flexDirection: "row", alignItems: "center", paddingVertical: 13, borderBottomWidth: open === log.id ? 0 : 1, borderBottomColor: colors.rowLine }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: colors.rowLine }}>
                       <View style={{ flex: 1.1, paddingHorizontal: 18 }}><Text style={{ fontSize: 12, color: colors.text }}>{stamp(log.created_at)}</Text></View>
                       <View style={{ flex: 1.6, paddingHorizontal: 18 }}><CellText title={log.actor_email || "System"} sub={log.actor_role || null} /></View>
                       <View style={{ flex: 1.5, paddingHorizontal: 18, flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -158,9 +159,8 @@ export default function Audit() {
                       </View>
                       <View style={{ flex: 1.8, paddingHorizontal: 18 }}><CellText strong={false} title={log.target_label || sentence(log.target_type)} sub={log.target_label ? sentence(log.target_type) : null} /></View>
                       <View style={{ flex: 0.8, paddingHorizontal: 18 }}><Badge value="Recorded" tone={tones[tone]} /></View>
-                      <View style={{ flex: 1.4, paddingHorizontal: 18, alignItems: "flex-start" }}><Button title={open === log.id ? "Hide" : "Details"} icon="eye-outline" small variant="secondary" onPress={() => setOpen((o) => (o === log.id ? null : log.id))} /></View>
+                      <View style={{ flex: 1.4, paddingHorizontal: 18, alignItems: "flex-start" }}><Button title="Details" icon="eye-outline" small variant="secondary" onPress={() => setOpen(log)} /></View>
                     </View>
-                    {open === log.id ? <DetailPairs log={log} /> : null}
                   </View>
                 );
               })}
@@ -177,6 +177,7 @@ export default function Audit() {
           </TableFooter>
         ) : null}
       </Card>
+      <Sheet visible={!!open} title="Audit details" onClose={() => setOpen(null)} width={680}>{open ? <DetailPairs log={open} /> : null}</Sheet>
     </Screen>
   );
 }

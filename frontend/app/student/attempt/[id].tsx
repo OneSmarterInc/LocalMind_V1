@@ -1,3 +1,5 @@
+import { useOnline } from "@/offline/connectivity";
+import { useSyncState } from "@/offline/sync";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useBackTo } from "@/hooks/useBackTo";
 import React, { useEffect, useState } from "react";
@@ -12,9 +14,13 @@ import { Badge, Button, Card, CardHead, DetailList, Empty, ErrorBanner, Loading,
 export default function StudentAttempt() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const online = useOnline();
+  const sync = useSyncState();
   const back = useBackTo();
   const q = useAsync(() => student.attempt(id), [id]);
   const retrySync = useAction(async () => { await retryCourseEvent(id); await q.reload(); });
+  const reloadAttempt = q.reload;
+  useEffect(() => { if (sync.lastSync) void reloadAttempt(); }, [sync.lastSync, reloadAttempt]);
   const quizzes = useAsync(() => student.quizzes(), []);
   const a = q.data;
   useEffect(() => { if (a?.status !== "submitted" && a?.status !== "pending_evaluation") return; const t=setInterval(q.reload,5000); return()=>clearInterval(t); },[a?.status,q.reload]);
@@ -24,7 +30,6 @@ export default function StudentAttempt() {
   const title = a?.assessment_title ?? quiz?.title ?? "Quiz";
   const ctx = useAsync(async () => (quiz?.module_id ? student.module(quiz.module_id).catch(() => null) : null), [quiz?.module_id]);
   const book = ctx.data ? `${ctx.data.document_title ?? ""} · Module ${ctx.data.module_number ?? ctx.data.order}` : null;
-  const bookId = ctx.data?.document_id;
 
   if (q.loading && !a) return <Screen><Loading /></Screen>;
   if (!a) return <Screen><ErrorBanner message={q.error} onRetry={q.reload} /></Screen>;
@@ -71,16 +76,15 @@ export default function StudentAttempt() {
           </Card>
         )}
         <Card>
-          <CardHead title="Synchronization" subtitle="Your answers are safe on this device until the institution confirms them." />
-          <Button title="Retry synchronization" icon="refresh" full onPress={() => retrySync.run()} busy={retrySync.busy} />
-          <Button title="Check synchronization" icon="sync-outline" variant="secondary" full onPress={q.reload} />
+          <CardHead title="Saved on this device" subtitle={online ? (sync.running ? "Synchronizing…" : "Waiting for confirmation") : "Will sync when connected"} />
+          {online && (a.sync_status === 'conflict' || sync.error) ? <View style={{ alignItems: "flex-start" }}><Button title="Retry sync" icon="refresh" variant="secondary" onPress={() => retrySync.run()} busy={retrySync.busy || sync.running} /></View> : null}
           <TextLink title="Course sync status" icon="cloud-offline-outline" onPress={() => router.push('/student/offline')} />
         </Card>
       </Screen>
     );
   }
   if (a.status === "submitted" && !held) {
-    return <Screen><PageHeading title="Your answers are saved" subtitle={title}/><Notice title="Evaluation is pending" message="Your response is safely stored. The local evaluation worker will process it, and faculty release rules still apply. No zero or pass has been assigned. If this remains pending, ask faculty to check the saved job."/><Button title="Check evaluation status" onPress={q.reload}/><Button title="Back to quizzes" variant="secondary" onPress={() => back("/student/quizzes")}/></Screen>;
+    return <Screen><PageHeading title="Your answers are saved" subtitle={title}/><Notice autoDismiss={false} title="Evaluation is pending" message="Your response is safely stored. The local evaluation worker will process it, and faculty release rules still apply. No zero or pass has been assigned. If this remains pending, ask faculty to check the saved job."/><Button title="Check evaluation status" onPress={q.reload}/><Button title="Back to quizzes" variant="secondary" onPress={() => back("/student/quizzes")}/></Screen>;
   }
 
   if (held) {
@@ -107,7 +111,7 @@ export default function StudentAttempt() {
   return (
     <Screen refreshing={q.loading} onRefresh={q.reload}>
       <PageHeading eyebrow="QUIZ COMPLETED" title="Your quiz result" subtitle={[title, book].filter(Boolean).join(" · ")}
-        right={bookId ? <Button title="Back to book" variant="secondary" icon="arrow-back" onPress={() => back(`/student/document/${bookId}`)} /> : null} />
+        right={<Button title="Back to quizzes" variant="secondary" icon="arrow-back" onPress={() => back("/student/quizzes")} />} />
       <View style={{ flexDirection: "row", alignItems: "center", gap: 30, padding: 28, borderWidth: 1, borderColor: "#D7E4D1", backgroundColor: "#F0F6EB", borderRadius: 13, flexWrap: "wrap" }}>
         <ScoreRing value={pct(a.percentage)} caption="YOUR SCORE" />
         <View style={{ flex: 1, minWidth: 220, gap: 8 }}>

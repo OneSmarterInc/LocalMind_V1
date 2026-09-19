@@ -347,7 +347,16 @@ export function ErrorBanner({ message, onRetry }: { message?: string | null; onR
   return <Notice tone="danger" title="Something went wrong" message={message} action={onRetry ? <Button title="Try again" small variant="secondary" icon="refresh" onPress={onRetry} /> : undefined} />;
 }
 
-export function Notice({ message, tone = "info", title, action, icon }: { message: string; tone?: "info" | "warning" | "success" | "danger"; title?: string; action?: React.ReactNode; icon?: IconName }) {
+export function Notice({ message, tone = "info", title, action, icon, autoDismiss }: { autoDismiss?: boolean; message: string; tone?: "info" | "warning" | "success" | "danger"; title?: string; action?: React.ReactNode; icon?: IconName }) {
+  const [hidden, setHidden] = React.useState(false);
+  const temporary = autoDismiss ?? ((tone === "info" || tone === "success") && !action);
+  React.useEffect(() => {
+    setHidden(false);
+    if (!temporary) return;
+    const timer = setTimeout(() => setHidden(true), 6000);
+    return () => clearTimeout(timer);
+  }, [message, title, temporary]);
+  if (hidden) return null;
   const t = tone === "warning" ? { bg: "#FFFAEC", border: "#EBDFBD", fg: "#866028" } : tone === "success" ? { bg: "#F0F7F1", border: "#DBE9DE", fg: "#336655" } : tone === "danger" ? { bg: "#FFF3F1", border: "#EDD5D0", fg: "#923C35" } : { bg: "#F1F6FC", border: "#DAE5F1", fg: "#3B5E7E" };
   const ic: IconName = icon ?? (tone === "warning" ? "warning-outline" : tone === "success" ? "checkmark-circle-outline" : tone === "danger" ? "alert-circle-outline" : "information-circle-outline");
   return (
@@ -358,6 +367,7 @@ export function Notice({ message, tone = "info", title, action, icon }: { messag
         <Text style={{ color: t.fg, fontSize: 12, lineHeight: 19 }}>{message}</Text>
       </View>
       {action ? <View style={{ alignSelf: "center" }}>{action}</View> : null}
+      {temporary ? <Pressable accessibilityRole="button" accessibilityLabel="Dismiss message" onPress={() => setHidden(true)} hitSlop={8}><Ionicons name="close" size={18} color={t.fg} /></Pressable> : null}
     </View>
   );
 }
@@ -461,7 +471,7 @@ export function Table<T>({ columns, rows, keyOf, onRowPress, empty, minWidth = 6
     const action = !c.label;
     // Wider than its buttons, so the buttons start right after the data, as an HTML table would place them.
     return { flex: c.width ? undefined : action ? (c.flex ?? 1.1) * 1.7 : c.flex ?? 1, width: c.width, paddingHorizontal: 18, minWidth: 0,
-      alignItems: action ? "flex-start" : c.align === "right" ? "flex-end" : c.align === "center" ? "center" : "flex-start" };
+      alignItems: c.align === "right" ? "flex-end" : c.align === "center" ? "center" : "flex-start" };
   };
   // Real table semantics for screen readers: table, rows, column headers and cells.
   const body = (

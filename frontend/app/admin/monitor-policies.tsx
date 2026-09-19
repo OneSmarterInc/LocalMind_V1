@@ -6,7 +6,7 @@ import { Pressable, Text, View } from "react-native";
 import { admin } from "@/api/endpoints";
 import type { MonitorPolicy, MonitorSeverity } from "@/api/types";
 import { useAction, useAsync } from "@/hooks/useAsync";
-import { Button, Card, CardHead, Dropdown, ErrorBanner, FormFooter, Input, Loading, Notice, PageHeading, Screen, colors, RequestFailed } from "@/ui";
+import { Button, Card, CardHead, Dropdown, ErrorBanner, FormFooter, Input, Loading, PageHeading, Screen, colors, RequestFailed } from "@/ui";
 import { ISSUE_LABEL } from "@/screens/admin/monitor";
 
 const SEVERITIES: { value: MonitorSeverity; label: string }[] = [{ value: "low", label: "Low" }, { value: "medium", label: "Medium" }, { value: "high", label: "High" }, { value: "critical", label: "Critical" }];
@@ -48,12 +48,11 @@ export default function MonitorPolicies() {
     <Screen refreshing={q.loading} onRefresh={q.reload}>
       <PageHeading eyebrow="ADMINISTRATOR CONTROLS" title="Monitoring policies" subtitle="Decide which findings create incidents for human review."
         right={<Button title="Back to monitoring" variant="secondary" icon="arrow-back" onPress={() => back("/admin/monitoring")} />} />
-      <Notice title="These settings govern incident creation, not grading." message="Confidence is shown as a percentage and saved as the backend’s 0–1 value. Raising a threshold makes the queue quieter but lets more issues through unreviewed." />
       <ErrorBanner message={q.error ?? save.error} onRetry={q.reload} />
       {q.error && !q.data ? <RequestFailed onRetry={q.reload} /> : q.loading && !q.data ? <Loading /> : null}
       {q.data ? (
         <Card>
-          <CardHead title="Incident thresholds" subtitle="Confidence is displayed as a percentage and mapped to the backend’s 0–1 value." />
+          <CardHead title="Incident thresholds" subtitle="Create an incident when both thresholds are met." />
           {policies.map((p) => {
             const d = drafts[p.issue_type]; if (!d) return null;
             const name = ISSUE_LABEL[p.issue_type] ?? p.issue_type;
@@ -64,9 +63,9 @@ export default function MonitorPolicies() {
                   <Text style={{ fontSize: 13, fontWeight: "600", color: colors.ink }}>{name}</Text>
                   <Text style={{ fontSize: 11, color: colors.muted, marginTop: 2 }}>{p.description}</Text>
                 </View>
-                <Input label="Minimum confidence" compact keyboardType="numeric" value={d.conf} onChangeText={(v) => set(p.issue_type, { conf: v })} containerStyle={{ width: 150, opacity: d.enabled ? 1 : 0.6 }} error={invalid(d) ? "0 to 100" : null} accessibilityLabel={`Minimum confidence for ${name}`} />
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, opacity: d.enabled ? 1 : 0.6 }}>
-                  <Text style={{ fontSize: 11, color: colors.muted }}>Minimum severity</Text>
+                <Input label="Minimum confidence (%)" compact keyboardType="numeric" value={d.conf} onChangeText={(v) => set(p.issue_type, { conf: v })} containerStyle={{ width: 150, opacity: d.enabled ? 1 : 0.6 }} error={invalid(d) ? "0 to 100" : null} accessibilityLabel={`Minimum confidence for ${name}`} />
+                <View style={{ gap: 7, width: 175, opacity: d.enabled ? 1 : 0.6 }}>
+                  <Text style={{ fontSize: 12, fontWeight: "600", color: colors.ink }}>Minimum severity</Text>
                   <Dropdown value={d.sev} onChange={(v) => set(p.issue_type, { sev: v })} accessibilityLabel={`Minimum severity for ${name}`} options={SEVERITIES} />
                 </View>
               </View>

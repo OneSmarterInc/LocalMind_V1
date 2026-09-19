@@ -117,7 +117,7 @@ export default function DocumentScreen() {
     setTabChoice(next);
     router.setParams({ tab: next });
   };
-  const act = useAction(async (action: "process" | "ready" | "publish" | "unpublish" | "archive") => {
+  const act = useAction(async (action: "process" | "ready" | "publish" | "unpublish" | "archive" | "restore") => {
     if (pending?.dirty) {
       const ok = await confirmAsync("Save your outline changes first?", "The outline has edits that have not been saved. Continuing without saving would discard them and reload the version on the server.", "Save and continue", "Cancel");
       if (!ok) return;
@@ -125,6 +125,7 @@ export default function DocumentScreen() {
     }
     if (action === "publish" && !(await confirmAsync("Publish this book?", "Enrolled students can see its open modules as soon as it is published.", "Publish book", "Cancel"))) return;
     if (action === "unpublish" && !(await confirmAsync("Unpublish this book?", "Students stop seeing its modules, lessons and quizzes until you publish it again. Nothing is deleted.", "Unpublish book", "Cancel", { tone: "warning" }))) return;
+    if (action === "restore" && !(await confirmAsync("Unarchive this book?", "Restore it for review. It stays hidden from students until you publish it.", "Unarchive book", "Cancel"))) return;
     if (action === "archive" && !(await confirmAsync("Archive this book?", "Students stop seeing it and it moves out of your active books. Its content and student records are kept.", "Archive book", "Cancel", { tone: "warning" }))) return;
     if (action === "process") await manage.process(id); else if(action === "archive") await archiveBook(id,owner!); else await manage.transition(id, action);
     await doc.reload();
@@ -183,11 +184,11 @@ export default function DocumentScreen() {
     return (
       <Screen refreshing={doc.loading} onRefresh={doc.reload}>
         <PageHeading eyebrow="BOOKS & MODULES" title={`${d.title} is archived.`} subtitle={subtitle} right={<Row style={{ gap: 8, alignItems: "center" }}>{backToBooks}<Badge value="Archived" tone="neutral" /></Row>} />
-        <ErrorBanner message={doc.error ?? remove.error} onRetry={doc.error ? doc.reload : undefined} />
-        <Notice title="This book is read-only." message="Archived books are hidden from students and cannot be edited, processed or published again. Student records that refer to it are kept." />
+        <ErrorBanner message={doc.error ?? remove.error ?? act.error} onRetry={doc.error ? doc.reload : undefined} />
+        <Notice title="This book is read-only." message="Unarchive to edit this book again. Student records are preserved." />
         <Grid min={320} gap={20}>
           <Card>
-            <CardHead title="Book details" />
+            <CardHead title="Book details" action={<Button title="Unarchive book" icon="archive-outline" onPress={() => act.run("restore")} busy={act.busy} />} />
             <DetailList items={[
               ["Status", <Badge key="s" value="Archived" tone="neutral" />],
               ["Archived on", fmtDay(d.archived_at)],
@@ -278,9 +279,8 @@ export default function DocumentScreen() {
       {tab === "outline" ? (
         <>
           {d.outline_quality?.source_sections ? <Notice title={`${d.outline_quality.covered_sections} of ${d.outline_quality.source_sections} extracted sections accounted for`} message={[d.outline_quality.coverage_note,...(d.outline_quality.warnings||[])].filter(Boolean).join(' ')} tone={d.outline_quality.warnings?.length ? 'warning' : 'info'} /> : null}
-          <Notice title="One module at a time." message="Choose a module on the left. Edit its title and source on the right. Save explicitly before leaving." />
           {missingSource ? <Notice tone="warning" title="Modules without text" message={`${missingSource} module${missingSource === 1 ? " has" : "s have"} no source text but ${missingSource === 1 ? "is" : "are"} kept because a quiz, an assignment or student work refers to ${missingSource === 1 ? "it" : "them"}. Students do not see ${missingSource === 1 ? "it" : "them"}. Paste text to bring ${missingSource === 1 ? "it" : "them"} back.`} /> : null}
-          {live ? <Notice tone="warning" title="This book is live." message="Saved changes reach enrolled students immediately, and a module a student has already worked through cannot be removed." /> : null}
+          {live ? <Text style={{fontSize:12,color:colors.muted}}>Published · Saved edits are visible to students.</Text> : null}
           <View onLayout={(e) => setEditorTop(e.nativeEvent.layout.y)} style={{ height: editorHeight, borderWidth: 1, borderColor: colors.border, borderRadius: 13, overflow: "hidden", backgroundColor: "#FFFFFF" }}>
             <OutlineWorkspace initialModuleId={moduleParam} documentId={id} published={live} onSaved={doc.reload} onState={setPending} lessonStatus={lessonStatus} quizStatus={quizStatus} onReview={() => setTab(live ? "live" : "publish")} />
           </View>
@@ -359,11 +359,11 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
     { key: "m", label: "Module", flex: 2.2, render: (m) => <CellText title={m.title} sub={`Module ${m.number}`} /> },
     { key: "l", label: "Lesson", flex: 0.8, render: (m) => <Badge value={status(m,"lesson")} tone={status(m,"lesson").startsWith("Ready")?"green":"neutral"} /> },
     { key: "q", label: "Quiz", flex: 1, render: (m) => <Badge value={status(m,"quiz")} tone={status(m,"quiz").startsWith("Ready")?"green":m.quiz_status==="failed_final"?"red":"neutral"} /> },
-    { key: "draft", label: "Saved work", flex: 1.1, render: (m) => {const d=local(m.id!);return <CellText title={d?.lesson?"Lesson draft saved":"No lesson draft"} sub={automatic[m.id!]?.error||(d?.questions?`${d.questions.length} quiz questions saved`:"No quiz draft")}/>;} },
-    { key: "x", label: "", flex: 1.7, render: (m) => (
-      <View style={{ flexDirection: "row", gap: 6 }}>
+    { key: "draft", label: "Saved work", flex: 1.1, render: (m) => {const d=local(m.id!);return <CellText title={d?.lesson?"Local lesson draft":m.lesson_status==="ready"?"Shared lesson ready":"No lesson saved"} sub={automatic[m.id!]?.error?"Generation failed · Open module for details":d?.questions?.length?`${d.questions.length} local questions`:m.quiz_status==="ready"?"Shared quiz ready":"No quiz saved"}/>;} },
+    { key: "x", label: "Actions", width: 250, align: "right", render: (m) => (
+      <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: 8 }}>
         <Button title="Open module" small variant="secondary" onPress={()=>router.push(`/manage/local-authoring/${local(m.id!)?.snapshot.module_id||m.id}`)}/>
-        <Button title="Preview lesson" small variant="secondary" disabled={m.lesson_status === "none"} onPress={() => onPreview({ id: m.id!, title: m.title, quizStatus: m.quiz_status ?? "off", quizId: m.auto_quiz_id ?? null })} />
+        <Button title="Preview lesson" small variant="secondary" disabled={m.lesson_status !== "ready"} onPress={() => onPreview({ id: m.id!, title: m.title, quizStatus: m.quiz_status ?? "off", quizId: m.auto_quiz_id ?? null })} />
         {m.quiz_status === "held" && m.auto_quiz_id
           ? <Button title="Review quiz" small variant="secondary" onPress={() => router.push(`/manage/quiz/${m.auto_quiz_id}`)} />
           : null}
@@ -394,7 +394,7 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
     <>
       <Notice tone={heldCount || !allReady ? "warning" : "success"}
         title={`${ready} of ${total} lesson${total === 1 ? "" : "s"} prepared${syncedLessons < ready ? ` \u00b7 ${syncedLessons} synchronized to the institution` : ""}.${heldCount ? ` ${heldCount === 1 ? "One quiz needs" : `${heldCount} quizzes need`} your review.` : ""}`}
-        message={modelInstalled?"Lessons and quizzes prepare automatically on this device. Keep the app open; you can navigate while it works. Open each module to review and approve saved drafts for synchronization. Failed modules do not stop the rest of the book.":"Set up a model in Offline AI to start automatic lesson and quiz generation. The extracted source text is already saved."} />
+        message={modelInstalled?"Open a module to review drafts. Keep the app open while generation runs.":"Set up a model in Offline AI to start automatic lesson and quiz generation. The extracted source text is already saved."} />
       <ErrorBanner message={error} />
       <Card flush>
         <Table noun="module" columns={columns} rows={modules} keyOf={(m) => m.id!} minWidth={860} empty={<Empty icon="school-outline" text="This book has no modules yet." />} />
@@ -702,7 +702,7 @@ function OutlineWorkspace({ documentId, published, onSaved, onState, lessonStatu
     <View style={ws.pane}>
       <ErrorBanner message={save.error ?? avail.error ?? propose.error} />
       {!published && q.data?.outline_source !== 'reading_units' ? <Button small variant="secondary" title={proposalVersion!==null ? 'Discard proposed outline' : 'Preview reading outline'} busy={propose.busy} disabled={dirty && proposalVersion===null} onPress={()=>{if(proposalVersion!==null){setChapters(outlineData!.chapters);setProposalVersion(null);setDirty(false);setSel(null);}else void propose.run();}} /> : null}
-      {proposalVersion!==null ? <Notice title="Proposed outline — not saved" message="Rebuilt from the original extracted source. Review any previous manual corrections before saving. Existing student activity prevents replacement of affected modules." /> : null}
+      {proposalVersion!==null ? <Notice autoDismiss={false} title="Proposed outline — not saved" message="Rebuilt from the original extracted source. Review any previous manual corrections before saving. Existing student activity prevents replacement of affected modules." /> : null}
       {report ? <SaveReport report={report} onDismiss={() => setReport(null)} /> : null}
       {mod && chapter && sel ? (
         <ModulePane

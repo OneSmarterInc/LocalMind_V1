@@ -115,6 +115,10 @@ class UnpublishView(_Transition):
     action = "unpublish"
 
 
+class RestoreView(_Transition):
+    action = "restore"
+
+
 class ArchiveView(_Transition):
     action = "archive"
 
@@ -293,6 +297,12 @@ class DocumentLessonsView(APIView):
 
 class ModuleEditView(APIView):
     permission_classes = [IsAdminOrFaculty]
+
+    def delete(self, request, module_id):
+        module = get_or_404(Module.objects.filter(chapter__document__in=_docs_for(request.user)).select_related("chapter__document__subject"), pk=module_id)
+        label = svc.delete_module(request.user, module, request)
+        return Response({"detail": f"{label} was deleted."})
+
 
     def get(self, request, module_id):
         module = get_or_404(Module.objects.filter(chapter__document__in=_docs_for(request.user)), pk=module_id)

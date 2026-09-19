@@ -226,8 +226,8 @@ function StudentQuizEditor({ id }: { id: string }) {
             <View style={{ flexDirection: "row", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginTop: 18, paddingTop: 18, borderTopWidth: 1, borderTopColor: colors.border }}>
               <Button title="Previous" variant="secondary" icon="arrow-back" disabled={index === 0} onPress={() => setIndex((i) => Math.max(0, i - 1))} />
               <View style={{ flexDirection: "row", gap: 9 }}>
-                {!last ? <Button title="Next question" icon="arrow-forward" onPress={() => setIndex((i) => i + 1)} /> : null}
                 <Button title="Review & submit" variant={last ? "primary" : "secondary"} icon="checkmark" disabled={restored === null} onPress={() => setReviewing(true)} />
+                {!last ? <Button title="Next question" icon="arrow-forward" onPress={() => setIndex((i) => i + 1)} /> : null}
               </View>
             </View>
             <ErrorBanner message={submit.error ?? draftError} />

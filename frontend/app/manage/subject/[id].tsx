@@ -95,6 +95,7 @@ function StudentsTab({ subjectId }: { subjectId: string }) {
   ];
   return (
     <>
+      {!picking ? <View style={{ alignItems: "flex-end" }}><Button title="Enroll students" icon="person-add-outline" onPress={() => setPicking(true)} /></View> : null}
       {picking ? (
         <Card>
           <CardHead title="Enroll students" subtitle="Select existing student accounts to enroll. Your administrator creates new student accounts." action={<Button title="Done" variant="secondary" small onPress={() => setPicking(false)} />} />
@@ -104,7 +105,7 @@ function StudentsTab({ subjectId }: { subjectId: string }) {
       <ErrorBanner message={rows.error} onRetry={rows.reload} />
       <Card flush>
         <View style={{ paddingHorizontal: 22, paddingTop: 22 }}>
-          <CardHead title="Enrolled students" subtitle={rows.data ? `${rows.data.students.length} active enrollment${rows.data.students.length === 1 ? "" : "s"}` : null} action={!picking ? <Button title="Enroll students" icon="person-add-outline" onPress={() => setPicking(true)} /> : null} />
+          <CardHead title="Enrolled students" subtitle={rows.data ? `${rows.data.students.length} active enrollment${rows.data.students.length === 1 ? "" : "s"}` : null}  />
         </View>
         <TableToolbar right={<Dropdown value={filter} onChange={setFilter} accessibilityLabel="Filter by progress" options={[{ value: "all", label: "All progress" }, { value: "On track", label: "On track" }, { value: "Needs review", label: "Needs review" }, { value: "In progress", label: "In progress" }, { value: "Not started", label: "Not started" }]} />}>
           <Input icon="search" placeholder="Search this list…" value={q} onChangeText={setQ} compact accessibilityLabel="Search students" />
@@ -117,12 +118,17 @@ function StudentsTab({ subjectId }: { subjectId: string }) {
 }
 
 function ModulesTab({ subjectId }: { subjectId: string }) {
+  const router = useRouter();
   const rows = useAsync(() => manage.subjectModules(subjectId), [subjectId]);
   const [q, setQ] = useState("");
   const toggle = useAction(async (m: any) => {
     const locking = m.availability === "open";
     if (locking && !(await confirmAsync("Lock this module?", "Students stop seeing it and its quizzes right away. Its content and earlier attempts are kept.", "Lock module", "Cancel", { tone: "warning" }))) return;
     await manage.moduleAvailability(m.module_id, locking ? "locked" : "open"); await rows.reload();
+  });
+  const remove = useAction(async (m: any) => {
+    if (!(await confirmAsync("Delete module?", `Delete “${m.title}”? Modules with saved student activity cannot be deleted.`, "Delete module", "Cancel", { tone: "danger" }))) return;
+    await manage.deleteModule(m.module_id); await rows.reload();
   });
   const enrolled = rows.data?.students_enrolled ?? 0;
   const list = (rows.data?.modules ?? []).filter((m: any) => `${m.title} ${m.document} ${m.chapter}`.toLowerCase().includes(q.trim().toLowerCase()));
@@ -131,12 +137,12 @@ function ModulesTab({ subjectId }: { subjectId: string }) {
     { key: "a", label: "Availability", flex: 0.9, render: (m) => <Badge value={m.source_missing ? "No text" : m.availability === "open" ? "Open" : "Locked"} tone={m.source_missing ? "red" : m.availability === "open" ? "green" : "neutral"} /> },
     { key: "s", label: "Started", flex: 0.8, render: (m) => `${m.students_started} of ${enrolled}` },
     { key: "c", label: "Completed", flex: 0.8, render: (m) => `${m.students_completed} of ${enrolled}` },
-    { key: "x", label: "", flex: 1, render: (m) => <Button title={m.availability === "open" ? "Lock module" : "Open module"} small variant="secondary" icon={m.availability === "open" ? "lock-closed-outline" : "lock-open-outline"} disabled={m.source_missing || toggle.busy} onPress={() => toggle.run(m)} /> },
+    { key: "x", label: "Actions", width: 330, align: "right", render: (m) => <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "flex-end" }}><Button title={m.availability === "open" ? "Lock module" : "Open module"} small variant="secondary" icon={m.availability === "open" ? "lock-closed-outline" : "lock-open-outline"} disabled={m.source_missing || toggle.busy} onPress={() => toggle.run(m)} /><Button title="Edit" small variant="secondary" icon="create-outline" onPress={() => router.push(`/manage/document/${m.document_id}?tab=outline&module=${m.module_id}`)} /><Button title="Delete" small variant="danger" icon="trash-outline" disabled={remove.busy} onPress={() => remove.run(m)} /></View> },
   ];
   return (
     <>
       <Notice title="Set the pace for your class." message="Open modules when you want students to see them. Locking a module does not delete its content or historical attempts." />
-      <ErrorBanner message={rows.error ?? toggle.error} onRetry={rows.reload} />
+      <ErrorBanner message={rows.error ?? toggle.error ?? remove.error} onRetry={rows.reload} />
       <Card flush>
         <TableToolbar><Input icon="search" placeholder="Search this list…" value={q} onChangeText={setQ} compact accessibilityLabel="Search modules" /></TableToolbar>
         {rows.error && !rows.data ? <RequestFailed onRetry={rows.reload} /> : rows.loading && !rows.data ? <Loading lines={2} /> : <Table noun="module" columns={columns} rows={list} keyOf={(m) => m.module_id} minWidth={760} empty={<Empty icon="layers-outline" text="No published modules yet." />} />}

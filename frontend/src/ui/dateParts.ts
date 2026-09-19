@@ -31,7 +31,7 @@ export function formatLocal(iso: string | null | undefined, dateOnly = false): s
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  const day = d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  const day = `${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${d.getFullYear()}`;
   return dateOnly ? day : `${day}, ${d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`;
 }
 
