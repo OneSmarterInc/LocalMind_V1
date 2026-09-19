@@ -12,7 +12,7 @@ export async function staffBundle(owner: string, role: string) {
   const guard = () => { if (offlineScope() !== owner || currentSession() !== session) throw new SessionChangedError(); };
   async function get<T>(path: string, query?: Record<string, string | number>) {
     guard();
-    const value = await api<T>(path, {query, cacheOffline: false});
+    const value = await api<T>(path, {query, cacheOffline: false, revalidate: true});
     guard(); entries[offlineKey(path, query)] = value; return value;
   }
   async function list<T>(path: string) {
@@ -31,19 +31,19 @@ export async function staffBundle(owner: string, role: string) {
   const quizzes = await list<Quiz>('/faculty/quizzes/');
   // Detail pages are saved even if the user has never opened them.
   for (const quiz of quizzes) {
-    await get(`/faculty/quizzes/${quiz.id}/`);
-    await list(`/faculty/quizzes/${quiz.id}/attempts/`);
+    await Promise.all([get(`/faculty/quizzes/${quiz.id}/`), list(`/faculty/quizzes/${quiz.id}/attempts/`)]);
   }
   for (const doc of docs) {
     await get(`/faculty/documents/${doc.id}/`);
     const outline = await get<Outline>(`/faculty/documents/${doc.id}/outline/`);
     for (const chapter of outline.chapters) for (const module of chapter.modules) {
       if (!module.id) continue;
-      await get(`/faculty/modules/${module.id}/`);
-      await get(`/faculty/modules/${module.id}/lesson/`);
-      // Revisioned source and institution content let ensure() create a local
-      // generation draft offline, without overwriting an existing draft.
-      await get(`/faculty/modules/${module.id}/local-authoring/`);
+      // Three independent reads at a time, rather than an unbounded request burst.
+      await Promise.all([
+        get(`/faculty/modules/${module.id}/`),
+        get(`/faculty/modules/${module.id}/lesson/`),
+        get(`/faculty/modules/${module.id}/local-authoring/`),
+      ]);
     }
   }
   await get('/faculty/analytics/overview/');

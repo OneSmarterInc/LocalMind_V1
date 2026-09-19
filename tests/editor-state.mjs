@@ -9,8 +9,8 @@ const require=createRequire(path.join(root,'frontend/package.json'));
 const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'lm-editor-'));
 const fixtures={
  react:`export const useState=(...a)=>globalThis.hooks.state(...a);export const useRef=(...a)=>globalThis.hooks.ref(...a);export const useEffect=(...a)=>globalThis.hooks.effect(...a);export const useCallback=(...a)=>globalThis.hooks.callback(...a);`,
- 'expo-router':`const navigation={addListener:()=>()=>{},dispatch:()=>{}};const router={canGoBack:()=>true,back:()=>{}};export const useNavigation=()=>navigation;export const useRouter=()=>router;export const useFocusEffect=()=>{};`,
- 'react-native':`export const Platform={OS:'test'};export const BackHandler={addEventListener:()=>({remove(){}})};`,
+ 'expo-router':`const navigation={addListener:()=>()=>{},dispatch:()=>{}};const router={canGoBack:()=>true,back:()=>{}};export const useNavigation=()=>navigation;export const useRouter=()=>router;export const useFocusEffect=fn=>{globalThis.focusRefresh=fn;};`,
+ 'react-native':`export const Platform={get OS(){return globalThis.testPlatform||'test';}};export const BackHandler={addEventListener:()=>({remove(){}})};`,
  '@/api/client':`export class ApiError extends Error{};export class SessionChangedError extends Error{};export const errorMessage=e=>String(e);`,
 };
 await require('esbuild').build({stdin:{contents:`export {useDraft} from '${root}/frontend/src/hooks/useDraft';export {useAsync} from '${root}/frontend/src/hooks/useAsync';export {clearDraftStash} from '${root}/frontend/src/hooks/draftStash';`,resolveDir:root,loader:'ts'},outfile:path.join(tmp,'hooks.cjs'),bundle:true,platform:'node',plugins:[{name:'fixtures',setup(b){
@@ -47,3 +47,16 @@ test('async resource changes clear old data and ignore an older response',async(
  let state=h.flush();void state.reload();const old=deferred.a;id='b';state=h.flush();assert.equal(state.data,null);assert.equal(state.loading,true);old.resolve('late A');await new Promise(r=>setImmediate(r));assert.equal(h.flush().data,null);deferred.b.reject(new Error('B failed'));await new Promise(r=>setImmediate(r));state=h.flush();assert.equal(state.data,null);assert.match(state.error,/B failed/);h.unmount();
 });
 process.on('exit',()=>fs.rmSync(tmp,{recursive:true,force:true}));
+
+test('overlapping lifecycle refreshes coalesce but explicit mutation reload stays fresh',async()=>{
+ globalThis.testPlatform='web';const events={};
+ globalThis.document={visibilityState:'visible',addEventListener:(n,f)=>{events[n]=f;},removeEventListener:()=>{}};
+ globalThis.addEventListener=(n,f)=>{events[n]=f;};globalThis.removeEventListener=()=>{};
+ const requests=[];const h=mount(()=>useAsync(()=>new Promise(resolve=>requests.push(resolve)),[]));
+ try {
+  const state=h.flush();events.focus();events.visibilitychange();globalThis.focusRefresh();globalThis.focusRefresh();assert.equal(requests.length,1);
+  const explicit=state.reload();assert.equal(requests.length,2);
+  requests[1]('fresh');await explicit;requests[0]('stale');await new Promise(r=>setImmediate(r));assert.equal(h.flush().data,'fresh');
+  events.focus();assert.equal(requests.length,3);requests[2]('next');await new Promise(r=>setImmediate(r));assert.equal(h.flush().data,'next');
+ } finally {h.unmount();delete globalThis.testPlatform;delete globalThis.document;delete globalThis.addEventListener;delete globalThis.removeEventListener;}
+});

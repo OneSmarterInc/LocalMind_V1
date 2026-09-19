@@ -60,7 +60,7 @@ export default function StudentAttempt() {
               <ScoreRing value={pct(a.percentage)} caption="YOUR SCORE" />
               <View style={{ flex: 1, minWidth: 220, gap: 8 }}>
                 <Badge value={a.passed ? "Passed" : "Needs review"} tone={a.passed ? "green" : "amber"} />
-                <Text style={{ fontSize: 24, fontWeight: "600", color: colors.ink }}>{a.passed ? "You\u2019ve got the essentials." : "Not quite yet. You are close."}</Text>
+                <Text style={{ fontSize: 24, fontWeight: "600", color: colors.ink }}>{a.passed ? "You\u2019ve got the essentials." : "Review the modules to strengthen your understanding."}</Text>
                 <Text style={{ fontSize: 13, color: colors.muted }}>{localCorrect} of {a.total_questions} correct · Marked on this device</Text>
               </View>
             </View>
@@ -116,7 +116,7 @@ export default function StudentAttempt() {
         <ScoreRing value={pct(a.percentage)} caption="YOUR SCORE" />
         <View style={{ flex: 1, minWidth: 220, gap: 8 }}>
           <Badge value={pending ? "Being marked" : passed ? "Passed" : "Not passed"} tone={pending ? "amber" : passed ? "green" : "red"} />
-          <Text style={{ fontSize: 24, fontWeight: "600", color: colors.ink }}>{pending ? "Some answers are still being marked." : passed ? "You’ve got the essentials." : "Not quite yet. You are close."}</Text>
+          <Text style={{ fontSize: 24, fontWeight: "600", color: colors.ink }}>{pending ? "Some answers are still being marked." : passed ? "You’ve got the essentials." : "Review the modules to strengthen your understanding."}</Text>
           <Text style={{ fontSize: 13, color: colors.muted }}>{correct} of {a.total_questions} correct{quiz ? ` · Pass mark ${quiz.pass_percentage}%` : ""}</Text>
         </View>
       </View>

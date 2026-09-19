@@ -68,6 +68,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "core.offline_cache.OfflineRevalidationMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -213,6 +214,9 @@ SPECTACULAR_SETTINGS = {
 
 CORS_ALLOWED_ORIGINS = env_list("DJANGO_CORS_ALLOWED_ORIGINS", "http://localhost:8081")
 CORS_ALLOW_CREDENTIALS = False
+from corsheaders.defaults import default_headers
+CORS_ALLOW_HEADERS = (*default_headers, "if-none-match", "x-localmind-sync")
+CORS_EXPOSE_HEADERS = ["ETag"]
 
 # Origins allowed to POST to the Django admin site and any session-backed view
 # when the API sits behind a TLS-terminating proxy (scheme + host, no path).

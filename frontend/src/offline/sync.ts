@@ -1,6 +1,6 @@
 import {staffBundle} from './staffBundle';
 import {flushCourseWork} from './coursework';
-// Upload durable course events, then download the authorized course copy.
+// Upload durable course events independently of authorized course downloads.
 // Private study data is never included; content replacement cannot erase unsent work.
 //
 // One request to /api/student/offline/ returns the student's own GET
@@ -40,7 +40,10 @@ export function syncNow(): Promise<void> {
     publish({ running: true, error: null });
     try {
       const role = activeRole;
-      if (role === 'student') await flushCourseWork();
+      // Download even when uploads fail; neither direction blocks the other.
+      const uploads = role === 'student'
+        ? flushCourseWork().then(() => null, e => e instanceof Error ? e.message : String(e))
+        : Promise.resolve(null);
       const bundle: Bundle = role === 'student'
         ? await api<Bundle>("/student/offline/", { cacheOffline: false })
         : {version: new Date().toISOString(), generated_at: new Date().toISOString(), entries: await staffBundle(owner, role)};
@@ -51,7 +54,9 @@ export function syncNow(): Promise<void> {
       const now = new Date().toISOString();
       await writeEntry(META.version, bundle.version, owner);
       await writeEntry(META.lastSync, now, owner);
-      publish({ running: false, lastSync: now });
+      publish({ lastSync: now });
+      const uploadError = await uploads;
+      if (offlineScope() === owner && currentSession() === mine) publish({ running: false, error: uploadError });
     } catch (e) {
       if (offlineScope() === owner && currentSession() === mine) publish({ running: false, error: e instanceof Error ? e.message : String(e) });
     } finally {

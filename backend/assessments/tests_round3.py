@@ -51,10 +51,12 @@ class Round3QuizTests(TestCase):
         self.assertTrue(row["passed"])
         self.assertEqual(row["results_pending"], 0)
 
-    def test_attempts_used_counts_every_submitted_attempt(self):
+    def test_quiz_allows_only_one_submission(self):
         q = self.quiz()
-        self.attempt(q["id"]); self.attempt(q["id"])
-        self.assertEqual(self.row(q["id"])["attempts_used"], 2)
+        self.attempt(q["id"])
+        response = self.sc.post(f"/api/student/quizzes/{q['id']}/attempts/")
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(self.row(q["id"])["attempts_used"], 1)
 
     def test_settings_save_with_attempts_updates_in_place(self):
         q = self.quiz(results_release="held")

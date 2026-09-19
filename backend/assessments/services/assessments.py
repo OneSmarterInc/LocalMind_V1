@@ -292,17 +292,22 @@ def _accessible_for_student(student, assessment_id):
 
 @transaction.atomic
 def start_attempt(student, assessment_id, request=None):
+    # Share the per-student lock used by offline ingestion, including cross-device starts.
+    from django.contrib.auth import get_user_model
+    get_user_model().objects.select_for_update().get(pk=student.pk)
     assessment = _accessible_for_student(student, assessment_id)
     if assessment.module:
         learning.resolve_accessible_module(student, assessment.module_id)  # raises MODULE_LOCKED etc.
     now = timezone.now()
     if assessment.due_at and now > assessment.due_at:
         raise Conflict("This quiz is past its due date.", code="QUIZ_CLOSED")
+    if AssessmentAttempt.objects.filter(assessment=assessment, student=student).exclude(status=AttemptStatus.IN_PROGRESS).exists():
+        raise Conflict("This quiz has already been submitted.", code="MAX_ATTEMPTS_REACHED")
     open_attempt = AssessmentAttempt.objects.filter(assessment=assessment, student=student, status=AttemptStatus.IN_PROGRESS).first()
     if open_attempt:
         return open_attempt, False
     used = AssessmentAttempt.objects.filter(assessment=assessment, student=student).count()
-    if assessment.max_attempts and used >= assessment.max_attempts:
+    if used >= 1:
         raise Conflict("You have used all attempts for this quiz.", code="MAX_ATTEMPTS_REACHED")
     attempt = AssessmentAttempt.objects.create(assessment=assessment, student=student, attempt_number=used + 1,
                                                total_questions=len(assessment.questions))
@@ -431,12 +436,16 @@ def submit_attempt(student, attempt_id, submitted_answers, request=None):
     if not isinstance(submitted_answers, dict):
         raise ValidationFailed(details={"submitted_answers": "Must be an object keyed by question id."})
     with transaction.atomic():
+        from django.contrib.auth import get_user_model
+        get_user_model().objects.select_for_update().get(pk=student.pk)
         try:
             attempt = AssessmentAttempt.objects.select_for_update(of=("self",)).select_related("assessment__module", "assessment__chapter").get(pk=attempt_id, student=student)
         except (AssessmentAttempt.DoesNotExist, ValueError):
             raise NotFound("Attempt not found.")
         if attempt.status != AttemptStatus.IN_PROGRESS:
             raise Conflict("This attempt has already been submitted.", code="ALREADY_SUBMITTED")
+        if AssessmentAttempt.objects.filter(assessment=attempt.assessment, student=student).exclude(pk=attempt.pk).exclude(status=AttemptStatus.IN_PROGRESS).exists():
+            raise Conflict("This quiz has already been submitted.", code="ALREADY_SUBMITTED")
         now = timezone.now()
         elapsed = int((now - attempt.started_at).total_seconds())
         cap = settings.LOCALMIND["MAX_QUIZ_DURATION_HOURS"] * 3600

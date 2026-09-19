@@ -51,7 +51,7 @@ export default function StudentQuizzes() {
   };
   const columns: Column<RowT>[] = [
     { key: "quiz", label: "Quiz", flex: 2.4, render: (r) => <CellText title={r.quiz.title} sub={r.sub} /> },
-    { key: "q", label: "Questions", flex: 0.8, render: (r) => `${r.quiz.question_count ?? "—"} questions` },
+    { key: "q", label: "Questions", flex: 0.8, render: (r) => `${r.quiz.question_count ?? "—"} question${r.quiz.question_count === 1 ? "" : "s"}` },
     { key: "pass", label: "Pass mark", flex: 0.7, render: (r) => `${r.quiz.pass_percentage}%` },
     { key: "status", label: "Your status", flex: 1.2, render: (r) => { const st = statusOf(r); return <Badge value={st.label} tone={st.tone} />; } },
     { key: "act", label: "", width: 150, align: "right", render: (r) => { const st = statusOf(r); return <Button title={st.action} small icon={st.action === "Start quiz" ? "arrow-forward" : undefined} variant={st.action === "Start quiz" ? "primary" : "secondary"} onPress={() => open(r)} />; } },

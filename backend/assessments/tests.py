@@ -181,13 +181,10 @@ class AttemptTests(Base):
         self.assertEqual(again.status_code, 200)
         self.assertTrue(again.data["resumed"])
         self.submit(a1["attempt_id"], {"q1": "A"})
-        a2 = self.start(quiz).data
-        self.assertEqual(a2["attempt_number"], 2)
-        self.submit(a2["attempt_id"], {"q1": "A"})
         res = self.start(quiz)
         self.assertEqual(res.status_code, 409)
         self.assertEqual(res.data["error"]["code"], "MAX_ATTEMPTS_REACHED")
-        self.assertEqual(AssessmentAttempt.objects.filter(student=self.student, assessment=quiz).count(), 2)
+        self.assertEqual(AssessmentAttempt.objects.filter(student=self.student, assessment=quiz).count(), 1)
 
     def test_due_date_enforced(self):
         quiz = self.manual_quiz(due_at=(timezone.now() - timedelta(hours=1)).isoformat())

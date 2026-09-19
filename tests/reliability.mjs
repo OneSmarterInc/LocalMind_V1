@@ -115,3 +115,18 @@ test('response from a previous account cannot announce connectivity recovery',as
  assert.deepEqual(globalThis.connectivityEvents,[]);
 });
 process.on('exit',()=>fs.rmSync(tmp,{recursive:true,force:true}));
+test('conditional sync reuses unchanged response, refreshes changes, and clears on sign out',async t=>{
+ globalThis.connectivityEvents=[];let n=0;
+ t.mock.method(globalThis,'fetch',async (_,opts)=>{
+  n++;assert.equal(opts.headers['X-LocalMind-Sync'],'1');
+  if(n===2){assert.equal(opts.headers['If-None-Match'],'"v1"');return new Response(null,{status:304});}
+  if(n===4)assert.equal(opts.headers['If-None-Match'],undefined);
+  return new Response(JSON.stringify({revision:n}),{headers:{ETag:n===1?'"v1"':'"v2"'}});
+ });
+ const options={revalidate:true,cacheOffline:false};
+ assert.deepEqual(await api('/faculty/test/',options),{revision:1});
+ assert.deepEqual(await api('/faculty/test/',options),{revision:1});
+ assert.deepEqual(await api('/faculty/test/',options),{revision:3});
+ await tokenStore.set(null);
+ assert.deepEqual(await api('/faculty/test/',options),{revision:4});
+});

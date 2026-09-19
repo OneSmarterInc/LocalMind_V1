@@ -39,6 +39,7 @@ let refreshing: { session: number; promise: Promise<boolean> } | null = null;
  * belongs to someone who is no longer signed in: its tokens are never stored, its response is never
  * cached or shown, and it cannot sign the current person out.
  */
+const revalidated = new Map<string, {etag: string; value: unknown}>();
 let session = 0;
 export const currentSession = () => session;
 
@@ -53,6 +54,7 @@ export const tokenStore = {
   },
   async set(t: Tokens | null) {
     session += 1;
+    revalidated.clear();
     refreshing = null;
     await writeTokens(t);
   },
@@ -103,6 +105,7 @@ interface Options {
   method?: string; body?: unknown; form?: FormData; query?: Record<string, string | number | undefined | null>; auth?: boolean; retry?: boolean;
   /** Store a successful GET and answer it from the device when offline. Defaults to on for authorized learning and teaching reads. */
   cacheOffline?: boolean;
+  revalidate?: boolean;
   signal?: AbortSignal;
   timeoutMs?: number;
 }
@@ -143,7 +146,11 @@ export async function api<T = unknown>(path: string, opts: Options = {}): Promis
     const qs = Object.entries(query).filter(([, v]) => v !== undefined && v !== null && v !== "").map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`).join("&");
     if (qs) url += (url.includes("?") ? "&" : "?") + qs;
   }
+  const validationKey = `${mine}:${owner}:${url}`;
+  const prior = opts.revalidate && method === "GET" ? revalidated.get(validationKey) : undefined;
   const headers: Record<string, string> = {};
+  if (opts.revalidate && method === "GET") headers["X-LocalMind-Sync"] = "1";
+  if (prior) headers["If-None-Match"] = prior.etag;
   if (!form) headers["Content-Type"] = "application/json";
   if (auth && tokens?.access) headers.Authorization = `Bearer ${tokens.access}`;
   let res: Response;
@@ -188,6 +195,8 @@ export async function api<T = unknown>(path: string, opts: Options = {}): Promis
     if (session !== mine) throw new SessionChangedError();
     await tokenStore.set(null); onSessionLost?.();
   }
+  if (session !== mine || offlineScope() !== owner) throw new SessionChangedError();
+  if (res.status === 304 && prior) return prior.value as T;
   if (res.status === 204) return undefined as T;
   const text = await res.text();
   let data: any = null;
@@ -199,6 +208,14 @@ export async function api<T = unknown>(path: string, opts: Options = {}): Promis
   if (session !== mine) throw new SessionChangedError();
   if (cacheable) await writeEntry(offlineKey(path, query), data, owner).catch(() => {});
   if (session !== mine || offlineScope() !== owner) throw new SessionChangedError();
+  if (opts.revalidate && method === "GET") {
+    const etag = res.headers.get("ETag");
+    if (etag) {
+      // Bound memory for long-lived staff sessions; eviction only causes a full re-download.
+      if (revalidated.size >= 1000) revalidated.delete(revalidated.keys().next().value!);
+      revalidated.set(validationKey, {etag, value: data});
+    }
+  }
   return data as T;
 }
 

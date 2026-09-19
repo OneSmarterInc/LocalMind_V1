@@ -109,3 +109,12 @@ class CourseSyncTests(TestCase):
         event=self.doubt();self.module.availability='locked';self.module.save()
         self.assertIn(self.send(event).status_code,[403,409])
         self.assertEqual(CourseSyncReceipt.objects.count(),0)
+
+    def test_unlimited_legacy_setting_still_allows_only_one_submission(self):
+        self.quiz.max_attempts=None;self.quiz.save()
+        first=self.event();second=self.event()
+        self.assertEqual(self.send(first).status_code,200)
+        self.assertEqual(self.send(second).status_code,409)
+        self.assertEqual(self.send(first).status_code,200)
+        self.assertEqual(AssessmentAttempt.objects.count(),1)
+        self.assertEqual(self.client.post(f'/api/student/quizzes/{self.quiz.pk}/attempts/').status_code,409)

@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
-import {CourseQuizSubmitted,submittedCourseQuiz} from "@/offline/coursework";
+import {CourseQuizSubmitted,submittedCourseQuiz,onCourseSubmission} from "@/offline/coursework";
 import { student } from "@/api/endpoints";
 import type { StartAttempt } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
@@ -62,8 +62,8 @@ function StudentQuizEditor({ id }: { id: string }) {
       } finally { checking = false; }
     };
     void check();
-    const timer = setInterval(() => void check(), 1000);
-    return () => { live = false; clearInterval(timer); };
+    const unsubscribe = onCourseSubmission(() => void check());
+    return () => { live = false; unsubscribe(); };
   }, [id, router]));
   const answersRef = useRef(answers); answersRef.current = answers;
   // Answers are kept on this device per user and attempt, so a refresh or a resumed attempt restores them.

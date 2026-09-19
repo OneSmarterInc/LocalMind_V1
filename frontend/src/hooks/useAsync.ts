@@ -28,6 +28,7 @@ export function useAsync<T>(fn: () => Promise<T>, deps: unknown[] = []) {
     ++latest.current;
     setData(null); setError(null); setErrorCode(null); setLoading(true);
   }
+  const automatic = useRef<{run: unknown; promise: Promise<void>} | null>(null);
   const run = useCallback(async () => {
     const mine = ++latest.current;
     setLoading(true); setError(null); setErrorCode(null);
@@ -40,7 +41,16 @@ export function useAsync<T>(fn: () => Promise<T>, deps: unknown[] = []) {
     finally { if (alive.current && mine === latest.current) setLoading(false); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
-  useEffect(() => { alive.current = true; mounted.current = true; void run(); return () => { alive.current = false; }; }, [run]);
+  // Only lifecycle triggers coalesce. Explicit reload after a mutation always fetches fresh data.
+  const refresh = useCallback(() => {
+    const prior = automatic.current;
+    if (prior?.run === run) return prior.promise;
+    const entry = {run, promise: run()};
+    automatic.current = entry;
+    void entry.promise.finally(() => { if (automatic.current === entry) automatic.current = null; });
+    return entry.promise;
+  }, [run]);
+  useEffect(() => { alive.current = true; mounted.current = true; void refresh(); return () => { alive.current = false; }; }, [refresh]);
   // On the web build there is no pull-to-refresh and no app-state change to
   // hook into, so a student who leaves the tab open would keep seeing stale
   // lists. Refetch when the browser tab or window comes back into view.
@@ -49,17 +59,17 @@ export function useAsync<T>(fn: () => Promise<T>, deps: unknown[] = []) {
     const doc = (globalThis as unknown as { document?: { addEventListener: Function; removeEventListener: Function; visibilityState?: string } }).document;
     const win = globalThis as unknown as { addEventListener?: Function; removeEventListener?: Function };
     if (!doc || typeof win.addEventListener !== "function") return;
-    const onVisible = () => { if (doc.visibilityState === "visible") void run(); };
+    const onVisible = () => { if (doc.visibilityState === "visible") void refresh(); };
     doc.addEventListener("visibilitychange", onVisible);
     win.addEventListener("focus", onVisible);
     return () => { doc.removeEventListener("visibilitychange", onVisible); win.removeEventListener!("focus", onVisible); };
-  }, [run]);
+  }, [refresh]);
   useFocusEffect(useCallback(() => {
     // The mount effect above already fetched on first focus; refetch on
     // every later focus so navigating back shows fresh server state.
     if (mounted.current) { mounted.current = false; return; }
-    void run();
-  }, [run]));
+    void refresh();
+  }, [refresh]));
   return { data, error, errorCode, loading, reload: run, setData };
 }
 
