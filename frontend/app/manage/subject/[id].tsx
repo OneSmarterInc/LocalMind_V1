@@ -16,16 +16,17 @@ export default function TeachingSubject() {
   const { id } = useLocalSearchParams<{ id: string; tab?: Tab }>();
   const back = useBackTo();
   const [tab, setTab] = useTabParam<Tab>("overview", ["overview", "students", "modules"]);
+  const [picking, setPicking] = useState(false);
   const summary = useAsync(() => manage.subjectSummary(id), [id]);
   const s = summary.data;
   return (
     <Screen refreshing={summary.loading} onRefresh={summary.reload}>
       <PageHeading eyebrow="MY SUBJECTS" title={s?.subject.name ?? "Subject"} subtitle={s ? `${s.subject.code} · Your subject workspace` : null}
-        right={<Button title="Back to subjects" variant="secondary" icon="arrow-back" onPress={() => back("/manage/subjects")} />} />
+        right={<View style={{ gap: 8, alignItems: "stretch" }}><Button title="Back to subjects" variant="secondary" icon="arrow-back" onPress={() => back("/manage/subjects")} />{tab === "students" && !picking ? <Button title="Enroll students" icon="person-add-outline" onPress={() => setPicking(true)} /> : null}</View>} />
       <ErrorBanner message={summary.error} onRetry={summary.reload} />
-      <PageTabs<Tab> value={tab} onChange={setTab} tabs={[{ key: "overview", label: "Overview" }, { key: "students", label: "Students" }, { key: "modules", label: "Modules & progress" }]} />
+      <PageTabs<Tab> value={tab} onChange={(next) => { setPicking(false); setTab(next); }} tabs={[{ key: "overview", label: "Overview" }, { key: "students", label: "Students" }, { key: "modules", label: "Modules & progress" }]} />
       {tab === "overview" ? (summary.loading && !s ? <Loading /> : s ? <OverviewTab s={s} subjectId={id} onStudents={() => setTab("students")} /> : null) : null}
-      {tab === "students" ? <StudentsTab subjectId={id} /> : null}
+      {tab === "students" ? <StudentsTab subjectId={id} picking={picking} setPicking={setPicking} /> : null}
       {tab === "modules" ? <ModulesTab subjectId={id} /> : null}
     </Screen>
   );
@@ -78,10 +79,9 @@ function OverviewTab({ s, subjectId, onStudents }: { s: any; subjectId: string; 
   );
 }
 
-function StudentsTab({ subjectId }: { subjectId: string }) {
+function StudentsTab({ subjectId, picking, setPicking }: { subjectId: string; picking: boolean; setPicking: (value: boolean) => void }) {
   const router = useRouter();
   const rows = useAsync(() => manage.subjectStudentsAnalytics(subjectId), [subjectId]);
-  const [picking, setPicking] = useState(false);
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState("all");
   const list = useMemo(() => (rows.data?.students ?? []).filter((r: any) => (filter === "all" || learningStatus(r).label === filter) && `${r.full_name} ${r.email} ${r.roll_number ?? ""}`.toLowerCase().includes(q.trim().toLowerCase())), [rows.data, q, filter]);
@@ -95,7 +95,6 @@ function StudentsTab({ subjectId }: { subjectId: string }) {
   ];
   return (
     <>
-      {!picking ? <View style={{ alignItems: "flex-end" }}><Button title="Enroll students" icon="person-add-outline" onPress={() => setPicking(true)} /></View> : null}
       {picking ? (
         <Card>
           <CardHead title="Enroll students" subtitle="Select existing student accounts to enroll. Your administrator creates new student accounts." action={<Button title="Done" variant="secondary" small onPress={() => setPicking(false)} />} />
