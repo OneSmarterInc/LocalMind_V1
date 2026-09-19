@@ -49,3 +49,26 @@ test('failed or blocked upload never prevents downloading course updates',async(
  globalThis.downloaded=null;let release;globalThis.upload=()=>new Promise(r=>{release=r;});const running=sync.syncNow();await tick();assert.deepEqual(globalThis.downloaded,{lesson:'updated'});release();await running;
 });
 process.on('exit',()=>fs.rmSync(tmp,{recursive:true,force:true}));
+test('slow quiz start does not hold up another durable submission',async()=>{
+ reset();const first=await course.startCourseAttempt('quiz');
+ globalThis.packs.second={...globalThis.packs.quiz,quiz:{...globalThis.packs.quiz.quiz,id:'second'}};
+ globalThis.online=true;let release;globalThis.request=()=>new Promise(r=>{release=r;});
+ const starting=course.startCourseAttempt('second');await tick();globalThis.online=false;
+ let result;const saving=course.submitCourseAttempt(first.attempt_id,{q1:'A'}).then(r=>{result=r;});await tick();
+ assert.equal(result?.percentage,100);await saving;
+ release({entries:{'/student/offline/quizzes/':globalThis.packs}});await starting;
+});
+test('resume keeps server attempt and timer, uploads to it, and notifies confirmation',async()=>{
+ reset();const original={attempt_id:'server-id',attempt_number:1,started_at:'2026-09-19T10:00:00Z',time_limit_minutes:20,questions:globalThis.packs.quiz.questions,resumed:true};
+ globalThis.packs.quiz.active_attempt=original;
+ const [a,b]=await Promise.all([course.startCourseAttempt('quiz'),course.startCourseAttempt('quiz')]);assert.deepEqual(a,original);assert.equal(a.attempt_id,b.attempt_id);
+ await course.submitCourseAttempt(a.attempt_id,{q1:'A'});
+ const confirmed=[];const unsubscribe=course.onCourseWorkSynced(id=>confirmed.push(id));
+ globalThis.request=async(path,opts)=>{assert.equal(opts.body.server_attempt_id,'server-id');return {server_id:'server-id'};};
+ await course.flushCourseWork();unsubscribe();assert.deepEqual(confirmed,['server-id']);
+ await assert.rejects(course.startCourseAttempt('quiz'),course.CourseQuizSubmitted);
+});
+test('submitted package cannot resume a stale active attempt',async()=>{
+ reset();globalThis.packs.quiz.attempts_used=1;globalThis.packs.quiz.active_attempt={attempt_id:'old'};
+ await assert.rejects(course.startCourseAttempt('quiz'),/already been submitted/);
+});

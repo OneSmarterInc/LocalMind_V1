@@ -37,7 +37,12 @@ def packages(student):
             continue
         data = {'quiz': AssessmentStudentSerializer(quiz).data, 'questions': quizzes.student_questions(quiz),
                 'grant': signing.dumps({'student': str(student.pk), 'quiz': str(quiz.pk), 'revision': revision(quiz)}, salt=SALT),
-                'attempts_used': quiz.attempts.filter(student=student).count()}
+                'attempts_used': quiz.attempts.filter(student=student).exclude(status=AttemptStatus.IN_PROGRESS).count()}
+        active = quiz.attempts.filter(student=student, status=AttemptStatus.IN_PROGRESS).first()
+        data['active_attempt'] = ({'attempt_id': str(active.pk), 'attempt_number': active.attempt_number,
+                                   'started_at': active.started_at, 'resumed': True,
+                                   'time_limit_minutes': quiz.time_limit_minutes, 'questions': data['questions']}
+                                  if active and not data['attempts_used'] else None)
         # Held/scheduled keys are never distributed for local marking.
         if quiz.results_release == 'immediate':
             data['marking'] = quiz.questions

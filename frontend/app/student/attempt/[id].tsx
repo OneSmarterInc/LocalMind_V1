@@ -4,7 +4,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useBackTo } from "@/hooks/useBackTo";
 import React, { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import {retryCourseEvent} from "@/offline/coursework";
+import {retryCourseEvent,onCourseWorkSynced} from "@/offline/coursework";
 import { student } from "@/api/endpoints";
 import type { DetailedResult } from "@/api/types";
 import { useAction, useAsync } from "@/hooks/useAsync";
@@ -20,6 +20,7 @@ export default function StudentAttempt() {
   const q = useAsync(() => student.attempt(id), [id]);
   const retrySync = useAction(async () => { await retryCourseEvent(id); await q.reload(); });
   const reloadAttempt = q.reload;
+  useEffect(() => onCourseWorkSynced(eventId => { if(eventId === id) void reloadAttempt(); }), [id,reloadAttempt]);
   useEffect(() => { if (sync.lastSync) void reloadAttempt(); }, [sync.lastSync, reloadAttempt]);
   const quizzes = useAsync(() => student.quizzes(), []);
   const a = q.data;

@@ -3,6 +3,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 import {CourseQuizSubmitted,submittedCourseQuiz,onCourseSubmission} from "@/offline/coursework";
+import { quizNeedsSubmission } from "@/screens/student/quizStatus";
 import { student } from "@/api/endpoints";
 import type { StartAttempt } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
@@ -112,6 +113,8 @@ function StudentQuizEditor({ id }: { id: string }) {
   }, [attempt, draftLoaded]);
 
   const q = info.data;
+  const submitted = !!q && !quizNeedsSubmission(q);
+  const result = useAsync(async () => submitted ? (await student.scores()).find(a => a.assessment_id === id && a.status !== "in_progress") ?? null : null, [id, submitted]);
   const ctx = useAsync(async () => {
     if (!q?.module_id) return null;
     const m = await student.module(q.module_id).catch(() => null);
@@ -120,8 +123,7 @@ function StudentQuizEditor({ id }: { id: string }) {
   const eyebrow = ctx.data ?? undefined;
   if(checkingSubmission||finalized)return <Screen>{submissionError?<ErrorBanner message={submissionError}/>:<Loading />}</Screen>;
   if (!attempt) {
-    const used = q?.attempts_used ?? 0;
-    const left = q?.max_attempts ? q.max_attempts - used : null;
+
     return (
       <Screen refreshing={info.loading} onRefresh={info.reload}>
         <ErrorBanner message={info.error} onRetry={info.reload} />
@@ -134,7 +136,7 @@ function StudentQuizEditor({ id }: { id: string }) {
             <Split
               main={
                 <Card>
-                  <View style={{ flexDirection: "row" }}><Badge value={left === 0 ? "No attempts left" : used ? "Previously attempted" : "Ready to start"} tone={left === 0 ? "neutral" : "green"} /></View>
+                  <View style={{ flexDirection: "row" }}><Badge value={submitted ? "Submitted" : "Ready to start"} tone={submitted ? "neutral" : "green"} /></View>
                   <CardHead title="Before you begin" subtitle={`Answer ${q.question_count ?? "the"} question${q.question_count === 1 ? "" : "s"} about this module.`} />
                   <View style={{ borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.border, paddingVertical: 14 }}>
                     <DetailList items={[
@@ -150,7 +152,7 @@ function StudentQuizEditor({ id }: { id: string }) {
                   <Notice tone={online ? "info" : "warning"} title={online ? "Your work is saved on this device." : "You are offline."} message="Downloaded MCQ quizzes work offline. Immediate results are marked here; answers wait for synchronization and server validation. Held results remain hidden. Changed access, deadlines or attempt limits may require review when reconnecting." />
                   <ErrorBanner message={start.error} />
                   <FormFooter note={q.time_limit_minutes ? `The timer starts with the attempt. When the ${q.time_limit_minutes} minutes run out, your answers are submitted automatically.` : "Nothing is submitted until you confirm."}>
-                    <Button title="Start quiz" icon="arrow-forward" onPress={() => start.run()} busy={start.busy} disabled={left === 0} />
+                    {submitted ? <Button title={result.data ? "View result" : "Back to quizzes"} icon="arrow-forward" onPress={() => router.replace(result.data ? `/student/attempt/${result.data.id}` : "/student/quizzes")} /> : <Button title="Start quiz" icon="arrow-forward" onPress={() => start.run()} busy={start.busy} />}
                   </FormFooter>
                 </Card>
               }

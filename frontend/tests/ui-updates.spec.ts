@@ -39,3 +39,15 @@ test('module actions link to exact outline and enrolment action is outside table
  await page.goto(`/manage/local-authoring/${f.module}`);await page.getByRole('button',{name:'Back to lessons & quizzes',exact:true}).click();await expect(page).toHaveURL(/tab=lessons.*module=/);
  await expect(page.getByRole('button',{name:'Open module',exact:true}).first()).toBeVisible();await page.screenshot({path:'test-results/ui-generation.png',fullPage:true});
 });
+test('completed quiz direct URL offers result instead of another start',async({page})=>{
+ const f=fixture();const tokens=await login(page,'student','/student/quizzes');
+ const headers={Authorization:`Bearer ${tokens.access}`};
+ const started=await page.request.post(`/api/student/quizzes/${f.quizImmediate}/attempts/`,{headers});expect(started.ok()).toBeTruthy();
+ const attempt=await started.json();
+ const submitted=await page.request.post(`/api/student/quiz-attempts/${attempt.attempt_id}/submit/`,{headers,data:{submitted_answers:Object.fromEntries(attempt.questions.map((q:any)=>[q.id,'A']))}});expect(submitted.ok()).toBeTruthy();
+ await page.goto(`/student/quiz/${f.quizImmediate}`);
+ await expect(page.getByText('Submitted',{exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'Start quiz',exact:true})).toHaveCount(0);
+ await page.getByRole('button',{name:'View result',exact:true}).click();
+ await expect(page).toHaveURL(new RegExp(`/student/attempt/${attempt.attempt_id}`));
+});

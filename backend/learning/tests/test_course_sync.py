@@ -118,3 +118,20 @@ class CourseSyncTests(TestCase):
         self.assertEqual(self.send(first).status_code,200)
         self.assertEqual(AssessmentAttempt.objects.count(),1)
         self.assertEqual(self.client.post(f'/api/student/quizzes/{self.quiz.pk}/attempts/').status_code,409)
+
+    def test_package_resumes_server_attempt_and_sync_submits_that_same_attempt(self):
+        from assessments.services.assessments import start_attempt
+        attempt, _ = start_attempt(self.student, self.quiz.pk)
+        pack = packages(self.student)[str(self.quiz.pk)]
+        self.assertEqual(pack['attempts_used'], 0)
+        self.assertEqual(pack['active_attempt']['attempt_id'], str(attempt.pk))
+        self.assertEqual(pack['active_attempt']['started_at'], attempt.started_at)
+        event = self.event();event['server_attempt_id'] = str(attempt.pk)
+        response = self.send(event)
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['server_id'], str(attempt.pk))
+        self.assertEqual(self.send(event).status_code, 200)
+        self.assertEqual(AssessmentAttempt.objects.count(), 1)
+        pack = packages(self.student)[str(self.quiz.pk)]
+        self.assertEqual(pack['attempts_used'], 1)
+        self.assertIsNone(pack['active_attempt'])

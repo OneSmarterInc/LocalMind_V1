@@ -6,10 +6,10 @@ import {device} from '@/private/device';
 import {fingerprint} from '@/private/library';
 import {offlineScope,readEntry} from './store';
 import {isOnline} from './connectivity';
-export type Package={quiz:Quiz;questions:Question[];marking?:Question[];grant:string;attempts_used:number};
-export type Event={id:string;occurred_at?:string;kind:'read'|'lesson'|'time'|'quiz'|'doubt';question?:string;answer?:string;quote?:string;supported?:boolean;source_hash?:string;module_id?:string;seconds?:number;grant?:string;answers?:Record<string,string>;started_at?:string;submitted_at?:string};
+export type Package={quiz:Quiz;questions:Question[];marking?:Question[];grant:string;attempts_used:number;active_attempt?:StartAttempt|null};
+export type Event={id:string;occurred_at?:string;kind:'read'|'lesson'|'time'|'quiz'|'doubt';question?:string;answer?:string;quote?:string;supported?:boolean;source_hash?:string;module_id?:string;seconds?:number;grant?:string;answers?:Record<string,string>;started_at?:string;submitted_at?:string;server_attempt_id?:string};
 export type Pending={event:Event;state:'pending'|'synced'|'conflict';error?:string;server_id?:string;conversation_id?:string;result?:Attempt};
-type LocalAttempt={start:StartAttempt;pack:Package;event?:Event};
+type LocalAttempt={start:StartAttempt;pack:Package;serverAttemptId?:string;event?:Event};
 export type CourseResult=Attempt&{sync_status?:string;sync_error?:string;results_released?:boolean};
 function context(){const owner=offlineScope(),session=currentSession();if(!owner)throw Error('Sign in to access saved course work.');return {prefix:`course:${fingerprint(`${BASE_URL}|${owner}`)}:`,guard:()=>{if(owner!==offlineScope()||session!==currentSession())throw new SessionChangedError();}};}
 let serial=Promise.resolve();
@@ -17,6 +17,8 @@ function exclusive<T>(run:()=>Promise<T>):Promise<T>{const next=serial.catch(()=
 export async function courseEvents(){const c=context(),rows=await(await device()).list<Pending>(c.prefix+'event:');c.guard();return rows;}
 // Uploads have their own queue: a slow server must never hold the local save lock.
 let uploading: {prefix:string; session:number; promise:Promise<void>} | null = null;
+const syncListeners = new Set<(id:string)=>void>();
+export function onCourseWorkSynced(listener:(id:string)=>void){syncListeners.add(listener);return()=>{syncListeners.delete(listener);};}
 const submissionListeners = new Set<()=>void>();
 export function onCourseSubmission(listener:()=>void){submissionListeners.add(listener);return()=>{submissionListeners.delete(listener);};}
 export function flushCourseWork():Promise<void>{const c=context(),session=currentSession();
@@ -24,8 +26,8 @@ export function flushCourseWork():Promise<void>{const c=context(),session=curren
  const promise=(async()=>{
  const d=await device();for(const row of (await d.list<Pending>(c.prefix+'event:')).sort((a,b)=>(a.event.submitted_at||a.event.occurred_at||'').localeCompare(b.event.submitted_at||b.event.occurred_at||''))){
   c.guard();if(row.state!=='pending')continue;
-  try{const response=await api<{attempt?:Attempt;server_id?:string;conversation_id?:string}>('/student/offline/events/',{method:'POST',body:row.event,cacheOffline:false});c.guard();await d.put(c.prefix+'event:'+row.event.id,{...row,state:'synced',result:response.attempt,server_id:response.server_id,conversation_id:response.conversation_id});}
-  catch(e){c.guard();if(e instanceof ApiError&&[400,403,404,409].includes(e.status)){await d.put(c.prefix+'event:'+row.event.id,{...row,state:'conflict',error:e.message});}else throw e;}
+  try{const response=await api<{attempt?:Attempt;server_id?:string;conversation_id?:string}>('/student/offline/events/',{method:'POST',body:row.event,cacheOffline:false});c.guard();await d.put(c.prefix+'event:'+row.event.id,{...row,state:'synced',result:response.attempt,server_id:response.server_id,conversation_id:response.conversation_id});syncListeners.forEach(listener=>listener(row.event.id));}
+  catch(e){c.guard();if(e instanceof ApiError&&[400,403,404,409].includes(e.status)){await d.put(c.prefix+'event:'+row.event.id,{...row,state:'conflict',error:e.message});syncListeners.forEach(listener=>listener(row.event.id));}else throw e;}
  }
  })();
  uploading={prefix:c.prefix,session,promise};
@@ -50,24 +52,39 @@ function submittedQuizId(id:string,attempts:LocalAttempt[],events:Pending[]):str
  return attempts.filter(a=>a.pack.quiz.id===id&&(a.event||events.some(e=>e.event.kind==='quiz'&&e.event.id===a.start.attempt_id)))
  .sort((a,b)=>b.start.started_at.localeCompare(a.start.started_at))[0]?.start.attempt_id||null;
 }
-export async function startCourseAttempt(id:string):Promise<StartAttempt>{
- const c=context();return exclusive(async()=>{
- const d=await device(),local=await d.list<LocalAttempt>(c.prefix+'attempt:');c.guard();
- const storedEvents=await d.list<Pending>(c.prefix+'event:');
- const submitted=submittedQuizId(id,local,storedEvents);if(submitted)throw new CourseQuizSubmitted(submitted);
- const existing=local.find(a=>a.pack.quiz.id===id&&!a.event&&!storedEvents.some(e=>e.event.id===a.start.attempt_id));if(existing)return {...existing.start,resumed:true};
+const starting = new Map<string,Promise<StartAttempt>>();
+export function startCourseAttempt(id:string):Promise<StartAttempt>{
+ const key=`${currentSession()}:${offlineScope()}:${id}`;
+ const prior=starting.get(key);if(prior)return prior;
+ const promise=startSavedCourseAttempt(id);starting.set(key,promise);
+ void promise.finally(()=>{if(starting.get(key)===promise)starting.delete(key);}).catch(()=>{});
+ return promise;
+}
+async function startSavedCourseAttempt(id:string):Promise<StartAttempt>{
+ const c=context(),d=await device();
+ async function existing(){
+  c.guard();const local=await d.list<LocalAttempt>(c.prefix+'attempt:'),events=await d.list<Pending>(c.prefix+'event:');c.guard();
+  const submitted=submittedQuizId(id,local,events);if(submitted)throw new CourseQuizSubmitted(submitted);
+  const saved=local.find(a=>a.pack.quiz.id===id&&!a.event&&!events.some(e=>e.event.id===a.start.attempt_id));
+  return saved?{...saved.start,resumed:true}:null;
+ }
+ const saved=await exclusive(existing);if(saved)return saved;
  let packs=await readEntry<Record<string,Package>>('/student/offline/quizzes/');c.guard();
+ // Fetches never hold the queue used to commit local answers.
  if(isOnline()){try{const bundle=await api<{entries:Record<string,unknown>}>('/student/offline/',{cacheOffline:false});packs=bundle.entries['/student/offline/quizzes/'] as Record<string,Package>;c.guard();}catch(e){if(!(e instanceof ApiError&&e.code==='NETWORK'))throw e;}}
- const pack=packs?.[id];if(!pack&&isOnline())return api<StartAttempt>(`/student/quizzes/${id}/attempts/`,{method:'POST'});if(!pack)throw Error('This quiz has not been downloaded for offline use. Refresh the course copy while connected. Only MCQ quizzes support local evaluation.');
- const now=Date.now(),q=pack.quiz;
- if(q.available_from&&now<Date.parse(q.available_from))throw Error('This quiz is not open yet.');
- if(q.due_at&&now>Date.parse(q.due_at))throw Error('This quiz is past its downloaded due date.');
- const events=await d.list<Pending>(c.prefix+'event:');const pendingIds=new Set(events.filter(e=>e.state!=='synced').map(e=>e.event.id));
- const used=pack.attempts_used+local.filter(a=>a.pack.quiz.id===id&&a.event&&pendingIds.has(a.event.id)).length;
- if(used>=1)throw Error('No attempts remain in the downloaded quiz allowance.');
- const start:StartAttempt={attempt_id:randomUUID(),attempt_number:used+1,started_at:new Date().toISOString(),resumed:false,time_limit_minutes:q.time_limit_minutes,questions:pack.questions};
- c.guard();await d.put(c.prefix+'attempt:'+start.attempt_id,{start,pack});return start;
- });}
+ const pack=packs?.[id];
+ if(!pack&&isOnline()){c.guard();return api<StartAttempt>(`/student/quizzes/${id}/attempts/`,{method:'POST'});}
+ if(!pack)throw Error('This quiz has not been downloaded for offline use. Refresh the course copy while connected. Only MCQ quizzes support local evaluation.');
+ return exclusive(async()=>{
+  const saved=await existing();if(saved)return saved;
+  const now=Date.now(),q=pack.quiz;
+  if(pack.attempts_used>=1)throw Error('This quiz has already been submitted.');
+  if(q.available_from&&now<Date.parse(q.available_from))throw Error('This quiz is not open yet.');
+  if(q.due_at&&now>Date.parse(q.due_at))throw Error('This quiz is past its downloaded due date.');
+  const start:StartAttempt=pack.active_attempt?{...pack.active_attempt,resumed:true}:{attempt_id:randomUUID(),attempt_number:1,started_at:new Date().toISOString(),resumed:false,time_limit_minutes:q.time_limit_minutes,questions:pack.questions};
+  c.guard();await d.put(c.prefix+'attempt:'+start.attempt_id,{start,pack,serverAttemptId:pack.active_attempt?.attempt_id});return start;
+ });
+}
 export function roundPercentage(value:number){const scaled=value*10,floor=Math.floor(scaled);return (scaled-floor===0.5?(floor%2===0?floor:floor+1):Math.round(scaled))/10;}
 export function localGrade(local:{start:StartAttempt;pack:Package},event:Event):CourseResult{
  const {start,pack}=local,q=pack.quiz,visible=q.results_release==='immediate'&&!!pack.marking;
@@ -77,13 +94,15 @@ export function localGrade(local:{start:StartAttempt;pack:Package},event:Event):
 }
 export async function submitCourseAttempt(id:string,answers:Record<string,string>):Promise<CourseResult>{
  const c=context();const result=await exclusive(async()=>{const d=await device(),local=await d.get<LocalAttempt>(c.prefix+'attempt:'+id);c.guard();
- if(!local)return api<CourseResult>(`/student/quiz-attempts/${id}/submit/`,{method:'POST',body:{submitted_answers:answers}});
+ if(!local)return null;
  const persisted=await d.get<Pending>(c.prefix+'event:'+id);
- const event=persisted?.event||local.event||{id,kind:'quiz' as const,grant:local.pack.grant,answers:{...answers},started_at:local.start.started_at,submitted_at:new Date().toISOString()};
+ const event=persisted?.event||local.event||{id,kind:'quiz' as const,grant:local.pack.grant,...(local.serverAttemptId?{server_attempt_id:local.serverAttemptId}:{}),answers:{...answers},started_at:local.start.started_at,submitted_at:new Date().toISOString()};
  // The event is committed first. Recovery below can reconstruct a submitted attempt after interruption.
  if(!await d.get(c.prefix+'event:'+id))await d.put(c.prefix+'event:'+id,{event,state:'pending'});
  c.guard();await d.put(c.prefix+'attempt:'+id,{...local,event});return localGrade(local,event);
- });submissionListeners.forEach(listener=>listener());
+ });
+ if(!result){c.guard();return api<CourseResult>(`/student/quiz-attempts/${id}/submit/`,{method:'POST',body:{submitted_answers:answers}});}
+ submissionListeners.forEach(listener=>listener());
  if(isOnline())void flushCourseWork().catch(()=>{});
  return result;
 }
