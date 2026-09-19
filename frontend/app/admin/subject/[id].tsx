@@ -176,9 +176,9 @@ function StudentsTab({ subjectId }: { subjectId: string }) {
         </Card>
       ) : null}
       <ErrorBanner message={rows.error ?? drop.error} onRetry={rows.reload} />
+      <CardHead title="Enrolled students" subtitle={rows.data ? `${rows.data.students.length} active enrollment${rows.data.students.length === 1 ? "" : "s"}` : null} action={!picking ? <Button title="Enroll students" icon="person-add-outline" onPress={() => setPicking(true)} /> : null} />
       <Card flush>
-        <View style={{ padding: 23, paddingBottom: 12, gap: 14 }}>
-          <CardHead title="Enrolled students" subtitle={rows.data ? `${rows.data.students.length} active enrollment${rows.data.students.length === 1 ? "" : "s"}` : null} action={!picking ? <Button title="Enroll students" icon="person-add-outline" onPress={() => setPicking(true)} /> : null} />
+        <View style={{ paddingHorizontal: 22, paddingVertical: 16 }}>
           <Input icon="search" compact placeholder="Search this list…" value={q} onChangeText={setQ} containerStyle={{ maxWidth: 350 }} accessibilityLabel="Search students" />
         </View>
         {rows.error && !rows.data ? <RequestFailed onRetry={rows.reload} /> : rows.loading && !rows.data ? <Loading lines={2} /> : <Table noun="student" columns={columns} rows={list} keyOf={(r) => r.student_id} minWidth={900} empty={<Empty icon="school-outline" text={rows.data?.students.length ? "No student matches." : "No students enrolled yet."} />} />}
