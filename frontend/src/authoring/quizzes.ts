@@ -5,13 +5,25 @@ import {fingerprint} from '@/private/library';
 import {makeSections,requireThat,type MCQ} from '@/private/core';
 import {LocalAuthoring,type Snapshot} from './local';
 export type QuizDraft={id:string;createdAt?:string;title:string;count:number;book:string;sources:Snapshot[];parts:{section:string;module:string;count:number}[];done:number;questions:(MCQ&{module_id:string})[];state:'draft'|'pending'|'synced'|'conflict';quizId?:string;error?:string};
+// A valid model response can contain fewer questions than requested. Saved
+// question provenance, rather than a historical cursor, determines completion.
+function savedForPart(row:QuizDraft,part:QuizDraft['parts'][number]){
+ return row.questions.filter(q=>q.sectionId===part.section&&q.module_id===part.module).length;
+}
+function restoreProgress(row:QuizDraft){
+ if(row.state==='draft'){
+  const missing=row.parts.findIndex(part=>savedForPart(row,part)<part.count);
+  row.done=missing<0?row.parts.length:missing;
+ }
+ return row;
+}
 const active=new Set<string>(),sending=new Map<string,Promise<QuizDraft>>();
 export class LocalQuizzes{
  readonly authoring:LocalAuthoring;
  constructor(owner:string){this.authoring=new LocalAuthoring(owner);}
  private key(id:string){return this.authoring.library.prefix+'quiz-draft:'+id;}
- async list(){const rows=await(await device()).list<QuizDraft>(this.key(''));this.authoring.library.guard();for(const row of rows)if(!row.createdAt){const book=await this.authoring.library.book(row.book).catch(()=>null);if(book){row.createdAt=book.importedAt;await this.save(row);}}return rows.sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));}
- async read(id:string){const row=await(await device()).get<QuizDraft>(this.key(id));this.authoring.library.guard();requireThat(row,'Quiz draft is unavailable.');return row;}
+ async list(){const rows=await(await device()).list<QuizDraft>(this.key(''));this.authoring.library.guard();for(const row of rows)if(!row.createdAt){const book=await this.authoring.library.book(row.book).catch(()=>null);if(book){row.createdAt=book.importedAt;}}this.authoring.library.guard();return rows.map(restoreProgress).sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));}
+ async read(id:string){const row=await(await device()).get<QuizDraft>(this.key(id));this.authoring.library.guard();requireThat(row,'Quiz draft is unavailable.');return restoreProgress(row);}
  private async save(row:QuizDraft){this.authoring.library.guard();await(await device()).put(this.key(row.id),row);this.authoring.library.guard();}
  async create(ids:string[],title:string,count:number){
   ids=[...new Set(ids)];requireThat(ids.length>0&&ids.length<=30,'Choose 1–30 modules.');
@@ -34,11 +46,13 @@ export class LocalQuizzes{
   const key=this.key(id);requireThat(!active.has(key),'This quiz is already generating.');active.add(key);
   try{const row=await this.read(id);for(const source of row.sources)requireThat(!await this.authoring.isRemoved(source.document_id),'A source book was removed or archived.');requireThat(row.state==='draft','This draft is already approved.');requireThat((await(await device()).status()).installed,'Install a model in Offline AI first.');
    for(let i=row.done;i<row.parts.length;i++){
-    requireThat(!signal.aborted,'Generation cancelled. Saved questions are retained.');const part=row.parts[i];progress(`Preparing questions ${row.questions.length+1}–${row.questions.length+part.count} of ${row.count}`);
-    const result=await this.authoring.library.generateQuiz(row.book,part.section,part.count,signal,()=>{},progress,row.questions.map(q=>q.question),row.sources.find(source=>(source.remote_id||source.module_id)===part.module)?.source);
+    requireThat(!signal.aborted,'Generation cancelled. Saved questions are retained.');const part=row.parts[i],remaining=part.count-savedForPart(row,part);if(remaining<=0)continue;progress(`Preparing questions ${row.questions.length+1}–${row.questions.length+remaining} of ${row.count}`);
+    const result=await this.authoring.library.generateQuiz(row.book,part.section,remaining,signal,()=>{},progress,row.questions.map(q=>q.question),row.sources.find(source=>(source.remote_id||source.module_id)===part.module)?.source);
     const questions=result.questions.map(q=>({...q,module_id:part.module}));
     requireThat(new Set([...row.questions,...questions].map(q=>q.question.toLowerCase().trim())).size===row.questions.length+questions.length,'The model repeated a question. Completed work is retained; prepare a new draft if retrying repeats it.');
-    row.questions.push(...questions);row.done=i+1;await this.save(row);
+    requireThat(questions.length<=remaining,'The model returned too many questions. Existing work is retained.');
+    row.questions.push(...questions);restoreProgress(row);await this.save(row);
+    requireThat(savedForPart(row,part)===part.count,`${row.questions.length} of ${row.count} questions saved. This source produced fewer questions than requested. Resume generation to retry only the missing questions.`);
    }return row;
   }finally{active.delete(key);}
  }

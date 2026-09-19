@@ -87,6 +87,7 @@ jobs:
         continue-on-error: true
         run: |
           node tests/authoring-batch.mjs >verification/authoring-batch.log 2>&1 || { cat verification/authoring-batch.log; exit 1; }
+          node tests/quiz-draft-recovery.mjs >verification/quiz-draft-recovery.log 2>&1 || { cat verification/quiz-draft-recovery.log; exit 1; }
           node tests/auth-navigation.mjs >verification/auth-navigation.log 2>&1 || { cat verification/auth-navigation.log; exit 1; }
           node tests/authoring-races.mjs >verification/authoring-races.log 2>&1 || { cat verification/authoring-races.log; exit 1; }
           node tests/reliability.mjs >verification/reliability.log 2>&1 || { cat verification/reliability.log; exit 1; }
