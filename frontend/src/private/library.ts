@@ -118,12 +118,14 @@ export class Library {
     const key=`${this.work(bookId)}checkpoint:quiz:${sectionId}:${fingerprint(JSON.stringify({version:2,sources,count,model:model.hash||model.name,...(excluded.length?{excluded}:{})}))}:`;
     const checkpoint=await d.get<Checkpoint<MCQ>>(key)||{id:randomUUID(),parts:[]};
     const alternatives=moduleSource?lessonPassages(moduleSource,3200):[];
-    const focuses=[...new Set([...sources,...alternatives])].filter(source=>source.trim().length>=8);
+    let focuses=[...new Set([...sources,...alternatives])].filter(source=>source.trim().length>=8);
     requireThat(focuses.length,'This module has too little readable text for a grounded quiz.');
     const questions=checkpoint.parts;progress(questions.length);
     const normalized=(value:string)=>value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim();
     const duplicate=(question:string)=>[...excluded,...questions.map(q=>q.question)].some(q=>normalized(q)===normalized(question));
-    let exhausted=0;
+    let cursor=0, singleOnly=false, passageLimit=3200;
+    // One bounded budget for the request, rather than retries nested per missing item.
+    const budget=Math.min(24,Math.max(4,count*2,focuses.length+1));
 
     const save=async()=>{this.guard();await d.put(key,{id:checkpoint.id,parts:[...questions]});this.guard();};
     let lastReason='';
@@ -134,58 +136,55 @@ export class Library {
         questions.push(question);return true;
       } catch(e){ lastReason=e instanceof Error?e.message:String(e); return false; }
     };
-    // Prefer passages no accepted question has quoted yet, so a multi-passage module
-    // spreads its questions instead of mining the same paragraph repeatedly.
-    const unusedFocuses=()=>{const fresh=focuses.filter(s=>!questions.some(q=>s.includes(q.quote)));return fresh.length?fresh:focuses;};
-
-    while(questions.length<count) {
-      this.guard();requireThat(!signal.aborted,'Cancelled. Your earlier quizzes are unchanged.');
-      const remaining=count-questions.length;
-      const wanted=Math.min(3,remaining);
-      const pool=unusedFocuses();
-      const source=pool[(Math.floor(questions.length*pool.length/count)+exhausted)%pool.length];
+    // Advance on every attempt, including rejected output. Previously failed
+    // questions kept selecting the first passages and never reached later facts.
+    const visits=new Map<string,number>();
+    for(let attempt=0;attempt<budget&&questions.length<count;attempt++) {
+      this.guard();cancelled(signal);
+      const pool=focuses.filter(s=>!questions.some(q=>s.includes(q.quote)));
+      const candidates=pool.length?pool:focuses;
+      const least=Math.min(...candidates.map(s=>visits.get(s)||0));
+      const fresh=candidates.filter(s=>(visits.get(s)||0)===least);
+      const source=fresh[cursor++%fresh.length];
+      visits.set(source,(visits.get(source)||0)+1);
+      const wanted=singleOnly?1:Math.min(3,count-questions.length);
       const avoid=[...excluded,...questions.map(q=>q.question)].map(q=>q.slice(0,160)).join('\n');
-      let accepted=0;
+      let raw:unknown;
       try {
-        detail?.(`Questions ${questions.length+1}-${questions.length+wanted}/${count} · preparing one local AI batch`);
-        const raw=await d.complete({system:GROUNDING,prompt:`Write exactly ${wanted} useful, DISTINCT multiple-choice practice questions from this module reference. Each question needs exactly four distinct answer choices, a zero-based answer index (0-3), a concise explanation (at most 40 words), and an exact supporting quote. Options must contain answer text only; never prefix A/B/C/D or 1/2/3/4. Test different specific facts rather than repeating the module title or asking whether a sentence appears in the book.\nDo not repeat these already accepted questions:\n${avoid}\nSTORED BOOK REFERENCE:\n${source}`,schema:groundedSchema(compactMcqBatchSchema(wanted),source),maxTokens:wanted===3?1200:wanted===2?850:550,temperature:0.25,signal,progress:message=>detail?.(`Quiz ${questions.length}/${count} · ${message}`)});
-        const batch=raw&&typeof raw==='object'&&!Array.isArray(raw)?(raw as {questions?:unknown[]}).questions:undefined;
-        if(Array.isArray(batch))for(const item of batch){if(questions.length>=count)break;if(accept(item,source))accepted++;}
-      } catch (e) {
-        if(signal.aborted || /timed out|storage|quota/i.test(String(e))) throw e;
-        detail?.('Batch generation needed a targeted retry.');
-      }
-
-      if(accepted){await save();progress(questions.length);exhausted=0;}
-      // Only regenerate missing/invalid items. This is deliberately individual so one
-      // bad item never throws away a good batch.
-      const missing=Math.min(wanted-accepted,count-questions.length);
-      let repairedAny=false;
-      for(let i=0;i<missing;i++){
-        let repaired=false;
-        for(let attempt=0;attempt<2&&!repaired;attempt++){
-          this.guard();requireThat(!signal.aborted,'Cancelled. Your earlier quizzes are unchanged.');
-          const retryPool=unusedFocuses();
-          const retrySource=retryPool[(questions.length+attempt+exhausted)%retryPool.length];
-          const retryAvoid=[...excluded,...questions.map(q=>q.question)].map(q=>q.slice(0,160)).join('\n');
-          try {
-            detail?.(`Question ${questions.length+1}/${count} · repairing only the missing item (${attempt+1}/2)`);
-            const raw=await d.complete({system:GROUNDING,prompt:`Write ONE useful multiple-choice practice question. Exactly four distinct options; answer is a zero-based index (0-3). Options are answer text only with no A/B/C/D labels. Include a concise explanation and an exact source quote. Test a specific fact not already covered.${lastReason?` Fix this previous validation problem: ${lastReason.slice(0,240)}.`:''}\nDo not repeat these questions:\n${retryAvoid}\nSTORED BOOK REFERENCE:\n${retrySource}`,schema:groundedSchema(COMPACT_MCQ_SCHEMA,retrySource),maxTokens:450,temperature:0.3+attempt*0.1,signal,progress:message=>detail?.(`Question ${questions.length+1}/${count} · ${message}`)});
-            repaired=accept(raw,retrySource);
-            if(repaired){repairedAny=true;await save();progress(questions.length);}
-          } catch(e){if(signal.aborted||/timed out|storage|quota/i.test(String(e)))throw e;}
+        detail?.(`Quiz ${questions.length}/${count} · ${wanted===1?'one question':'one local AI batch'} (attempt ${attempt+1}/${budget})`);
+        raw=await d.complete({system:GROUNDING,prompt:`Write ${wanted===1?'ONE useful multiple-choice practice question':`exactly ${wanted} useful, DISTINCT multiple-choice practice questions`}. Each question needs exactly four distinct answer choices, a zero-based answer index (0-3), a concise explanation (at most 30 words), and an exact supporting quote. Keep each choice under 15 words. Options must contain answer text only; never prefix A/B/C/D or 1/2/3/4. Test specific facts from the reference.\nDo not repeat these accepted questions:\n${avoid}\n${lastReason?`Correct this problem from the previous attempt: ${lastReason.slice(0,240)}\n`:''}STORED BOOK REFERENCE:\n${source}`,schema:groundedSchema(wanted===1?COMPACT_MCQ_SCHEMA:compactMcqBatchSchema(wanted),source),maxTokens:wanted===3?1200:wanted===2?850:650,temperature:0.25,signal,progress:message=>detail?.(`Quiz ${questions.length}/${count} · ${message}`)});
+      } catch(e) {
+        this.guard();cancelled(signal);
+        lastReason=e instanceof Error?e.message:String(e);
+        // A smaller context preserves grounding without repeating an oversized
+        // prompt. Split rather than discard the rest of the reference.
+        if(/(?:exceeds|exceeded|too long|too large).*context|context.*(?:exceeds|exceeded|too long|too large|limit)/i.test(lastReason)&&passageLimit>800){
+          passageLimit=Math.max(800,Math.floor(passageLimit/2));
+          focuses=focuses.flatMap(s=>lessonPassages(s,passageLimit));
+          singleOnly=true;
+          continue;
         }
-        // Two attempts failed on this item. Repeating them for every missing
-        // slot repeats the same work; let the next round choose another passage.
-        if(!repaired)break;
+        // Runtime/storage failures are not evidence of poor source material.
+        // Only truncated/invalid model output benefits from a smaller response.
+        if(!/incomplete|JSON|unexpected token|unterminated/i.test(lastReason))throw e;
+        singleOnly=true;
+        continue;
       }
-      if(!accepted && !repairedAny && questions.length<count){
-        if(++exhausted>=2)break;
-      } else exhausted=0;
-      if(questions.length>=count)break;
+      this.guard();cancelled(signal);
+      const batch=wanted===1?[raw]:raw&&typeof raw==='object'&&!Array.isArray(raw)?(raw as {questions?:unknown[]}).questions:undefined;
+      let accepted=0;
+      if(Array.isArray(batch))for(const item of batch){
+        if(questions.length>=count)break;
+        if(accept(item,source)){
+          // Persist each validated question before processing any more output.
+          await save();progress(questions.length);accepted++;
+        }
+      }
+      else lastReason='The model did not return a questions array.';
+      if(accepted<wanted)singleOnly=true;
     }
 
-    requireThat(questions.length >= 1, 'No question could be generated from this module. Its source is too thin or too repetitive for a grounded quiz.');
+    requireThat(questions.length >= 1, `Quiz generation stopped without a valid question after ${budget} attempts. ${lastReason||'The model returned no questions.'} Your saved work is retained; retry to resume.`);
     // A thin module may honestly support fewer questions than requested; keep useful grounded work.
     if(questions.length<count)detail?.(`${questions.length} grounded question(s) could be produced from this module.${lastReason?` Last rejection: ${lastReason}`:''}`);
     await this.book(bookId);this.guard();requireThat(!signal.aborted,'Cancelled');

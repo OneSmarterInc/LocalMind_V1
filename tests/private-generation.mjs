@@ -59,7 +59,7 @@ test('an exhausted section can recover using other text from its own module',asy
  const quiz=await lib.generateQuiz(bookId,'s1',1,new AbortController().signal,()=>{},()=>{},['What are the chapter objectives?'],opening+'\n'+other);
  assert.equal(quiz.questions.length,1);
  assert.equal(quiz.questions[0].question,'What does ransomware do?');
- assert.equal(requests.length,3);
+ assert.equal(requests.length,2);
 });
 
 test('private quizzes never borrow another module automatically',async()=>{
@@ -67,7 +67,7 @@ test('private quizzes never borrow another module automatically',async()=>{
  const lib=await setup(opening);
  const book=await lib.book(bookId);book.sections.push({id:'s2',title:'Other module',source:'UNRELATED SECRET TOPIC'});await lib.seed(book);
  respond=req=>mcq(req,'Repeated question');
- await assert.rejects(lib.generateQuiz(bookId,'s1',1,new AbortController().signal,()=>{},()=>{},['Repeated question']),/No question could be generated/);
+ await assert.rejects(lib.generateQuiz(bookId,'s1',1,new AbortController().signal,()=>{},()=>{},['Repeated question']),/Quiz generation stopped without a valid question/);
  assert.ok(requests.every(r=>!r.prompt.includes('UNRELATED SECRET TOPIC')));
  assert.equal((await lib.quizzes(bookId,'s1')).length,0);
 });
@@ -75,7 +75,7 @@ test('private quizzes never borrow another module automatically',async()=>{
 test('an entirely rejected three-question batch does not retry every empty slot',async()=>{
  const lib=await setup(source);
  respond=()=>({questions:[]});
- await assert.rejects(lib.generateQuiz(bookId,'s1',3,new AbortController().signal,()=>{}),/No question could be generated/);
- assert.equal(requests.length,6,'two rounds, each with one batch and two targeted repairs');
+ await assert.rejects(lib.generateQuiz(bookId,'s1',3,new AbortController().signal,()=>{}),/Quiz generation stopped without a valid question/);
+ assert.equal(requests.length,6,'one bounded six-attempt budget');
  assert.equal((await lib.quizzes(bookId,'s1')).length,0);
 });

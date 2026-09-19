@@ -23,7 +23,7 @@
     "preios": "npm run prepare:private",
     "preexport:web": "npm run prepare:private",
     "postexport:web": "node scripts/build-offline-manifest.mjs",
-    "test:private": "node ../tests/private-contracts.mjs && node ../tests/authoring-races.mjs && node ../tests/reliability.mjs",
+    "test:private": "node ../tests/quiz-generation.mjs && node ../tests/private-contracts.mjs && node ../tests/authoring-races.mjs && node ../tests/reliability.mjs",
     "test:private:web": "playwright test -c tests/private.playwright.config.ts"
   },
   "dependencies": {

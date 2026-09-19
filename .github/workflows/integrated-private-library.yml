@@ -86,6 +86,9 @@ jobs:
         id: contracts
         continue-on-error: true
         run: |
+          node tests/private-generation.mjs >verification/private-generation.log 2>&1 || { cat verification/private-generation.log; exit 1; }
+          node tests/quote-references.mjs >verification/quote-references.log 2>&1 || { cat verification/quote-references.log; exit 1; }
+          node tests/quiz-generation.mjs >verification/quiz-generation.log 2>&1 || { cat verification/quiz-generation.log; exit 1; }
           node tests/authoring-batch.mjs >verification/authoring-batch.log 2>&1 || { cat verification/authoring-batch.log; exit 1; }
           node tests/quiz-draft-recovery.mjs >verification/quiz-draft-recovery.log 2>&1 || { cat verification/quiz-draft-recovery.log; exit 1; }
           node tests/doubt-availability.mjs >verification/doubt-availability.log 2>&1 || { cat verification/doubt-availability.log; exit 1; }
