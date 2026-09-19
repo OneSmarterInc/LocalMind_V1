@@ -1,3 +1,4 @@
+import { accelerationLabel } from '../acceleration';
 import {useSyncState, syncNow} from '@/offline/sync';
 import {useAppFilesStatus} from "@/offline/appFiles";
 import React, { useEffect, useRef, useState } from 'react';
@@ -50,7 +51,9 @@ export default function OfflineAI() {
       <P>{status?.name || MODEL.title}</P>
       <P muted>Available download: {MODEL.title} · {MODEL.downloadSize}.</P>
       {status?.installed && status.hash !== MODEL.sha256 && <P muted>Select Download replacement model to switch to Qwen3 1.7B. Your current model stays installed until the new download is complete and verified. Your books and saved study material are kept.</P>}
-      {Platform.OS==='web' && status?.loaded && <P muted>Local inference: {status.threads || 1} CPU thread(s). One response at a time.</P>}
+      {status?.loaded && <P muted>Local inference: {accelerationLabel({accelerator:status.accelerator || 'unconfirmed',gpuLayers:status.gpuLayers},status.threads)}. One response at a time.</P>}
+      {!!status?.accelerationNote && <P muted>{status.accelerationNote}</P>}
+      {!status?.loaded && <P muted>GPU acceleration is requested when the model loads. Actual hardware use appears here after generation.</P>}
       <P muted>After the model and book are installed, lesson generation, quiz generation and doubt solving run here without an internet connection or an AI API key. Checking an existing multiple-choice quiz does not need a model.</P>
       <P muted>The included download is a compact model, not a guarantee of answer quality. Compare explanations and generated questions with the original book. You may import a compatible larger GGUF when this device has enough memory.</P>
       <Row><Button title={status?.installed ? 'Download replacement model' : `Download model · ${MODEL.downloadSize}`} icon="download-outline" onPress={download} disabled={busy} /><Button title="Import a .gguf file" variant="secondary" icon="folder-open-outline" onPress={importModel} disabled={busy} /></Row>

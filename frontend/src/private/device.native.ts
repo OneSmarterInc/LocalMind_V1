@@ -44,8 +44,14 @@ async function accept(uri:string,name:string,progress:(n:number)=>void,signal?:A
 async function complete(req:Completion){return lock.queue(async()=>{
  cancelled(req.signal);const m=await store.get<Installed>(MODEL_KEY);requireThat(m,'Download or import a model in Offline AI first.');
  requireThat(m.uri.startsWith('file://'),'AI models must be stored locally.');
- if(!context||loaded!==m.uri){await close();await info(m.uri);const cores=Number((globalThis as typeof globalThis & {navigator?:{hardwareConcurrency?:number}}).navigator?.hardwareConcurrency);const threads=nativeInferenceThreads(cores);context=await initLlama({model:m.uri,n_ctx:CONTEXT_TOKENS,n_threads:threads,n_gpu_layers:0,use_mlock:false});loaded=m.uri;}
+ if(!context||loaded!==m.uri){await close();await info(m.uri);const cores=Number((globalThis as typeof globalThis & {navigator?:{hardwareConcurrency?:number}}).navigator?.hardwareConcurrency);const threads=nativeInferenceThreads(cores);
+  const options={model:m.uri,n_ctx:CONTEXT_TOKENS,n_threads:threads,use_mlock:false};
+  try {context=await initLlama({...options,n_gpu_layers:99});}
+  catch {cancelled(req.signal);context=await initLlama({...options,n_gpu_layers:0});context.reasonNoGPU='GPU loading failed; using this device’s CPU. Restart the app to retry.';}
+  loaded=m.uri;
+ }
  cancelled(req.signal);
+ req.progress?.(context.gpu?'Generating on this device’s GPU…':`Generating on this device’s CPU… ${context.reasonNoGPU || ''}`);
  const started=Date.now();
  const messages=[{role:'system',content:req.system},{role:'user',content:req.prompt}];
  const formatted=await context.getFormattedChat(messages,undefined,{enable_thinking:false});
@@ -58,7 +64,7 @@ async function complete(req:Completion){return lock.queue(async()=>{
   const res=await context.completion({messages,n_predict:req.maxTokens,temperature:req.temperature,enable_thinking:false,
    response_format:{type:'json_object',schema:req.schema},stop:['<|im_end|>','<|eot_id|>','</s>']});
   cancelled(req.signal);requireThat(!expired && !('stopped_limit' in res && res.stopped_limit),'Local AI did not finish. No partial answer was saved.');const restored=JSON.parse(res.text);
-  console.info('[LocalMind AI]',{runtime:'native',elapsedMs:Date.now()-started,outputCharacters:res.text.length});
+  console.info('[LocalMind AI]',{runtime:'native',accelerator:context.gpu?'gpu':'cpu',elapsedMs:Date.now()-started,outputCharacters:res.text.length});
   return restored;
  }catch(e){if(expired&&!req.signal.aborted)throw new Error('Local AI timed out. No incomplete response was saved. Completed lesson parts and quiz questions are retained; generate again to resume.');throw e;}finally{clearTimeout(timer);req.signal.removeEventListener('abort',cancel);}
 },req.signal);}
@@ -77,7 +83,7 @@ const implementation:Device={...store,complete,
   catch(e){await FS.deleteAsync(uri,{idempotent:true}).catch(()=>{});throw e;}finally{signal.removeEventListener('abort',cancel);}
  },
  async releaseFile(f){if(f.uri.startsWith(`${FS.cacheDirectory}private-book-`))await FS.deleteAsync(f.uri,{idempotent:true});},
- async status(){const m=await store.get<Installed>(MODEL_KEY);if(!m)return {installed:false};const i=await FS.getInfoAsync(m.uri);return {installed:i.exists && !i.isDirectory && i.size===m.bytes,name:m.name,bytes:m.bytes,hash:m.hash,loaded:loaded===m.uri};},
+ async status(){const m=await store.get<Installed>(MODEL_KEY);if(!m)return {installed:false};const i=await FS.getInfoAsync(m.uri);return {installed:i.exists && !i.isDirectory && i.size===m.bytes,name:m.name,bytes:m.bytes,hash:m.hash,loaded:loaded===m.uri,...(context&&loaded===m.uri?{accelerator:context.gpu?'gpu' as const:'cpu' as const,accelerationNote:context.gpu?undefined:context.reasonNoGPU}: {})};},
  download:(progress,signal)=>lock.run(async()=>{
   await FS.makeDirectoryAsync(root,{intermediates:true});const uri=`${root}${randomUUID()}.gguf`;
   const task=FS.createDownloadResumable(MODEL.url,uri,{},p=>progress(Math.min(0.85,p.totalBytesWritten/MODEL.bytes*0.85)));

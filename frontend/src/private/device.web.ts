@@ -3,6 +3,7 @@ import { bytesToHex } from '@noble/hashes/utils';
 import { MAX_BOOK_BYTES, makeReadingSections, requireThat } from './core';
 import { MODEL, MAX_MODEL_BYTES, CONTEXT_TOKENS } from './modelSpec';
 import { PARSER_ASSET } from './generated/parserAsset';
+import { loadAccelerated, accelerationLabel, type Acceleration } from './acceleration';
 import { inferenceThreads } from './performance';
 import { Exclusive, cancelled } from './busy';
 import type { Completion, Device, LocalFile } from './device.types';
@@ -111,6 +112,7 @@ async function download(progress:(n:number)=>void,signal?:AbortSignal){
  return run();
 }
 let activeThreads=1;
+let acceleration:Acceleration={accelerator:'cpu'};
 async function complete(req:Completion) {
  req.progress?.("Waiting for the local model…");
  return lock.queue(async()=>{
@@ -120,19 +122,22 @@ async function complete(req:Completion) {
     req.progress?.("Loading the model on this device…");
     await close(); await script('/private-assets/runtime-loader.js');
     requireThat(window.__LM_WLLAMA__,'The browser AI runtime could not be loaded.');
-    const instance=new window.__LM_WLLAMA__({default:'/private-assets/wllama/esm/wasm/wllama.wasm'});
-    try {
-      const blob=await (await (await files()).getFileHandle(info.file)).getFile();
-      activeThreads=inferenceThreads(globalThis.crossOriginIsolated,typeof SharedArrayBuffer!=='undefined',navigator.hardwareConcurrency);
-      await instance.loadModel([blob],{n_ctx:CONTEXT_TOKENS,n_threads:activeThreads,n_gpu_layers:0});
-      if(instance.isMultithread?.()===false)activeThreads=1;
-      engine=instance;loaded=info.file;
-    } catch(e) {await instance.exit().catch(()=>{});throw e;}
+    const blob=await (await (await files()).getFileHandle(info.file)).getFile();
+    activeThreads=inferenceThreads(globalThis.crossOriginIsolated,typeof SharedArrayBuffer!=='undefined',navigator.hardwareConcurrency);
+    const result=await loadAccelerated({
+      signal:req.signal,gpuAvailable:'gpu' in navigator,progress:req.progress,
+      create:observe=>new window.__LM_WLLAMA__!({default:'/private-assets/wllama/esm/wasm/wllama.wasm'},
+        {logger:{debug:observe,log:observe,warn:observe,error:observe}}),
+      load:(instance,layers)=>instance.loadModel([blob],{n_ctx:CONTEXT_TOKENS,n_threads:activeThreads,n_gpu_layers:layers}),
+      dispose:instance=>instance.exit(),
+    });
+    engine=result.engine;acceleration=result.status;loaded=info.file;
+    if(engine.isMultithread?.()===false)activeThreads=1;
   }
   cancelled(req.signal);
   const abort=new AbortController();const cancel=()=>abort.abort();req.signal.addEventListener('abort',cancel);
   const started=Date.now();
-  const report=()=>req.progress?.(`Generating with ${activeThreads} CPU thread${activeThreads===1?'':'s'} · ${Math.floor((Date.now()-started)/1000)}s`);
+  const report=()=>req.progress?.(`Generating with ${accelerationLabel(acceleration,activeThreads)} · ${Math.floor((Date.now()-started)/1000)}s`);
   report();const ticker=setInterval(report,1000);
   const timer=setTimeout(()=>abort.abort(),180000);
   try {
@@ -143,7 +148,7 @@ async function complete(req:Completion) {
     cancelled(req.signal); requireThat(!abort.signal.aborted,'Local AI timed out. No partial answer was saved.');
     const choice=result.choices[0];requireThat(choice && choice.finish_reason!=='length','The response was incomplete. Try fewer questions or a shorter module.');
     const restored=JSON.parse(choice.message.content);
-    console.info('[LocalMind AI]',{runtime:'browser',elapsedMs:Date.now()-started,threads:activeThreads,outputCharacters:choice.message.content.length});
+    console.info('[LocalMind AI]',{runtime:'browser',...acceleration,elapsedMs:Date.now()-started,threads:activeThreads,outputCharacters:choice.message.content.length});
     return restored;
   } catch(e) {
     if(abort.signal.aborted&&!req.signal.aborted)throw new Error('Local AI timed out. No incomplete response was saved. Completed lesson parts and quiz questions are retained; generate again to resume.');
@@ -166,7 +171,7 @@ const implementation:Device={...store, complete,
   const file=new File(parts,name);return {name,uri:'device-selected',file,size:file.size};
  },
  async releaseFile(){/* A browser File is released by garbage collection. */},
- async status(){const m=await store.get<Installed>(MODEL_KEY);if(!m)return {installed:false};try {const f=await (await (await files()).getFileHandle(m.file)).getFile();return {installed:f.size===m.bytes,name:m.name,bytes:m.bytes,hash:m.hash,threads:activeThreads,loaded:loaded===m.file};}catch{return {installed:false};}},
+ async status(){const m=await store.get<Installed>(MODEL_KEY);if(!m)return {installed:false};try {const f=await (await (await files()).getFileHandle(m.file)).getFile();return {installed:f.size===m.bytes,name:m.name,bytes:m.bytes,hash:m.hash,threads:activeThreads,...(loaded===m.file?acceleration:{}),loaded:loaded===m.file};}catch{return {installed:false};}},
  download,
  importModel:(f,progress,signal)=>lock.run(async()=>{requireThat(f.file && /\.gguf$/i.test(f.name),'Choose a .gguf file');requireThat(f.file.size<=MAX_MODEL_BYTES,'Choose a GGUF under 1.8 GB.');await install(f.file.stream(),f.name,progress,signal);}),
  removeModel:()=>lock.run(async()=>{const m=await store.get<Installed>(MODEL_KEY);await close();await store.removePrefix(MODEL_KEY);if(m)await(await files()).removeEntry(m.file).catch(()=>{});}),
