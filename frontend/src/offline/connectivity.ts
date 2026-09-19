@@ -2,32 +2,25 @@
 //
 // "Offline" here means the server is unreachable, which on a school LAN is
 // not the same as having no internet. The API client reports every request
-// outcome; while offline a light ping checks every 5 seconds and, the moment
+// outcome; while offline a bounded ping backs off from roughly 5 seconds and, the moment
 // the server answers again, listeners (the sync) are told.
 import { useEffect, useState } from "react";
+import { RecoveryProbe } from './recovery';
 
 type Listener = (online: boolean) => void;
 let online = true;
 const listeners = new Set<Listener>();
-let pinger: ReturnType<typeof setInterval> | null = null;
 let pingUrl = "";
+const recovery=new RecoveryProbe(()=>pingUrl,()=>set(true));
 
-export function configurePing(url: string) { pingUrl = url; }
+export function configurePing(url: string) { recovery.stop();pingUrl = url;if(!online)recovery.start(); }
 export function isOnline() { return online; }
 
 function set(next: boolean) {
   if (next === online) return;
   online = next;
   listeners.forEach((l) => l(next));
-  if (!next && !pinger && pingUrl) {
-    pinger = setInterval(async () => {
-      try {
-        const res = await fetch(pingUrl, { cache: "no-store" });
-        if (res.ok) set(true);
-      } catch { /* still unreachable */ }
-    }, 5000);
-  }
-  if (next && pinger) { clearInterval(pinger); pinger = null; }
+  if(next)recovery.stop();else recovery.start();
 }
 
 export const reportOnline = () => set(true);

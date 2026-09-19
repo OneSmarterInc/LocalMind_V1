@@ -1,4 +1,3 @@
-import { useRouter } from "expo-router";
 import { useBackTo } from "@/hooks/useBackTo";
 import React, { useState } from "react";
 import { Text, View } from "react-native";
@@ -15,7 +14,6 @@ const NAMES: Record<string, string> = { backend: "Backend", database: "Database"
 const ICONS: Record<string, IconName> = { backend: "server-outline", database: "albums-outline", storage: "folder-outline", ai_runtime: "sparkles-outline", ai_model: "hardware-chip-outline", document_processing: "document-text-outline", web_client: "globe-outline", ai_monitor: "shield-checkmark-outline", offline_mode: "cloud-offline-outline" };
 
 export default function SystemReadiness() {
-  const router = useRouter();
   const back = useBackTo();
   const q = useAsync(() => admin.aiStatus(), []);
   const refresh = useAction(async () => { q.setData(await admin.aiStatus(true)); });

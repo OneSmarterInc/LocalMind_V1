@@ -10,29 +10,30 @@ import {useTask} from './useTask';
 export default function CourseAsk({moduleId}:{moduleId:string}){ const {user}=useAuth(); return user?<CourseAskInner key={`${user.id}:${moduleId}`} moduleId={moduleId}/>:null; }
 function CourseAskInner({moduleId}:{moduleId:string}){
  const {user}=useAuth(),router=useRouter(),task=useTask();
+ const userId=user?.id,{setError,cancel}=task;
  const [question,setQuestion]=useState(''),[messages,setMessages]=useState<(Message&{local?:boolean})[]>([]),[conversation,setConversation]=useState<string>(),[restoring,setRestoring]=useState(true);
  const active=useRef(true);
  useEffect(()=>{
-  active.current=true;setRestoring(true);setMessages([]);setConversation(undefined);
+  let current=true;active.current=true;setRestoring(true);setMessages([]);setConversation(undefined);
   (async()=>{
    let rows:Message[]=[];
    let local:Awaited<ReturnType<typeof localCourseHistory>>=[];
-   if(user){try{local=await localCourseHistory(user.id,moduleId);}catch(e){if(active.current)task.setError(String(e));}}
+   if(userId){try{local=await localCourseHistory(userId,moduleId);}catch(e){if(current)setError(String(e));}}
    try{
     const conversations=await student.conversations(moduleId);
-    if(active.current)setConversation(conversations[0]?.id);
+    if(current)setConversation(conversations[0]?.id);
     // Each synchronized device answer has a stable conversation ID. Restore all
     // institutional threads, but do not duplicate records already on this device.
     for(const c of conversations){
-     if(!active.current)return;
+     if(!current)return;
      if(local.some(h=>h.conversationId===c.id))continue;
      const full=await student.conversation(c.id);rows.push(...(full.messages||[]));
     }
    }catch{/* Offline records remain available even if the server cannot be reached. */}
    rows.push(...local.flatMap(h=>[{id:h.id+'-q',role:'user' as const,content:h.question,grounded:true,source_reference:'',created_at:h.createdAt,local:true},{id:h.id,role:'assistant' as const,content:h.answer,grounded:h.supported,source_reference:h.quote,created_at:h.createdAt,local:true}]));
-   if(active.current){setMessages(rows.sort((a,b)=>a.created_at.localeCompare(b.created_at)));setRestoring(false);}
-  })();return()=>{active.current=false;task.cancel();};
- },[moduleId,user?.id]);
+   if(current){setMessages(rows.sort((a,b)=>a.created_at.localeCompare(b.created_at)));setRestoring(false);}
+  })();return()=>{current=false;active.current=false;cancel();};
+ },[moduleId,userId,setError,cancel]);
  const send=()=>task.run(async signal=>{
   if(!user||restoring)return;const q=question.trim();const result=await answerCourse(user.id,moduleId,q,conversation,signal);if(signal.aborted||!active.current)return;
   const now=new Date().toISOString();const local=!!result.local;

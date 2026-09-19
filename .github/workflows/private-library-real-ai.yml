@@ -28,6 +28,8 @@ jobs:
     env:
       CI: 'true'
       LM_E2E_REAL_MODEL: '1'
+      # Ephemeral Chromium quota is a test fixture; production limits stay intact.
+      LM_E2E_STORAGE_QUOTA_MB: '5120'
     steps:
       - uses: actions/checkout@v4
         with:

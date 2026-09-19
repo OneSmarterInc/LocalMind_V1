@@ -18,9 +18,9 @@ export const fingerprint = (s: string) => bytesToHex(sha256(utf8ToBytes(s)));
 export class Library {
   readonly prefix: string;
   private session: number;
-  constructor(readonly owner: string, domain: 'private'|'authoring' = 'private') {
+  constructor(readonly owner: string, domain: 'private'|'authoring' = 'private', session=currentSession()) {
     requireThat(!!owner, 'Sign in on this device to open your private library');
-    this.prefix = `${domain}:${fingerprint(`${BASE_URL}|${owner}`)}:`; this.session = currentSession();
+    this.prefix = `${domain}:${fingerprint(`${BASE_URL}|${owner}`)}:`; this.session = session;
   }
   guard() { if (currentSession() !== this.session) throw new SessionChangedError(); }
   private key(book: string) { return `${this.prefix}book:${book}`; }

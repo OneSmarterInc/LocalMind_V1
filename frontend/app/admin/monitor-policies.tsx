@@ -1,6 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useBackTo } from "@/hooks/useBackTo";
-import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { admin } from "@/api/endpoints";
@@ -23,7 +22,6 @@ function Check({ on, onPress, label }: { on: boolean; onPress: () => void; label
 }
 
 export default function MonitorPolicies() {
-  const router = useRouter();
   const back = useBackTo();
   const q = useAsync(() => admin.monitorPolicies(), []);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});

@@ -8,7 +8,7 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "lint": "expo lint",
+    "lint": "expo lint --max-warnings 0",
     "export:web": "expo export --platform web",
     "build:android": "eas build --platform android --profile preview",
     "build:ios": "eas build --platform ios --profile preview",
@@ -23,7 +23,7 @@
     "preios": "npm run prepare:private",
     "preexport:web": "npm run prepare:private",
     "postexport:web": "node scripts/build-offline-manifest.mjs",
-    "test:private": "node ../tests/private-contracts.mjs && node ../tests/authoring-races.mjs",
+    "test:private": "node ../tests/private-contracts.mjs && node ../tests/authoring-races.mjs && node ../tests/reliability.mjs",
     "test:private:web": "playwright test -c tests/private.playwright.config.ts"
   },
   "dependencies": {

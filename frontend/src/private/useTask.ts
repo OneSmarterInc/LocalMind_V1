@@ -13,5 +13,6 @@ export function useTask(){
  },[]);
  const wait=useCallback(()=>settled.current,[]);
  const isRunning=useCallback(()=>ref.current!==null,[]);
- return {busy,error,note,wait,isRunning,run,setError,setNote,cancel:()=>ref.current?.abort()};
+ const cancel=useCallback(()=>ref.current?.abort(),[]);
+ return {busy,error,note,wait,isRunning,run,setError,setNote,cancel};
 }

@@ -151,25 +151,24 @@ export async function api<T = unknown>(path: string, opts: Options = {}): Promis
   const cancel = () => controller.abort();
   opts.signal?.addEventListener("abort", cancel);
   if (opts.signal?.aborted) cancel();
-  // A slow reply is not a disconnection. 15s was short enough that an ordinary
-  // sync burst on a single-laptop server tripped the offline banner; 45s only
-  // fires when the server really is not answering.
-  const timeout = setTimeout(cancel, opts.timeoutMs ?? (method === "GET" ? 45000 : 120000));
+  // A slow endpoint is not proof that the entire server is offline.
+  let timedOut=false;
+  const timeout = setTimeout(()=>{timedOut=true;cancel();}, opts.timeoutMs ?? (method === "GET" ? 45000 : 120000));
   try { res = await fetch(url, { method, headers, signal: controller.signal, body: form ?? (body !== undefined ? JSON.stringify(body) : undefined) }); }
   catch {
     if (session !== mine || offlineScope() !== owner) throw new SessionChangedError();
     if (opts.signal?.aborted) throw new ApiError(0, "CANCELLED", "Request cancelled.");
-    reportOffline();
+    if(!timedOut)reportOffline();
     if (cacheable) {
       const saved = await savedResponse<T>(path, query);
       if (session !== mine || offlineScope() !== owner) throw new SessionChangedError();
       if (saved !== undefined) return saved;
     }
+    if(timedOut)throw new ApiError(0,"TIMEOUT","The server took too long to respond. Retry this request; your saved work is unchanged.");
     throw new ApiError(0, "NETWORK", method === "GET"
       ? "You are offline and this page has not been saved on this device yet. It will load once the server can be reached."
       : "You are offline. This needs a connection to the LocalMind server; try again when you are back online.");
   } finally { clearTimeout(timeout); opts.signal?.removeEventListener("abort", cancel); }
-  reportOnline();
   if (session !== mine) throw new SessionChangedError();
   if ([502,503,504].includes(res.status) && method === "GET") {
     reportOffline();
@@ -180,6 +179,7 @@ export async function api<T = unknown>(path: string, opts: Options = {}): Promis
     }
     throw new ApiError(0, "NETWORK", "The institution server is temporarily unreachable. This page is not saved on this device.");
   }
+  reportOnline();
   if (res.status === 401 && auth && retry && tokens) {
     if (await refreshTokens()) {
       if (session !== mine) throw new SessionChangedError();

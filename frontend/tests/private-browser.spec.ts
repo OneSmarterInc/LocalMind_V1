@@ -93,6 +93,8 @@ test('faculty course originals appear and are imported locally; PDF parser is bu
  await expect(page.getByText('Faculty Biology',{exact:true})).toBeVisible();
  const row=page.getByText('Faculty Biology',{exact:true}).locator('..').locator('..');
  await row.getByRole('button',{name:'Add to my library',exact:true}).click();
+ await expect(row.getByText('Already added',{exact:true})).toBeVisible();
+ await page.getByRole('tab',{name:'On this device',exact:true}).click();
  await expect(page.getByText('Saved books',{exact:true})).toBeVisible();await page.getByText('Faculty Biology',{exact:true}).click();
  await expect(page.getByText('All modules open',{exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Back to library',exact:true}).click();

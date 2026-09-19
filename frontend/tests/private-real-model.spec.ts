@@ -47,6 +47,17 @@ test('real GGUF: offline restart, new doubt, lesson and generated quiz',async({p
  expect(login.ok()).toBeTruthy();const tokens=await login.json();
  await page.addInitScript(v=>{if(!localStorage.getItem('localmind.access')){localStorage.setItem('localmind.access',v.access);localStorage.setItem('localmind.refresh',v.refresh);if(v.session_id)localStorage.setItem('localmind.session',v.session_id);}},tokens);
  await page.goto('/student/offline-ai');
+ // CI's ephemeral Chromium profile may receive less quota than the pinned
+ // model needs. This is an explicit test fixture, never a production bypass.
+ // Actual bytes, checksums, OPFS writes and offline inference remain real.
+ const quotaMb=Number(process.env.LM_E2E_STORAGE_QUOTA_MB||0);
+ if(quotaMb){
+  expect(Number.isFinite(quotaMb)&&quotaMb>0).toBeTruthy();
+  const cdp=await context.newCDPSession(page);
+  await cdp.send('Storage.overrideQuotaForOrigin',{origin:new URL(page.url()).origin,quotaSize:quotaMb*1024*1024});
+  report.storageQuotaOverrideMb=quotaMb;
+ }
+ report.storageBefore=await page.evaluate(()=>navigator.storage.estimate());
  report.browser=await page.evaluate(()=>({userAgent:navigator.userAgent,
   hardwareConcurrency:navigator.hardwareConcurrency,crossOriginIsolated,
   sharedArrayBuffer:typeof SharedArrayBuffer!=='undefined'}));
@@ -58,7 +69,18 @@ test('real GGUF: offline restart, new doubt, lesson and generated quiz',async({p
   await page.getByRole('button',{name:/^Download model/}).click();
   await page.getByRole('button',{name:'Download',exact:true}).click();
  }
- await expect(page.getByText('Downloaded',{exact:true})).toBeVisible({timeout:600000});
+ // Surface the actual error immediately instead of waiting ten minutes for
+ // a success label after a terminal download/storage failure.
+ let downloadState='pending';
+ await expect.poll(async()=>{
+  if(await page.getByText('Downloaded',{exact:true}).isVisible())return 'downloaded';
+  const alert=page.getByRole('alert').first();
+  if(await alert.isVisible()){downloadState=await alert.innerText();return 'failed';}
+  return 'pending';
+ },{timeout:600000}).not.toBe('pending');
+ expect(downloadState,'Model installation failed: '+downloadState).toBe('pending');
+ await expect(page.getByText('Downloaded',{exact:true})).toBeVisible();
+ report.storageAfter=await page.evaluate(()=>navigator.storage.estimate());
  // Automatic app preparation is part of the actual user flow.
  await expect(page.getByText(/Application files saved/).first()).toBeVisible({timeout:120000});
  await page.goto('/student/private-library');

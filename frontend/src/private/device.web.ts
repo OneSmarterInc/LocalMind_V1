@@ -6,6 +6,7 @@ import { PARSER_ASSET } from './generated/parserAsset';
 import { inferenceThreads } from './performance';
 import { Exclusive, cancelled } from './busy';
 import type { Completion, Device, LocalFile } from './device.types';
+import {downloadModelParts,downloadModelStream,RangeUnsupported} from './download';
 
 type Engine = {
   loadModel(files:File[],opts:Record<string,unknown>):Promise<unknown>;
@@ -64,6 +65,7 @@ async function install(stream:ReadableStream<Uint8Array>,name:string,progress:(n
   const folder=await files(); const temp=`model-${crypto.randomUUID()}.gguf`;
   const out=await (await folder.getFileHandle(temp,{create:true})).createWritable();
   const reader=stream.getReader(),hash=sha256.create();let size=0,head:number[]=[];
+  const abort=()=>{void reader.cancel().catch(()=>{});};signal?.addEventListener('abort',abort,{once:true});
   try {
     while(true) {
       cancelled(signal);const {done,value}=await reader.read();if(done)break;
@@ -71,7 +73,7 @@ async function install(stream:ReadableStream<Uint8Array>,name:string,progress:(n
       if(head.length<4)head.push(...value.slice(0,4-head.length)); hash.update(value);
       await out.write(value as Uint8Array<ArrayBuffer>);progress(Math.min(0.98,size/(expected?.bytes||MAX_MODEL_BYTES)));
     }
-    requireThat(String.fromCharCode(...head)==='GGUF','This file is not a GGUF model.');
+    cancelled(signal);requireThat(String.fromCharCode(...head)==='GGUF','This file is not a GGUF model.');
     const digest=bytesToHex(hash.digest());
     if(expected) requireThat(size===expected.bytes && digest===expected.sha256,'Model download did not pass the size/checksum check. Previous model retained.');
     cancelled(signal);await out.close();
@@ -80,7 +82,33 @@ async function install(stream:ReadableStream<Uint8Array>,name:string,progress:(n
     if(old?.file) await folder.removeEntry(old.file).catch(()=>{});
     progress(1);
   } catch(e) { await reader.cancel().catch(()=>{}); await out.abort().catch(()=>{});await folder.removeEntry(temp).catch(()=>{});throw e; }
-  finally {reader.releaseLock();}
+  finally {signal?.removeEventListener('abort',abort);reader.releaseLock();}
+}
+async function download(progress:(n:number)=>void,signal?:AbortSignal){
+ const run=()=>lock.run(async()=>{
+  cancelled(signal);const folder=await files(),partialName=`download-${MODEL.sha256}`;
+  const partial=await folder.getDirectoryHandle(partialName,{create:true});
+  try{
+   try{
+    const blob=await downloadModelParts({url:MODEL.url,bytes:MODEL.bytes,signal,progress,
+     read:async index=>{try{return await(await partial.getFileHandle(String(index))).getFile();}catch(e){if(e instanceof DOMException&&e.name==='NotFoundError')return undefined;throw e;}},
+     write:async(index,bytes)=>{const handle=await partial.getFileHandle(String(index),{create:true}),out=await handle.createWritable();try{await out.write(bytes as Uint8Array<ArrayBuffer>);await out.close();}catch(e){await out.abort().catch(()=>{});throw e;}return handle.getFile();}
+    });
+    await install(blob.stream(),MODEL.name,n=>progress(0.85+n*0.15),signal,MODEL);
+   }catch(e){
+    if(!(e instanceof RangeUnsupported))throw e;
+    await downloadModelStream({url:MODEL.url,signal,consume:stream=>install(stream,MODEL.name,progress,signal,MODEL)});
+   }
+   await folder.removeEntry(partialName,{recursive:true}).catch(()=>{});
+  }catch(e){
+   if(e instanceof Error&&/checksum|not a GGUF/.test(e.message))await folder.removeEntry(partialName,{recursive:true}).catch(()=>{});
+   if(e instanceof Error&&/quota|disk.*full/i.test(e.name+' '+e.message))throw new Error('Insufficient device storage for the model. Free space and retry; your installed model is unchanged. Download and verification can temporarily need two model copies.');
+   throw e;
+  }
+ });
+ // Coordinate OPFS chunk writes across tabs as well as within this application.
+ if(navigator.locks)return navigator.locks.request('localmind-model-download',{signal},run);
+ return run();
 }
 let activeThreads=1;
 async function complete(req:Completion) {
@@ -137,7 +165,7 @@ const implementation:Device={...store, complete,
  },
  async releaseFile(){/* A browser File is released by garbage collection. */},
  async status(){const m=await store.get<Installed>(MODEL_KEY);if(!m)return {installed:false};try {const f=await (await (await files()).getFileHandle(m.file)).getFile();return {installed:f.size===m.bytes,name:m.name,bytes:m.bytes,hash:m.hash,threads:activeThreads,loaded:loaded===m.file};}catch{return {installed:false};}},
- download:(progress,signal)=>lock.run(async()=>{cancelled(signal);const r=await fetch(MODEL.url,{signal,credentials:'omit',referrerPolicy:'no-referrer'});requireThat(r.ok && r.body,'Model download failed. The existing model is unchanged.');await install(r.body,MODEL.name,progress,signal,MODEL);}),
+ download,
  importModel:(f,progress,signal)=>lock.run(async()=>{requireThat(f.file && /\.gguf$/i.test(f.name),'Choose a .gguf file');requireThat(f.file.size<=MAX_MODEL_BYTES,'Choose a GGUF under 1.8 GB.');await install(f.file.stream(),f.name,progress,signal);}),
  removeModel:()=>lock.run(async()=>{const m=await store.get<Installed>(MODEL_KEY);await close();await store.removePrefix(MODEL_KEY);if(m)await(await files()).removeEntry(m.file).catch(()=>{});}),
  async prepareOffline(){
@@ -155,7 +183,7 @@ const implementation:Device={...store, complete,
    return await new Promise<string>((resolve,reject)=>{
      const channel=new MessageChannel();
      const timer=setTimeout(()=>{channel.port1.close();reject(new Error('Offline files could not be saved yet. Check your connection and retry.'));},120000);
-     channel.port1.onmessage=e=>{clearTimeout(timer);channel.port1.close();e.data.ok?resolve('Application files saved. Keep this browser profile and sign-in; then reopen the same address offline.'):reject(new Error(e.data.error||'Offline files were not completely saved.'));};
+     channel.port1.onmessage=e=>{clearTimeout(timer);channel.port1.close();if(e.data.ok)resolve('Application files saved. Keep this browser profile and sign-in; then reopen the same address offline.');else reject(new Error(e.data.error||'Offline files were not completely saved.'));};
      worker.postMessage({type:'PREPARE_OFFLINE'},[channel.port2]);
    });
  }

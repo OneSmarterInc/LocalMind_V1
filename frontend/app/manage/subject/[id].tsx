@@ -14,7 +14,6 @@ const learningStatus = (r: any) => (r.modules_needs_review > 0 ? { label: "Needs
 
 export default function TeachingSubject() {
   const { id } = useLocalSearchParams<{ id: string; tab?: Tab }>();
-  const router = useRouter();
   const back = useBackTo();
   const [tab, setTab] = useTabParam<Tab>("overview", ["overview", "students", "modules"]);
   const summary = useAsync(() => manage.subjectSummary(id), [id]);

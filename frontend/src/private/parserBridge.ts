@@ -18,7 +18,7 @@ export function parserResult(result:{id?:string;parsed?:ParsedDocument;error?:st
  }
  if(result.progress){clearTimeout(pending.timer);pending.timer=timeout();pending.progress?.(result.progress);return;}
  const p=pending;pending=undefined;clearTimeout(p.timer);p.cleanup();
- result.parsed?p.resolve(result.parsed):p.reject(new Error(result.error||'Book parsing failed'));
+ if(result.parsed)p.resolve(result.parsed);else p.reject(new Error(result.error||'Book parsing failed'));
 }
 export async function parseNative(name:string,body:string,signal?:AbortSignal,progress?:(message:string)=>void,saveVisual?:(visual:SourceVisual)=>Promise<void>):Promise<ParsedDocument>{
  if(signal?.aborted)throw new Error('Book import cancelled.');

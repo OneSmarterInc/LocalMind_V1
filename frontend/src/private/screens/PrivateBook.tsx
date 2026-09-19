@@ -18,7 +18,7 @@ import {confirmLeave,registerGuard} from '@/hooks/unsavedGuard';
 
 type Tab='read'|'lesson'|'quiz'|'ask';
 export default function PrivateBook(){
- const {id,section:targetSection,tab:targetTab}=useLocalSearchParams<{id:string;section?:string;tab?:string}>(),router=useRouter(),library=useLibrary();
+ const {id,section:targetSection,tab:targetTab}=useLocalSearchParams<{id:string;section?:string;tab?:string}>(),library=useLibrary();
  const back=useBackTo();
  const book=useAsync(()=>{if(!library)throw Error('Open the library after signing in.');return library.book(id);},[id,library]);
  const [sectionId,setSectionId]=useState(''),[query,setQuery]=useState('');
@@ -89,7 +89,8 @@ function QuizPractice({quiz}:{quiz:QuizVersion}){
  const serial=useRef(Promise.resolve()),sequence=useRef(0),alive=useRef(true);
  const persisted=useRef<Record<string,number>>({}),dirty=useRef(false);
  const history=useAsync(()=>library.attempts(quiz.bookId,quiz.id),[library,quiz.id]);
- useEffect(()=>{alive.current=true;void library.draft(quiz.bookId,quiz.id).then(a=>{if(alive.current){persisted.current=a;answersRef.current=a;setAnswers(a);setReady(true);}}).catch(e=>{if(alive.current)task.setError(e.message);});return()=>{alive.current=false;};},[library,quiz.bookId,quiz.id]);
+ const {setError}=task;
+ useEffect(()=>{let current=true;alive.current=true;void library.draft(quiz.bookId,quiz.id).then(a=>{if(current){persisted.current=a;answersRef.current=a;setAnswers(a);setReady(true);}}).catch(e=>{if(current)setError(e.message);});return()=>{current=false;alive.current=false;};},[library,quiz.bookId,quiz.id,setError]);
  useUnsavedWarning(!saved);
  useEffect(()=>{if(saved)return;return registerGuard({label:'this private quiz',save:async()=>{const sent=answersRef.current;await serial.current;await library.saveDraft(quiz.bookId,quiz.id,sent);persisted.current=sent;const clean=sent===answersRef.current;if(clean&&alive.current){dirty.current=false;setSaved(true);}return clean;},discard:async()=>{const restore=persisted.current;++sequence.current;await serial.current;await library.saveDraft(quiz.bookId,quiz.id,restore);answersRef.current=restore;dirty.current=false;if(alive.current){setAnswers(restore);setSaved(true);}},isDirty:()=>dirty.current});},[saved,library,quiz.bookId,quiz.id]);
  const choose=(id:string,value:number)=>{

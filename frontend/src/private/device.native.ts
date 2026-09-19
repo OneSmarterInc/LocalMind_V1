@@ -10,7 +10,7 @@ import { MAX_BOOK_BYTES, makeReadingSections, requireThat } from './core';
 import { CONTEXT_TOKENS, MAX_MODEL_BYTES, MODEL } from './modelSpec';
 import { Exclusive, cancelled } from './busy';
 import { nativeInferenceThreads } from './performance';
-import type { Completion, Device, LocalFile } from './device.types';
+import type { Completion, Device } from './device.types';
 
 const root=`${FS.documentDirectory}localmind-private/`, MODEL_KEY='@model-v1';
 let database:Promise<SQLite.SQLiteDatabase>|undefined;

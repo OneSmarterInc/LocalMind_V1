@@ -15,7 +15,8 @@ export function useLocalDraft<T>(parts:(string|null|undefined)[],value:T,onResto
   const [state,setState]=useState<{key:string|null;restored:boolean|null;error:string|null}>({key:null,restored:null,error:null});
   const [saving,setSaving]=useState(false);
   const mounted=useRef(true);
-  const controller=useMemo(()=>key?new DraftPersistence(AsyncStorage,key,initial.current):null,[key,generation]);
+  const lifecycle=useMemo(()=>({key,generation}),[key,generation]);
+  const controller=useMemo(()=>lifecycle.key?new DraftPersistence(AsyncStorage,lifecycle.key,initial.current):null,[lifecycle]);
   const restored=state.key===key?state.restored:null;
   const report=useCallback((e:unknown)=>{if(mounted.current)setState(s=>({...s,error:e instanceof Error?e.message:String(e)}));},[]);
   useEffect(()=>{
