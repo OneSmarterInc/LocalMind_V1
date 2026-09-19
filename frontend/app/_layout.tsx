@@ -1,8 +1,8 @@
 import {GenerationHost} from '@/private/GenerationJobs';
 import ParserHost from "@/private/ParserHost";
-import { Stack, useRouter, useSegments, type ErrorBoundaryProps } from "expo-router";
+import { Stack, type ErrorBoundaryProps } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import React, { useEffect } from "react";
+import React from "react";
 import { Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider, useAuth } from "@/auth/AuthContext";
@@ -38,61 +38,50 @@ if (Platform.OS === "web" && typeof window !== "undefined" && window.isSecureCon
   window.addEventListener("load", () => { navigator.serviceWorker.register("/sw.js").catch(() => {}); });
 }
 
-/**
- * Where this person belongs, or null when the address they are on is already right.
- * Used by the effect that redirects and by the render below, so a screen the person
- * is not allowed to see never mounts (and never fires its requests) for the one tick
- * before the redirect lands.
- */
-function destination(user: ReturnType<typeof useAuth>["user"], mustChangePassword: boolean, first: string | undefined): string | null {
-  const onLogin = first === "login";
-  const onChange = first === "change-password";
-  if (!user) return onLogin ? null : "/login";
-  if (mustChangePassword) return onChange ? null : "/change-password";
-  // A signed-in person may open Change password from the account menu.
-  if (onChange) return null;
-  const home = user.role === "student" ? "/student" : user.role === "faculty" ? "/manage" : "/admin";
-  const allowed = user.role === "student" ? ["student"] : user.role === "faculty" ? ["manage"] : ["admin", "manage"];
-  if (onLogin || !first || !allowed.includes(first)) return home;
-  return null;
-}
-
-function Gate({ children }: { children: React.ReactNode }) {
+/** Resolve the saved session before evaluating deep-link permissions. Once
+ * ready, keep the navigator mounted through redirects and account changes. */
+export function AppNavigator() {
   const { ready, user, mustChangePassword } = useAuth();
-  const segments = useSegments();
-  const router = useRouter();
-  const target = ready ? destination(user, mustChangePassword, segments[0] as string | undefined) : null;
-  useEffect(() => {
-    if (!ready || !target) return;
-    router.replace(target as any);
-  }, [ready, target, router]);
-  if (!ready || target) return <View style={{ flex: 1, backgroundColor: colors.bg, justifyContent: "center" }}><Loading /></View>;
-  return <>{children}</>;
+  if (!ready) return <View style={{ flex: 1, backgroundColor: colors.bg, justifyContent: "center" }}><Loading /></View>;
+  const signedIn = !!user;
+  const workspace = signedIn && !mustChangePassword;
+  return (
+    <>
+      {workspace ? <GenerationHost /> : null}
+      <StatusBar style="dark" />
+      <Stack screenOptions={{ headerStyle: { backgroundColor: colors.bg }, headerShadowVisible: false, headerTintColor: colors.text, headerTitleStyle: { fontWeight: "800" }, contentStyle: { backgroundColor: colors.bg } }}>
+        <Stack.Screen name="index" options={{ headerShown: false }} />
+        <Stack.Protected guard={ready && !user}>
+          <Stack.Screen name="login/index" options={{ headerShown: false }} />
+          <Stack.Screen name="login/student" options={{ headerShown: false }} />
+          <Stack.Screen name="login/faculty" options={{ headerShown: false }} />
+          <Stack.Screen name="login/admin" options={{ headerShown: false }} />
+        </Stack.Protected>
+        <Stack.Protected guard={signedIn}>
+          <Stack.Screen name="change-password" options={{ headerShown: false }} />
+        </Stack.Protected>
+        <Stack.Protected guard={workspace && user?.role === "student"}>
+          <Stack.Screen name="student" options={{ headerShown: false }} />
+        </Stack.Protected>
+        <Stack.Protected guard={workspace && (user?.role === "faculty" || user?.role === "admin")}>
+          <Stack.Screen name="manage" options={{ headerShown: false }} />
+        </Stack.Protected>
+        <Stack.Protected guard={workspace && user?.role === "admin"}>
+          <Stack.Screen name="admin" options={{ headerShown: false }} />
+        </Stack.Protected>
+      </Stack>
+      <DialogHost />
+      {workspace ? <ParserHost /> : null}
+      <NativeDatePickerHost />
+    </>
+  );
 }
 
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <AuthProvider>
-        <Gate>
-          <GenerationHost />
-          <StatusBar style="dark" />
-          <Stack screenOptions={{ headerStyle: { backgroundColor: colors.bg }, headerShadowVisible: false, headerTintColor: colors.text, headerTitleStyle: { fontWeight: "800" }, contentStyle: { backgroundColor: colors.bg } }}>
-            <Stack.Screen name="login/index" options={{ headerShown: false }} />
-            <Stack.Screen name="login/student" options={{ headerShown: false }} />
-            <Stack.Screen name="login/faculty" options={{ headerShown: false }} />
-            <Stack.Screen name="login/admin" options={{ headerShown: false }} />
-            <Stack.Screen name="change-password" options={{ headerShown: false }} />
-            <Stack.Screen name="student" options={{ headerShown: false }} />
-            <Stack.Screen name="manage" options={{ headerShown: false }} />
-            <Stack.Screen name="admin" options={{ headerShown: false }} />
-          </Stack>
-          {/* One dialog host for the whole app: every confirmation and warning
-              renders here, centred, instead of in a browser popup. */}
-          <DialogHost />
-          <ParserHost />
-          <NativeDatePickerHost />
-        </Gate>
+        <AppNavigator />
       </AuthProvider>
     </SafeAreaProvider>
   );
