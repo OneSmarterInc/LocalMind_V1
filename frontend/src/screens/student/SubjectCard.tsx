@@ -9,7 +9,11 @@ const TONES = ["green", "blue", "amber"] as const;
 /** Subject tile: icon and code, name, faculty, module progress, "Continue learning". */
 export function SubjectCard({ row, index, onPress }: { row: CatalogSubject; index: number; onPress: () => void }) {
   const pctDone = row.total ? Math.round((row.completed / row.total) * 100) : 0;
-  const faculty = row.subject.faculty_names?.join(", ");
+  const faculty = row.subject.faculty_names
+    ?.map(name => name.trim())
+    .filter(Boolean)
+    .map(name => /^(?:prof(?:essor)?|dr|doctor|mr|mrs|ms|miss)(?:\.|\s)/i.test(name) ? name : `Prof. ${name}`)
+    .join(", ");
   return (
     <Card onPress={onPress} style={{ minHeight: 210, borderTopWidth: 3, borderTopColor: ["#8caf97", "#95b3ce", "#c9b481"][index % 3] }}>
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -18,7 +22,7 @@ export function SubjectCard({ row, index, onPress }: { row: CatalogSubject; inde
       </View>
       <View style={{ marginTop: 4 }}>
         <Text style={{ fontSize: 16, fontWeight: "600", color: colors.ink }} numberOfLines={2}>{row.subject.name}</Text>
-        <Text style={{ fontSize: 12, color: colors.muted, marginTop: 4 }} numberOfLines={1}>{faculty || "Faculty not assigned yet"}</Text>
+        <Text style={{ fontSize: 12, color: colors.muted, marginTop: 4 }} numberOfLines={2}>{faculty || "Faculty not assigned yet"}</Text>
       </View>
       <View style={{ flex: 1 }} />
       <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
