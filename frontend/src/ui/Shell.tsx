@@ -311,7 +311,7 @@ export function ShellHeader({ route, options, meta }: BottomTabHeaderProps & { m
       {!narrow ? (
         <View style={s.status} accessibilityLiveRegion="polite">
           <View style={[s.statusDot, !online && { backgroundColor: colors.warning }]} />
-          <Text style={{ fontSize: 11, color: colors.muted }}>{online ? "Connected" : "Offline"}</Text>
+          <Text style={{ fontSize: 11, color: colors.muted }}>{online ? "Connected" : "Server unavailable"}</Text>
         </View>
       ) : null}
       <UserMenu compact={narrow} profilePath={meta.profilePath} />

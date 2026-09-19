@@ -17,7 +17,7 @@ export class RecoveryProbe {
   const timeout=setTimeout(()=>controller.abort(),5000);
   try{
    const response=await this.request(this.url(),{cache:'no-store',signal:controller.signal});
-   if(generation===this.generation&&response.ok){this.stop();this.recovered();return;}
+   if(generation===this.generation&&response.status>0){this.stop();this.recovered();return;}
   }catch{/* The next bounded attempt backs off. */}
   finally{clearTimeout(timeout);if(this.controller===controller)this.controller=undefined;}
   if(generation===this.generation){this.attempts++;this.schedule(generation);}

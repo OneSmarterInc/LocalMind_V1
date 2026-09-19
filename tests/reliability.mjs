@@ -13,7 +13,7 @@ await require('esbuild').build({entryPoints:[path.join(root,'frontend/src/api/cl
  const fixtures={
   'expo-constants':'export default {};',
   'react-native':"export const Platform={OS:'web'};",
-  '@/offline/connectivity':"export const configurePing=()=>{};export const reportOffline=()=>globalThis.connectivityEvents.push(false);export const reportOnline=()=>globalThis.connectivityEvents.push(true);",
+  '@/offline/connectivity':"export const configurePing=()=>{};export const reportConnectionFailure=()=>globalThis.connectivityEvents.push(false);export const reportOnline=()=>globalThis.connectivityEvents.push(true);",
   '@/offline/store':"export const offlineScope=()=> 'owner';export const readEntry=async()=>globalThis.savedApiResponse;export const writeEntry=async()=>{};",
   './storage':'export const getItem=async()=>null;export const migrateLegacy=async()=>null;export const setItem=async()=>{};'
  };
@@ -77,14 +77,14 @@ test('health recovery is single-flight, backs off, and stops on success',async t
  const probe=new RecoveryProbe(()=>'/health',()=>recovered++,()=>{calls++;return new Promise(r=>{release=r;});},()=>0.5);
  probe.start();probe.start();t.mock.timers.tick(5000);await flush();assert.equal(calls,1);
  t.mock.timers.tick(30000);await flush();assert.equal(calls,1);
- release({ok:false});await flush();t.mock.timers.tick(9999);await flush();assert.equal(calls,1);
- t.mock.timers.tick(1);await flush();assert.equal(calls,2);release({ok:true});await flush();
+ release({status:0});await flush();t.mock.timers.tick(9999);await flush();assert.equal(calls,1);
+ t.mock.timers.tick(1);await flush();assert.equal(calls,2);release({status:200});await flush();
  t.mock.timers.tick(120000);await flush();assert.equal(calls,2);assert.equal(recovered,1);probe.stop();
 });
 test('late health response cannot revive a stopped probe',async t=>{
  t.mock.timers.enable({apis:['setTimeout']});let release,recovered=0;
  const probe=new RecoveryProbe(()=>'/health',()=>recovered++,()=>new Promise(r=>{release=r;}),()=>0.5);
- probe.start();t.mock.timers.tick(5000);await flush();probe.stop();release({ok:true});await flush();assert.equal(recovered,0);
+ probe.start();t.mock.timers.tick(5000);await flush();probe.stop();release({status:200});await flush();assert.equal(recovered,0);
 });
 test('default health transport preserves the browser fetch receiver',async t=>{
  t.mock.timers.enable({apis:['setTimeout']});let recovered=0;
@@ -92,11 +92,11 @@ test('default health transport preserves the browser fetch receiver',async t=>{
  const probe=new RecoveryProbe(()=>'/health',()=>recovered++);probe.start();t.mock.timers.tick(6000);await flush();
  assert.equal(recovered,1);probe.stop();
 });
-test('slow endpoint times out without taking the whole application offline',async t=>{
+test('slow endpoint requests a reachability check rather than declaring an outage',async t=>{
  t.mock.timers.enable({apis:['setTimeout']});globalThis.connectivityEvents=[];
  t.mock.method(globalThis,'fetch',(_,opts)=>new Promise((resolve,reject)=>opts.signal.addEventListener('abort',()=>reject(Error('aborted')))));
  const rejected=assert.rejects(api('/slow/',{timeoutMs:10}),e=>e.code==='TIMEOUT');t.mock.timers.tick(10);await rejected;
- assert.deepEqual(globalThis.connectivityEvents,[]);
+ assert.deepEqual(globalThis.connectivityEvents,[false]);
 });
 test('network failure still returns cached learning content',async t=>{
  globalThis.connectivityEvents=[];globalThis.savedApiResponse={title:'Saved lesson'};
@@ -104,7 +104,7 @@ test('network failure still returns cached learning content',async t=>{
  try{assert.deepEqual(await api('/student/modules/'),{title:'Saved lesson'});assert.deepEqual(globalThis.connectivityEvents,[false]);}
  finally{globalThis.savedApiResponse=undefined;}
 });
-test('gateway failure never announces a false recovery before going offline',async t=>{
+test('gateway failure requests independent confirmation without announcing recovery',async t=>{
  globalThis.connectivityEvents=[];t.mock.method(globalThis,'fetch',async()=>new Response('',{status:503}));
  await assert.rejects(api('/unavailable/'),e=>e.code==='NETWORK');assert.deepEqual(globalThis.connectivityEvents,[false]);
 });

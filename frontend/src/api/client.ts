@@ -1,6 +1,6 @@
 import Constants from "expo-constants";
 import { Platform } from "react-native";
-import { configurePing, reportOffline, reportOnline } from "@/offline/connectivity";
+import { configurePing, reportConnectionFailure, reportOnline } from "@/offline/connectivity";
 import { offlineScope, readEntry, writeEntry } from "@/offline/store";
 import { getItem, migrateLegacy, setItem } from "./storage";
 
@@ -77,7 +77,7 @@ async function refreshTokens(): Promise<boolean> {
         const res = await fetch(`${BASE_URL}/api/auth/refresh/`, { method: "POST", signal: renew.signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refresh: started.refresh }) });
         // Signed out, or someone else signed in, while this was on its way: drop it.
         if (session !== mine || tokens !== started) return false;
-        if ([502,503,504].includes(res.status)) { reportOffline(); throw new ApiError(0, "NETWORK", "The institution server is temporarily unreachable. Local data is retained."); }
+        if ([502,503,504].includes(res.status)) { reportConnectionFailure(); throw new ApiError(0, "NETWORK", "The institution server is temporarily unreachable. Local data is retained."); }
         if (!res.ok) return false;
         const data = await res.json();
         if (session !== mine || tokens !== started) return false;
@@ -86,7 +86,7 @@ async function refreshTokens(): Promise<boolean> {
       } catch (e) {
         if (session !== mine) throw new SessionChangedError();
         if (e instanceof ApiError) throw e;
-        reportOffline();
+        reportConnectionFailure();
         throw new ApiError(0, "NETWORK", "The server disconnected while renewing the session. Your local study data is retained.");
       } finally { clearTimeout(renewTimer); if (refreshing?.promise === promise) refreshing = null; }
     })();
@@ -158,7 +158,7 @@ export async function api<T = unknown>(path: string, opts: Options = {}): Promis
   catch {
     if (session !== mine || offlineScope() !== owner) throw new SessionChangedError();
     if (opts.signal?.aborted) throw new ApiError(0, "CANCELLED", "Request cancelled.");
-    if(!timedOut)reportOffline();
+    reportConnectionFailure();
     if (cacheable) {
       const saved = await savedResponse<T>(path, query);
       if (session !== mine || offlineScope() !== owner) throw new SessionChangedError();
@@ -166,12 +166,12 @@ export async function api<T = unknown>(path: string, opts: Options = {}): Promis
     }
     if(timedOut)throw new ApiError(0,"TIMEOUT","The server took too long to respond. Retry this request; your saved work is unchanged.");
     throw new ApiError(0, "NETWORK", method === "GET"
-      ? "You are offline and this page has not been saved on this device yet. It will load once the server can be reached."
-      : "You are offline. This needs a connection to the LocalMind server; try again when you are back online.");
+      ? "This request could not reach the server and no saved copy is available. Please retry."
+      : "This request could not reach the LocalMind server. Please retry; it has not been confirmed as saved.");
   } finally { clearTimeout(timeout); opts.signal?.removeEventListener("abort", cancel); }
   if (session !== mine) throw new SessionChangedError();
   if ([502,503,504].includes(res.status) && method === "GET") {
-    reportOffline();
+    reportConnectionFailure();
     if (cacheable) {
       const saved = await savedResponse<T>(path, query);
       if (session !== mine || offlineScope() !== owner) throw new SessionChangedError();

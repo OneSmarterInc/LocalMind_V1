@@ -30,7 +30,7 @@ export function OfflineBanner() {
     <View accessibilityRole={online ? undefined : "alert"} style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 11, paddingHorizontal: 16, paddingVertical: 14, borderRadius: 9, backgroundColor: online ? "#F0F7F1" : "#FFFAEC", borderWidth: 1, borderColor: t.border, marginTop: 4 }}>
       <Ionicons name={online ? "cloud-download-outline" : "cloud-offline-outline"} size={18} color={t.fg} />
       <View style={{ flex: 1, minWidth: 180 }}>
-        <Text style={{ color: t.fg, fontSize: 12, fontWeight: "600" }}>{online ? "Synchronizing your course work…" : "Offline · Continue with material saved on this device"}</Text>
+        <Text style={{ color: t.fg, fontSize: 12, fontWeight: "600" }}>{online ? "Synchronizing your course work…" : "Server unavailable · Continue with saved material"}</Text>
         <Text style={{ color: t.fg, fontSize: 12, marginTop: 2, lineHeight: 18 }}>{online
           ? "Your course work, open modules, lessons and published MCQ quizzes are being synchronized. Private Library is stored separately on this device."
           : `${saved ? `Course copy: ${saved}. ` : "No complete course download yet. "}Private study and new doubts work with saved source, the installed model and offline app files. Downloaded MCQ quizzes work offline; course work is saved here until synchronization.`}</Text>
