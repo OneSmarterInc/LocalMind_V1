@@ -5,13 +5,15 @@ import {LocalQuizzes,type QuizDraft} from './quizzes';
  * lesson/quiz = a single module draft; selection = a multi-module quiz draft. */
 export type SyncItem={kind:'lesson'|'quiz'|'selection';id:string;title:string};
 export type SyncScope={documentId?:string;lessons?:boolean;quizzes?:boolean;selections?:boolean};
-export type SyncResult={synced:number;waiting:SyncItem[];failed:(SyncItem&{error:string})[]};
+export type SyncResult={synced:number;waiting:SyncItem[];skipped:SyncItem[];failed:(SyncItem&{error:string})[]};
 
 /** Generated on this device, not yet sent, and not blocked by work in progress.
  * Everything else (still generating, already synchronized, waiting on the
  * other kind, in conflict) is left for the reviewer to handle one by one. */
-export function eligible(draft:Draft,kind:'lesson'|'quiz'){
+export function eligible(draft:Draft,kind:'lesson'|'quiz',generating?:'lesson'|'quiz'){
  if(draftStatus(draft,kind)!=='Ready for review')return false;
+ // Still being written on this device: send it next time, not half-done.
+ if(generating===kind)return false;
  if(draft.run?.kind===kind||draft.pausedRuns?.[kind])return false;
  if(draft.operation&&draft.state!=='synced'&&draft.operation.kind!==kind)return false;
  return true;
@@ -32,7 +34,7 @@ export async function planSyncAll(owner:string,scope:SyncScope={}):Promise<SyncI
    if(removed.get(book))continue;
    for(const kind of ['lesson','quiz'] as const){
     if((kind==='lesson'&&!wantLessons)||(kind==='quiz'&&!wantQuizzes))continue;
-    if(eligible(draft,kind))items.push({kind,id:draft.snapshot.module_id,title:draft.snapshot.title});
+    if(eligible(draft,kind,authoring.generatingKind(draft.snapshot.module_id)))items.push({kind,id:draft.snapshot.module_id,title:draft.snapshot.title});
    }
   }
  }
@@ -46,14 +48,21 @@ export async function planSyncAll(owner:string,scope:SyncScope={}):Promise<SyncI
 }
 
 /** Approve and send each item in turn. One failure never stops the rest;
- * operation IDs make a repeated run safe on the server. Nothing is published. */
+ * operation IDs make a repeated run safe on the server. Nothing is published.
+ * Generation may keep running meanwhile: each item is checked again just
+ * before it is sent, and anything that started generating since the plan was
+ * made is skipped rather than sent half-written. */
 export async function runSyncAll(owner:string,items:SyncItem[],progress:(done:number,total:number)=>void=()=>{},signal?:AbortSignal):Promise<SyncResult>{
  const authoring=new LocalAuthoring(owner),quizzes=new LocalQuizzes(owner);
- const result:SyncResult={synced:0,waiting:[],failed:[]};
+ const result:SyncResult={synced:0,waiting:[],skipped:[],failed:[]};
  for(let i=0;i<items.length;i++){
   if(signal?.aborted)break;
   const item=items[i];progress(i,items.length);
   try{
+   if(item.kind!=='selection'){
+    const draft=await authoring.read(item.id);
+    if(!draft||!eligible(draft,item.kind,authoring.generatingKind(item.id))){result.skipped.push(item);continue;}
+   }
    const state=item.kind==='selection'?(await quizzes.approve(item.id)).state:(await authoring.share(item.id,item.kind))?.state;
    if(state==='synced')result.synced++;
    else if(state==='conflict')result.failed.push({...item,error:'Needs review before it can synchronize.'});
@@ -72,6 +81,7 @@ export function describePlan(items:SyncItem[]){
 export function describeResult(r:SyncResult){
  const parts=[`${r.synced} synchronized`];
  if(r.waiting.length)parts.push(`${r.waiting.length} waiting for the connection (they retry automatically)`);
+ if(r.skipped.length)parts.push(`${r.skipped.length} skipped because generation started on them`);
  if(r.failed.length)parts.push(`${r.failed.length} failed: ${r.failed.slice(0,5).map(f=>`${f.title} (${f.error})`).join('; ')}${r.failed.length>5?'…':''}`);
  return parts.join(' · ');
 }

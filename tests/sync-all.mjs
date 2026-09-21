@@ -69,3 +69,39 @@ test('multi-module quiz drafts are ready only when complete',()=>{
  assert.equal(selectionReady({...row,questions:[{}]}),false);
  assert.equal(selectionReady({...row,state:'synced'}),false);
 });
+// Generation that stays in progress until the test aborts it.
+function hangingModel(){
+ const started=[];
+ globalThis.testDevice.complete=req=>new Promise((_,reject)=>{started.push(1);req.signal.addEventListener('abort',()=>reject(new DOMException('Cancelled','AbortError')),{once:true});});
+ globalThis.testDevice.status=async()=>({installed:true,name:'m',hash:'h'});
+ return started;
+}
+test('while a quiz is still generating, its finished lesson synchronizes and the quiz waits',async()=>{
+ const {service}=await seed();
+ globalThis.testApi=async()=>({revision:'v2',quiz_id:'q'});
+ const started=hangingModel(),stop=new AbortController();
+ const running=service.generate('ready','quiz',stop.signal,()=>{}).catch(()=>{});
+ for(let i=0;i<50&&!service.generatingKind('ready');i++)await new Promise(r=>setTimeout(r,5));
+ assert.equal(service.generatingKind('ready'),'quiz');
+ const items=await planSyncAll('owner',{documentId:'book'});
+ assert.ok(items.some(i=>i.id==='ready'&&i.kind==='lesson'),'finished lesson is included');
+ assert.ok(!items.some(i=>i.id==='ready'&&i.kind==='quiz'),'quiz being written is left out');
+ const r=await runSyncAll('owner',items);
+ assert.ok(r.synced>=1);assert.equal(r.failed.length,0);
+ stop.abort();await running;
+ assert.equal(service.generatingKind('ready'),undefined);
+});
+test('an item that starts generating after the plan is skipped, not sent half-written',async()=>{
+ const {service}=await seed();
+ const sent=[];globalThis.testApi=async(url,init)=>{sent.push(init.body.kind+':'+url);return {revision:'v2',quiz_id:'q'};};
+ const items=await planSyncAll('owner',{documentId:'book'});
+ assert.ok(items.some(i=>i.id==='ready'&&i.kind==='quiz'));
+ hangingModel();const stop=new AbortController();
+ const running=service.generate('ready','quiz',stop.signal,()=>{}).catch(()=>{});
+ for(let i=0;i<50&&!service.generatingKind('ready');i++)await new Promise(r=>setTimeout(r,5));
+ const r=await runSyncAll('owner',items);
+ assert.deepEqual(r.skipped.map(i=>`${i.kind}:${i.id}`),['quiz:ready']);
+ assert.ok(!sent.some(s=>s.startsWith('quiz:')&&s.includes('/ready/')),'nothing sent for the generating quiz');
+ assert.match(describeResult(r),/1 skipped because generation started on them/);
+ stop.abort();await running;
+});
