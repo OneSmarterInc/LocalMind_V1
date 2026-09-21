@@ -2,6 +2,7 @@ import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex } from '@noble/hashes/utils';
 import { MAX_BOOK_BYTES, makeReadingSections, requireThat } from './core';
 import { MODEL, MAX_MODEL_BYTES, CONTEXT_TOKENS } from './modelSpec';
+import { exceedsContext, CONTEXT_OVERFLOW_MESSAGE } from './promptBudget';
 import { PARSER_ASSET } from './generated/parserAsset';
 import { loadAccelerated, accelerationLabel, type Acceleration } from './acceleration';
 import { inferenceThreads } from './performance';
@@ -135,6 +136,9 @@ async function complete(req:Completion) {
     if(engine.isMultithread?.()===false)activeThreads=1;
   }
   cancelled(req.signal);
+  // The native runtime tokenizes and rejects oversize prompts; wllama aborts
+  // in WebAssembly instead, leaving a dead engine. Reject before calling it.
+  requireThat(!exceedsContext(req.system,req.prompt,req.maxTokens),CONTEXT_OVERFLOW_MESSAGE);
   const abort=new AbortController();const cancel=()=>abort.abort();req.signal.addEventListener('abort',cancel);
   const started=Date.now();
   const report=()=>req.progress?.(`Generating with ${accelerationLabel(acceleration,activeThreads)} · ${Math.floor((Date.now()-started)/1000)}s`);
@@ -151,6 +155,9 @@ async function complete(req:Completion) {
     console.info('[LocalMind AI]',{runtime:'browser',...acceleration,elapsedMs:Date.now()-started,threads:activeThreads,outputCharacters:choice.message.content.length});
     return restored;
   } catch(e) {
+    // A runtime failure (not a cancel, timeout or invalid output) can leave the
+    // WebAssembly instance unusable. Drop it so the next call reloads the model.
+    if(!abort.signal.aborted&&!req.signal.aborted&&!(e instanceof SyntaxError)&&!/incomplete/i.test(e instanceof Error?e.message:String(e)))await close().catch(()=>{});
     if(abort.signal.aborted&&!req.signal.aborted)throw new Error('Local AI timed out. No incomplete response was saved. Completed lesson parts and quiz questions are retained; generate again to resume.');
     throw e;
   } finally {clearInterval(ticker);clearTimeout(timer);req.signal.removeEventListener('abort',cancel);}
