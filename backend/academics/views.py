@@ -182,7 +182,7 @@ class FacultySubjectListView(APIView):
     permission_classes = [IsAdminOrFaculty]
 
     def get(self, request):
-        links = (FacultySubject.objects.filter(faculty=request.user)
+        links = (FacultySubject.objects.filter(faculty=request.user, status=AssignmentStatus.ACTIVE, subject__status__in=["active", "discontinued"])
                  .select_related("subject")
                  .annotate(active_students=Count("subject__enrollments", filter=Q(subject__enrollments__status=EnrollmentStatus.ACTIVE))))
         if request.user.role == Role.ADMIN:

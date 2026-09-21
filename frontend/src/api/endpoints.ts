@@ -85,7 +85,7 @@ export const manage = {
   searchStudents: (q: string, subject?: string) => api<{ id: string; email: string; full_name: string; roll_number: string }[]>("/faculty/students/search/", { query: { q, subject } }),
 
   documents: (q: Q = {}) => allPages<T.Document>("/faculty/documents/", q),
-  document: (id: string) => api<T.Document>(`/faculty/documents/${id}/`),
+  document: (id: string, cacheOffline = true) => api<T.Document>(`/faculty/documents/${id}/`, { cacheOffline }),
   upload: (form: FormData) => api<T.Document>("/faculty/documents/", { method: "POST", form }),
   process: (id: string) => api<T.Document>(`/faculty/documents/${id}/process/`, { method: "POST" }),
   outline: (id: string, suggest = false) => api<T.Outline>(`/faculty/documents/${id}/outline/${suggest ? "?suggest=reading" : ""}`),
@@ -102,6 +102,7 @@ export const manage = {
   generateAutoQuizzes: (documentId: string) => api<{ queued: number }>(`/faculty/documents/${documentId}/auto-quizzes/`, { method: "POST", body: {} }),
   generateLessons: (documentId: string, force = false) =>
     api<T.LessonSummary & { queued: number }>(`/faculty/documents/${documentId}/lessons/`, { method: "POST", body: { force } }),
+  unarchiveDocument: (id: string) => api<T.Document>(`/faculty/documents/${id}/unarchive/`, { method: "POST" }),
   transition: (id: string, action: "ready" | "publish" | "unpublish" | "archive") => api<T.Document>(`/faculty/documents/${id}/${action}/`, { method: "POST" }),
   deleteDocument: (id: string) => api<{ detail: string }>(`/faculty/documents/${id}/`, { method: "DELETE" }),
   module: (id: string) => api<T.ModuleFull & { chapter_title?: string; document_id?: string; document_title?: string }>(`/faculty/modules/${id}/`),

@@ -561,6 +561,19 @@ def archive(actor, document, request=None):
     return document
 
 
+@transaction.atomic
+def unarchive(actor, document, request=None):
+    _require_manage(actor, document.subject)
+    document = type(document).objects.select_for_update().get(pk=document.pk)
+    if document.status != DocumentStatus.ARCHIVED:
+        raise Conflict("Only archived books can be unarchived.", code="INVALID_STATE")
+    document.status = DocumentStatus.UNPUBLISHED
+    document.archived_at = None
+    document.save(update_fields=["status", "archived_at", "updated_at"])
+    audit.record(actor, "document.unarchived", document, {}, request)
+    return document
+
+
 # ---------- module availability ----------
 
 @transaction.atomic

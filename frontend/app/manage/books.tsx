@@ -2,12 +2,12 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import {UploadStatus} from '@/authoring/UploadStatus';
 import {useAuth} from "@/auth/AuthContext";
-import { removeBook } from "@/documents/remove";
+import { removeBook, unarchiveBook, clearRemovedBook } from "@/documents/remove";
 import { manage } from "@/api/endpoints";
 import type { Document } from "@/api/types";
 import { useFilterChoices } from "@/hooks/useChoices";
 import { useAction, useAsync } from "@/hooks/useAsync";
-import { Badge, Button, Card, CellText, Column, Dropdown, Empty, ErrorBanner, Input, Loading, PageHeading, Screen, Table, TableToolbar, fmtDay, RequestFailed, confirmDeleteAsync } from "@/ui";
+import { Badge, Button, Card, CellText, Column, Dropdown, Empty, ErrorBanner, Input, Loading, PageHeading, Screen, Table, TableToolbar, fmtDay, RequestFailed, confirmAsync, confirmDeleteAsync } from "@/ui";
 
 export default function Books() {
   const router = useRouter();
@@ -26,6 +26,14 @@ export default function Books() {
     if (!(await removeBook(d.id,user!.id))) return;
     await q.reload();
   });
+  useEffect(() => {
+    if (!user || !q.data) return;
+    void Promise.all(q.data.filter(d => d.status !== "archived").map(d => clearRemovedBook(d.id, user.id))).catch(() => {});
+  }, [q.data, user]);
+  const restore = useAction(async (d: Document) => {
+    if (!user || !(await confirmAsync("Unarchive this book?", "Its saved content will return as unpublished. Publish it when you are ready for students to see it.", "Unarchive", "Cancel"))) return;
+    await unarchiveBook(d.id, user.id); await q.reload();
+  });
   const busy = q.data?.some((d) => d.status === "processing") ?? false;
   useEffect(() => { if (!busy) return; const t = setInterval(q.reload, 4000); return () => clearInterval(t); }, [busy, q.reload]);
   const code = (d: Document) => d.subject_code ?? subjects.data?.find((s) => s.id === d.subject_id)?.code ?? "";
@@ -38,7 +46,7 @@ export default function Books() {
     { key: "l", label: "Lessons", flex: 0.9, render: (d) => (d.lessons ? `${d.lessons.ready} of ${d.lessons.total} ready` : "—") },
     { key: "u", label: "Updated", flex: 0.9, render: (d) => fmtDay((d as Document & { updated_at?: string; created_at?: string }).updated_at ?? (d as Document & { created_at?: string }).created_at) },
     { key: "x", label: "Open", width: 170, align: "center", render: (d) => <Button title={action(d)} small icon="arrow-forward" iconPosition="right" variant={d.status === "under_review" ? "primary" : "secondary"} onPress={() => router.push(`/manage/document/${d.id}`)} /> },
-    { key: "remove", label: "Remove", width: 150, align: "center", render: (d) => d.status === "archived" ? <Badge value="Archived" /> : <Button title="Remove book" small variant="danger" icon="trash-outline" disabled={remove.busy} onPress={() => remove.run(d)} /> },
+    { key: "remove", label: "Remove", width: 150, align: "center", render: (d) => d.status === "archived" ? <Button title="Unarchive" small variant="secondary" busy={restore.busy} onPress={() => restore.run(d)} /> : <Button title="Remove book" small variant="danger" icon="trash-outline" disabled={remove.busy} onPress={() => remove.run(d)} /> },
   ];
   return (
     <Screen refreshing={q.loading} onRefresh={q.reload}>
@@ -46,7 +54,7 @@ export default function Books() {
         right={<Button title="Upload a book" icon="cloud-upload-outline" onPress={() => router.push({ pathname: "/manage/document/upload", params: subject ? { subject } : {} })} />} />
       {user?<UploadStatus owner={user.id}/>:null}
       <ErrorBanner message={q.error} onRetry={q.reload} />
-      <ErrorBanner message={remove.error} />
+      <ErrorBanner message={remove.error || restore.error} />
       <Card flush>
         <TableToolbar right={<>
           <Dropdown value={subject} onChange={setSubject} accessibilityLabel="Filter by subject" options={[{ value: "", label: "All subjects" }, ...(subjects.data ?? []).map((s) => ({ value: s.id, label: s.code }))]} />

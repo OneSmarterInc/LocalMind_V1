@@ -49,7 +49,8 @@ def set_subject_status(actor, subject, status, request=None):
         raise ValidationFailed(details={"status": "Invalid subject status."})
     if subject.status == status:
         raise Conflict(f"Subject is already {status}.", code="STATUS_UNCHANGED")
-    if subject.status == SubjectStatus.ARCHIVED and status != SubjectStatus.ARCHIVED:
+    was_archived = subject.status == SubjectStatus.ARCHIVED
+    if was_archived and status != SubjectStatus.ACTIVE:
         raise Conflict("Archived subjects cannot be reactivated.", code="SUBJECT_ARCHIVED")
     subject.status = status
     now = timezone.now()
@@ -59,8 +60,9 @@ def set_subject_status(actor, subject, status, request=None):
         subject.archived_at = now
     elif status == SubjectStatus.ACTIVE:
         subject.discontinued_at = None
+        subject.archived_at = None
     subject.save()
-    audit.record(actor, f"subject.{status}", subject, {}, request)
+    audit.record(actor, "subject.unarchived" if was_archived else f"subject.{status}", subject, {}, request)
     return subject
 
 

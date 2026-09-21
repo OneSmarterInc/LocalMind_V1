@@ -124,16 +124,18 @@ class AttemptTests(Base):
         self.assertEqual(self.sc.get("/api/student/quizzes/").data, [])
         self.assertEqual(self.start(quiz).status_code, 404)
 
-    def test_publishing_a_quiz_opens_its_locked_module(self):
+    def test_publishing_a_quiz_on_a_locked_module_is_refused(self):
         self.module.availability = "locked"
         self.module.save()
         draft = self.manual_quiz(publish=False)
-        self.assertEqual(self.sc.get("/api/student/quizzes/").data, [])
         res = self.fc.post(f"/api/faculty/quizzes/{draft.id}/status/", {"status": "published"}, format="json")
-        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.status_code, 409, res.content)
+        self.assertEqual(res.data["error"]["code"], "MODULE_LOCKED_FOR_QUIZ")
         self.module.refresh_from_db()
-        self.assertEqual(self.module.availability, "open")
-        self.assertEqual([q["id"] for q in self.sc.get("/api/student/quizzes/").data], [str(draft.id)])
+        draft.refresh_from_db()
+        self.assertEqual(self.module.availability, "locked")
+        self.assertEqual(draft.status, "draft")
+        self.assertFalse(AuditLog.objects.filter(action="module.opened_on_publish").exists())
 
     def test_start_hides_answers_and_submit_scores_deterministically(self):
         quiz = self.manual_quiz()
