@@ -9,12 +9,43 @@ class ModuleSerializer(serializers.ModelSerializer):
     lesson_status = serializers.SerializerMethodField()
     quiz_status = serializers.SerializerMethodField()
     auto_quiz_id = serializers.SerializerMethodField()
+    shared_quiz_id = serializers.SerializerMethodField()
+    shared_quiz_status = serializers.SerializerMethodField()
+    shared_quiz_by = serializers.SerializerMethodField()
+    lesson_synced_by = serializers.SerializerMethodField()
 
     class Meta:
         model = Module
         fields = ["id", "chapter_id", "title", "order", "source_heading_index", "source_text", "source_missing",
                   "start_page", "end_page", "is_user_edited", "availability", "opened_at", "lesson_status",
-                  "quiz_status", "auto_quiz_id", "created_at", "updated_at"]
+                  "quiz_status", "auto_quiz_id", "shared_quiz_id", "shared_quiz_status", "shared_quiz_by",
+                  "lesson_synced_by", "created_at", "updated_at"]
+
+    def _shared(self, module):
+        """Institution quizzes and lesson authors, fetched once per chapter and
+        cached on the root serializer's context for the whole response."""
+        from .shared_status import institution_quizzes, lesson_authors
+        cache = self.context.setdefault("_shared_status", {}) if isinstance(self.context, dict) else {}
+        key = str(module.chapter_id)
+        if key not in cache:
+            ids = list(Module.objects.filter(chapter_id=module.chapter_id).values_list("pk", flat=True))
+            cache[key] = (institution_quizzes([module.chapter_id]), lesson_authors(ids))
+        return cache[key]
+
+    def get_shared_quiz_id(self, module):
+        quiz = self._shared(module)[0].get(str(module.pk))
+        return quiz["id"] if quiz else None
+
+    def get_shared_quiz_status(self, module):
+        quiz = self._shared(module)[0].get(str(module.pk))
+        return quiz["status"] if quiz else None
+
+    def get_shared_quiz_by(self, module):
+        quiz = self._shared(module)[0].get(str(module.pk))
+        return quiz["by"] if quiz else None
+
+    def get_lesson_synced_by(self, module):
+        return self._shared(module)[1].get(str(module.pk))
 
     def get_lesson_status(self, module) -> str:
         """ready | pending | generating | failed | none (the module has no text)."""

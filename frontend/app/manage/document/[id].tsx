@@ -3,7 +3,7 @@ import { useBackTo } from "@/hooks/useBackTo";
 import {prepareAutomatically,preparation,type PreparationMap} from '@/authoring/automatic';
 import {device} from '@/private/device';
 import {useAuth} from "@/auth/AuthContext";
-import {LocalAuthoring,draftStatus,isFrontMatter,type Draft} from "@/authoring/local";
+import {LocalAuthoring,draftStatus,isFrontMatter,syncedBy,type Draft} from "@/authoring/local";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -350,15 +350,20 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
     // never taught. Reporting them as Queued (and later Failed) made a healthy
     // book look broken, and counted them against the prepared total.
     if(isFrontMatter(m.title,m.source_text))return 'Front matter';
-    const saved=draftStatus(local(m.id!),kind);if(saved)return saved;
+    const saved=draftStatus(local(m.id!),kind);if(saved&&!saved.startsWith('Synchronized by'))return saved;
+    // The book detail is fresher than a device snapshot, so it decides who
+    // synchronized content this device never generated.
+    if(kind==='lesson'&&m.lesson_status==='ready')return syncedBy(m.lesson_synced_by);
+    if(kind==='quiz'&&m.shared_quiz_id)return syncedBy(m.shared_quiz_by);
+    if(saved)return saved;
     const shared=kind==='lesson'?m.lesson_status:m.quiz_status;
     if(shared&&['ready','held','checking','failed','failed_final','dismissed'].includes(shared))return (kind==='lesson'?LESSON_TEXT:QUIZ_TEXT)[shared];
     return automatic[m.id!]?.[kind]||(modelInstalled?'Waiting to prepare':'Model setup required');
   };
   const columns: Column<ModuleRow>[] = [
     { key: "m", label: "Module", flex: 2.2, render: (m) => <CellText title={m.title} sub={`Module ${m.number}`} /> },
-    { key: "l", label: "Lesson", flex: 0.8, render: (m) => <Badge value={status(m,"lesson")} tone={status(m,"lesson").startsWith("Ready")?"green":"neutral"} /> },
-    { key: "q", label: "Quiz", flex: 1, render: (m) => <Badge value={status(m,"quiz")} tone={status(m,"quiz").startsWith("Ready")?"green":m.quiz_status==="failed_final"?"red":"neutral"} /> },
+    { key: "l", label: "Lesson", flex: 0.8, render: (m) => <Badge value={status(m,"lesson")} tone={/^(Ready|Synchronized)/.test(status(m,"lesson"))?"green":"neutral"} /> },
+    { key: "q", label: "Quiz", flex: 1, render: (m) => <Badge value={status(m,"quiz")} tone={/^(Ready|Synchronized)/.test(status(m,"quiz"))?"green":m.quiz_status==="failed_final"?"red":"neutral"} /> },
     { key: "draft", label: "Saved work", flex: 1.1, render: (m) => {const d=local(m.id!);return <CellText title={d?.lesson?"Lesson draft saved":"No lesson draft"} sub={automatic[m.id!]?.error||(d?.questions?`${d.questions.length} quiz questions saved`:"No quiz draft")}/>;} },
     { key: "x", label: "", flex: 1.7, render: (m) => (
       <View style={{ flexDirection: "row", gap: 6 }}>
@@ -385,7 +390,7 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
   const teachable = modules.filter(teachableRows);
   const preparedLocally = teachable.filter((m) => {
     const st = lessonState(m);
-    return st === "Ready for review" || st === "Awaiting synchronization" || st === "Synchronized" || st === "Ready";
+    return st === "Ready for review" || st === "Awaiting synchronization" || st.startsWith("Synchronized") || st === "Ready";
   }).length;
   const syncedLessons = l?.ready ?? 0;
   const ready = Math.max(preparedLocally, syncedLessons);

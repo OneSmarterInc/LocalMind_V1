@@ -7,7 +7,7 @@ import {Library,fingerprint} from '@/private/library';
 import {device} from '@/private/device';
 import {generationJobs} from '@/private/jobs';
 import {makeSections,requireThat,type Lesson,type MCQ} from '@/private/core';
-export type Snapshot={source_visuals?:import('@/ui/SourceFigures').Figure[];module_id:string;document_id:string;title:string;source:string;revision:string;remote_id?:string;institution?:{lesson:CourseLesson|null;quiz:{id:string;status:string;questions:Question[]}|null}};
+export type Snapshot={source_visuals?:import('@/ui/SourceFigures').Figure[];module_id:string;document_id:string;title:string;source:string;revision:string;remote_id?:string;institution?:{lesson:CourseLesson|null;quiz:{id:string;status:string;questions:Question[]}|null;lesson_by?:string|null;quiz_by?:string|null}};
 type Operation={id:string;revision:string;kind:'lesson'|'quiz';reviewed:true;lesson?:Lesson;questions?:MCQ[]};
 export type Draft={snapshot:Snapshot;localBook?:string;sourceBook?:string;sourceSection?:string;lesson?:Lesson;questions?:MCQ[];run?:{kind:'lesson'|'quiz';book:string;done:number;quizCount?:number;sectionIds?:string[];lessonParts:Lesson[];questions:MCQ[]};pausedRuns?:Partial<Record<'lesson'|'quiz',NonNullable<Draft['run']>>>;operation?:Operation;state?:'pending'|'synced'|'conflict';error?:string;quiz_id?:string;shared?:Partial<Record<'lesson'|'quiz',string>>};
 export type ArchivedDraft={id:string;archivedAt:string;draft:Draft};
@@ -205,9 +205,17 @@ export class LocalAuthoring {
  }
 }
 
+/** Label for content the institution already holds, synchronized by anyone. */
+export function syncedBy(name?:string|null){return `Synchronized by ${name?.trim()||'another user'}`;}
 export function draftStatus(draft:Draft|undefined,kind:'lesson'|'quiz'){
  const content=kind==='lesson'?draft?.lesson:draft?.questions;
- if(!content||(Array.isArray(content)&&!content.length))return undefined;
+ if(!content||(Array.isArray(content)&&!content.length)){
+  // Nothing generated on this device, but another faculty member (or this
+  // one, earlier) already synchronized it. Say so instead of offering to
+  // generate the same module again.
+  const held=kind==='lesson'?draft?.snapshot.institution?.lesson:draft?.snapshot.institution?.quiz;
+  return held?syncedBy(kind==='lesson'?draft?.snapshot.institution?.lesson_by:draft?.snapshot.institution?.quiz_by):undefined;
+ }
  if(draft?.shared?.[kind]===fingerprint(JSON.stringify(content)))return 'Synchronized';
  if(draft?.operation?.kind===kind&&draft.state==='pending')return 'Awaiting synchronization';
  if(draft?.operation?.kind===kind&&draft.state==='conflict')return 'Synchronization needs review';
