@@ -11,6 +11,7 @@ import {useLibrary} from '@/private/useLibrary';
 import {generationJobs} from '@/private/jobs';
 import {jobScope,useGenerationJobs} from '@/private/useGenerationJobs';
 import {Screen,PageHeading,Card,H2,P,Button,Row,ErrorBanner,Badge} from '@/ui';
+import {SyncAllButton} from '@/authoring/SyncAllButton';
 import type {OutlineModule} from '@/api/types';
 type Shared={lesson:boolean;quiz:boolean};
 const sharedOf=(m:OutlineModule):Shared=>({lesson:m.lesson_status==='ready',quiz:['ready','held','checking','dismissed'].includes(m.quiz_status||'')||!!m.shared_quiz_id});
@@ -57,6 +58,7 @@ function Batch({owner}:{owner:string}){
  {!modelReady?<P>Download or import a model in Offline AI before generating.</P>:null}
  <P muted>Continue using the app while generation runs. After a refresh, restart the batch to resume missing work. Review drafts before publishing.</P>
  <Row><Button title="Generate missing lessons" disabled={busy||preparing||!modelReady||!rows.length} onPress={()=>run('lesson')}/><Button title="Generate missing quizzes" disabled={busy||preparing||!modelReady||!rows.length} onPress={()=>run('quiz')}/></Row>
+ {id?<SyncAllButton owner={owner} scope={{documentId:id}} title="Synchronize all lessons and quizzes" onDone={()=>{void draftsFor(service,id).then(setRows).catch(()=>{});}}/>:null}
  {jobs.map(j=><Row key={j.id}><Badge value={j.state}/><P>{j.error||j.note}</P>{['running','queued'].includes(j.state)?<Button title="Cancel batch" variant="secondary" onPress={()=>generationJobs.cancel(j.id)}/>:null}</Row>)}</Card>
  <Card><H2>Saved modules</H2>{rows.map(d=><Row key={d.snapshot.module_id}><P>{d.snapshot.title} · Lesson {d.lesson?'saved':shared[d.snapshot.remote_id||d.snapshot.module_id]?.lesson?'synchronized':'missing'} · Quiz {d.questions?.length?'saved':shared[d.snapshot.remote_id||d.snapshot.module_id]?.quiz?'synchronized':'missing'}</P><Button title="Review draft" small variant="secondary" onPress={()=>router.push(`/manage/local-authoring/${d.snapshot.module_id}`)}/></Row>)}</Card></Screen>;
 }

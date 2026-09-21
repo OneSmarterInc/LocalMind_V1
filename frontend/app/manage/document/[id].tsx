@@ -4,6 +4,7 @@ import {prepareAutomatically,preparation,type PreparationMap} from '@/authoring/
 import {device} from '@/private/device';
 import {useAuth} from "@/auth/AuthContext";
 import {LocalAuthoring,draftStatus,isFrontMatter,syncedBy,type Draft} from "@/authoring/local";
+import {SyncAllButton} from "@/authoring/SyncAllButton";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -408,6 +409,7 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
         <Button title="Prepare lessons" variant="secondary" icon="sparkles-outline" onPress={onQueueLessons} busy={lessonsBusy} disabled={!modules.length} />
         <Button title="Prepare quizzes" variant="secondary" icon="refresh" onPress={onQueueQuizzes} busy={quizzesBusy} disabled={!modules.length} />
       </View>
+      {owner ? <SyncAllButton owner={owner} scope={{ documentId: doc.id }} title="Synchronize all lessons and quizzes" onDone={() => { void service?.drafts().then(setDrafts).catch(() => {}); }} /> : null}
     </>
   );
 }

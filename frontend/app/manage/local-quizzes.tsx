@@ -8,6 +8,7 @@ import {useLibrary} from '@/private/useLibrary';
 import {jobScope,useGenerationJobs} from '@/private/useGenerationJobs';
 import {useTask} from '@/private/useTask';
 import {Screen,PageHeading,Card,H2,P,Button,Row,ErrorBanner,Badge,Loading,Empty} from '@/ui';
+import {SyncAllButton} from '@/authoring/SyncAllButton';
 export default function QuizDrafts(){const {user}=useAuth();return user?<Drafts key={user.id} owner={user.id}/>:null;}
 function Drafts({owner}:{owner:string}){
  const service=useMemo(()=>new LocalQuizzes(owner),[owner]),router=useRouter(),{id}=useLocalSearchParams<{id?:string}>(),library=useLibrary(),task=useTask();
@@ -16,6 +17,7 @@ function Drafts({owner}:{owner:string}){
  useEffect(()=>{let live=true;const read=async()=>{try{const [rows,status]=await Promise.all([service.list(),device().then(d=>d.status())]);if(live){setRows(rows);setReady(status.installed);setLoaded(true);}}catch(e){if(live)setError(String(e));}};void read();const timer=setInterval(read,1000);return()=>{live=false;clearInterval(timer);};},[service]);
  const generate=(row:QuizDraft)=>{try{generationJobs.enqueue({scope:jobScope(library!.prefix),bookId:row.id,documentIds:row.sources.map(s=>s.document_id),sectionId:row.id,kind:'staff-quiz-selection',label:row.title},(signal,progress)=>service.generate(row.id,signal,progress));}catch(e){setError(String(e));}};
  return <Screen><PageHeading title="Quiz drafts" subtitle="Questions save automatically. Review before sharing and publishing." right={<Button title="Create quiz" onPress={()=>router.push('/manage/quiz/new')}/>}/><ErrorBanner message={error||task.error}/>
+ {loaded&&!id&&rows.length?<SyncAllButton owner={owner} scope={{lessons:false,quizzes:false,selections:true}} title="Synchronize all finished quizzes"/>:null}
  {!loaded&&!error?<Loading/>:null}
  {loaded&&!rows.some(row=>!id||row.id===id)?<Empty title={id?"Quiz draft not found":"No quiz drafts yet"} text={id?"This draft may have been removed. Open all drafts or create a quiz.":"Create a quiz to start preparing questions."}/>:null}
  {id?<Button title="Show all drafts" variant="secondary" onPress={()=>router.replace("/manage/local-quizzes")}/>:null}
