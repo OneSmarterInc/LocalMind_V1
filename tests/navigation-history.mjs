@@ -1,3 +1,4 @@
+import {fileURLToPath} from 'node:url';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import fs from 'node:fs';
@@ -6,7 +7,7 @@ import path from 'node:path';
 import {createRequire} from 'node:module';
 const require=createRequire(new URL('../frontend/package.json',import.meta.url));
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'lm-history-'));
-await require('esbuild').build({entryPoints:[new URL('../frontend/src/hooks/webHistory.ts',import.meta.url).pathname],outfile:path.join(dir,'history.cjs'),bundle:true,platform:'node',plugins:[{name:'guards',setup(b){b.onResolve({filter:/unsavedGuard$/},()=>({path:'guards',namespace:'fixture'}));b.onLoad({filter:/.*/,namespace:'fixture'},()=>({contents:'export const hasUnsavedWork=()=>globalThis.dirty; export const confirmLeave=()=>globalThis.confirmLeaving();'}));}}]});
+await require('esbuild').build({entryPoints:[fileURLToPath(new URL('../frontend/src/hooks/webHistory.ts',import.meta.url))],outfile:path.join(dir,'history.cjs'),bundle:true,platform:'node',plugins:[{name:'guards',setup(b){b.onResolve({filter:/unsavedGuard$/},()=>({path:'guards',namespace:'fixture'}));b.onLoad({filter:/.*/,namespace:'fixture'},()=>({contents:'export const hasUnsavedWork=()=>globalThis.dirty; export const confirmLeave=()=>globalThis.confirmLeaving();'}));}}]});
 function setup(){
  delete require.cache[require.resolve(path.join(dir,'history.cjs'))];
  const entries=[{state:{id:'root'},url:'/manage'}];let index=0;const listeners=[];const delivered=[];
