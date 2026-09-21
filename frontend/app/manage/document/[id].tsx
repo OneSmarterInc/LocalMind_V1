@@ -355,7 +355,8 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
     // The book detail is fresher than a device snapshot, so it decides who
     // synchronized content this device never generated.
     if(kind==='lesson'&&m.lesson_status==='ready')return syncedBy(m.lesson_synced_by);
-    if(kind==='quiz'&&m.shared_quiz_id)return syncedBy(m.shared_quiz_by);
+    // An automatic quiz waiting on review or the monitor needs attention first.
+    if(kind==='quiz'&&m.shared_quiz_id&&!['held','checking','failed_final'].includes(m.quiz_status||''))return syncedBy(m.shared_quiz_by);
     if(saved)return saved;
     const shared=kind==='lesson'?m.lesson_status:m.quiz_status;
     if(shared&&['ready','held','checking','failed','failed_final','dismissed'].includes(shared))return (kind==='lesson'?LESSON_TEXT:QUIZ_TEXT)[shared];

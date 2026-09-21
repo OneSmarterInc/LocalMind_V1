@@ -15,13 +15,14 @@ def _name(user):
     return (getattr(user, "full_name", "") or "").strip() or getattr(user, "email", None)
 
 
-def institution_quizzes(chapter_ids):
+def institution_quizzes(chapter_ids=None, document_id=None):
     """``{module_id: {"id", "status", "by"}}`` for the newest non-automatic,
-    non-superseded quiz on each module of the given chapters."""
+    non-superseded quiz on each module of the given chapters or document."""
     from assessments.models import Assessment, AssessmentStatus
 
     found = {}
-    rows = (Assessment.objects.filter(module__chapter_id__in=list(chapter_ids), auto_generated=False)
+    scope = {"module__chapter__document_id": document_id} if document_id else {"module__chapter_id__in": list(chapter_ids or [])}
+    rows = (Assessment.objects.filter(auto_generated=False, **scope)
             .exclude(status=AssessmentStatus.SUPERSEDED)
             .select_related("created_by").order_by("-created_at"))
     for quiz in rows:
@@ -43,6 +44,16 @@ def lesson_authors(module_ids):
     for entry in rows:
         found.setdefault(entry.target_id, _name(entry.actor) or entry.actor_email or None)
     return found
+
+
+def for_document(document_id):
+    """Both maps for a whole book in a fixed number of queries (three),
+    whatever its size. The book detail is refreshed every minute per faculty
+    device, so per-chapter or per-module queries would add up quickly."""
+    from learning.models import Module
+
+    ids = list(Module.objects.filter(chapter__document_id=document_id).values_list("pk", flat=True))
+    return institution_quizzes(document_id=document_id), lesson_authors(ids)
 
 
 def for_module(module):

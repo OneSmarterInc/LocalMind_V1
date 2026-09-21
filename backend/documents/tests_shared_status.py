@@ -69,10 +69,20 @@ class SharedStatusTests(TestCase):
         doc = client_for(self.second).get(f'/api/faculty/documents/{self.doc.pk}/').data
         self.assertIsNone(doc['chapters'][0]['modules'][0]['shared_quiz_id'])
 
-    def test_shared_status_is_batched_per_chapter(self):
+    def detail_queries(self, chapters):
+        from learning.models import Chapter, Module
+        for c in range(self.doc.chapters.count() + 1, chapters + 1):
+            ch = Chapter.objects.create(document=self.doc, title=f'C{c}', order=c, source_heading_index=c * 10)
+            for m in range(1, 4):
+                Module.objects.create(chapter=ch, title=f'M{c}.{m}', order=m, source_heading_index=c * 10 + m, source_text='Text here.', availability='open')
         client = client_for(self.second)
-        client.get(f'/api/faculty/documents/{self.doc.pk}/')
+        url = f'/api/faculty/documents/{self.doc.pk}/'
+        client.get(url)
         with CaptureQueriesContext(connection) as ctx:
-            client.get(f'/api/faculty/documents/{self.doc.pk}/')
-        shared = [q for q in ctx.captured_queries if 'audit' in q['sql'].lower() and 'authoring.device_received' in q['sql']]
-        self.assertLessEqual(len(shared), self.doc.chapters.count())
+            client.get(url)
+        return len(ctx.captured_queries)
+
+    def test_shared_status_cost_does_not_grow_with_book_size(self):
+        small = self.detail_queries(2)
+        large = self.detail_queries(15)
+        self.assertEqual(small, large, 'book detail queries must not scale with chapters')

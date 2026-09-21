@@ -92,3 +92,12 @@ test('browsers without folder support explain instead of failing silently',async
  assert.equal((await d.storage()).canChooseFolder,false);
  await assert.rejects(d.chooseModelFolder(()=>{}),/Chrome or Edge/);
 });
+test('browsers that cannot rename keep a unique file name and still work',async()=>{
+ reset();const d=await load();
+ const original=FileH.prototype.move;FileH.prototype.move=undefined;
+ try{
+  await d.importModel({name:'test.gguf',uri:'x',file:gguf()},()=>{});await d.chooseModelFolder(()=>{});
+  const files=model(picked);assert.equal(files.length,1);assert.match(files[0],/^model-.*\.gguf$/);
+  assert.equal((await d.status()).installed,true);
+ }finally{FileH.prototype.move=original;}
+});

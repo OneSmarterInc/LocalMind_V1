@@ -22,15 +22,19 @@ class ModuleSerializer(serializers.ModelSerializer):
                   "lesson_synced_by", "created_at", "updated_at"]
 
     def _shared(self, module):
-        """Institution quizzes and lesson authors, fetched once per chapter and
-        cached on the root serializer's context for the whole response."""
-        from .shared_status import institution_quizzes, lesson_authors
-        cache = self.context.setdefault("_shared_status", {}) if isinstance(self.context, dict) else {}
-        key = str(module.chapter_id)
-        if key not in cache:
-            ids = list(Module.objects.filter(chapter_id=module.chapter_id).values_list("pk", flat=True))
-            cache[key] = (institution_quizzes([module.chapter_id]), lesson_authors(ids))
-        return cache[key]
+        """Institution quizzes and lesson authors for the module's whole book,
+        fetched once and cached on the root serializer's context, so a book
+        costs a fixed four extra queries however many chapters it has."""
+        from .shared_status import for_document
+        cache = self.context.setdefault("_shared_status", {"chapters": {}, "books": {}}) if isinstance(self.context, dict) else {"chapters": {}, "books": {}}
+        book = cache["chapters"].get(module.chapter_id)
+        if book is None:
+            book = Chapter.objects.filter(pk=module.chapter_id).values_list("document_id", flat=True).first()
+            for chapter_id in Chapter.objects.filter(document_id=book).values_list("pk", flat=True):
+                cache["chapters"][chapter_id] = book
+        if book not in cache["books"]:
+            cache["books"][book] = for_document(book)
+        return cache["books"][book]
 
     def get_shared_quiz_id(self, module):
         quiz = self._shared(module)[0].get(str(module.pk))
