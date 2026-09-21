@@ -1,0 +1,158 @@
+From 3cd7167ed187ead648de872005121d97b9aa74c0 Mon Sep 17 00:00:00 2001
+From: Developer B <b@x>
+Date: Mon, 21 Sep 2026 12:46:57 +0000
+Subject: [PATCH] B1: reject oversize local AI prompts before wllama, reset
+ engine after runtime failure, cap quiz avoid list
+
+---
+ frontend/package.json                |  2 +-
+ frontend/src/private/device.web.ts   |  7 ++++++
+ frontend/src/private/library.ts      |  3 ++-
+ frontend/src/private/promptBudget.ts | 32 ++++++++++++++++++++++++++++
+ tests/prompt-budget.mjs              | 29 +++++++++++++++++++++++++
+ 5 files changed, 71 insertions(+), 2 deletions(-)
+ create mode 100644 frontend/src/private/promptBudget.ts
+ create mode 100644 tests/prompt-budget.mjs
+
+diff --git a/frontend/package.json b/frontend/package.json
+index c60b77c..aae21a6 100644
+--- a/frontend/package.json
++++ b/frontend/package.json
+@@ -23,7 +23,7 @@
+     "preios": "npm run prepare:private",
+     "preexport:web": "npm run prepare:private",
+     "postexport:web": "node scripts/build-offline-manifest.mjs",
+-    "test:private": "node ../tests/quiz-generation.mjs && node ../tests/private-contracts.mjs && node ../tests/authoring-races.mjs && node ../tests/reliability.mjs && node ../tests/device-acceleration.mjs",
++    "test:private": "node ../tests/quiz-generation.mjs && node ../tests/private-contracts.mjs && node ../tests/authoring-races.mjs && node ../tests/reliability.mjs && node ../tests/device-acceleration.mjs && node ../tests/prompt-budget.mjs",
+     "test:private:web": "playwright test -c tests/private.playwright.config.ts"
+   },
+   "dependencies": {
+diff --git a/frontend/src/private/device.web.ts b/frontend/src/private/device.web.ts
+index 01f43d2..03e8175 100644
+--- a/frontend/src/private/device.web.ts
++++ b/frontend/src/private/device.web.ts
+@@ -2,6 +2,7 @@ import { sha256 } from '@noble/hashes/sha256';
+ import { bytesToHex } from '@noble/hashes/utils';
+ import { MAX_BOOK_BYTES, makeReadingSections, requireThat } from './core';
+ import { MODEL, MAX_MODEL_BYTES, CONTEXT_TOKENS } from './modelSpec';
++import { exceedsContext, CONTEXT_OVERFLOW_MESSAGE } from './promptBudget';
+ import { PARSER_ASSET } from './generated/parserAsset';
+ import { loadAccelerated, accelerationLabel, type Acceleration } from './acceleration';
+ import { inferenceThreads } from './performance';
+@@ -135,6 +136,9 @@ async function complete(req:Completion) {
+     if(engine.isMultithread?.()===false)activeThreads=1;
+   }
+   cancelled(req.signal);
++  // The native runtime tokenizes and rejects oversize prompts; wllama aborts
++  // in WebAssembly instead, leaving a dead engine. Reject before calling it.
++  requireThat(!exceedsContext(req.system,req.prompt,req.maxTokens),CONTEXT_OVERFLOW_MESSAGE);
+   const abort=new AbortController();const cancel=()=>abort.abort();req.signal.addEventListener('abort',cancel);
+   const started=Date.now();
+   const report=()=>req.progress?.(`Generating with ${accelerationLabel(acceleration,activeThreads)} · ${Math.floor((Date.now()-started)/1000)}s`);
+@@ -151,6 +155,9 @@ async function complete(req:Completion) {
+     console.info('[LocalMind AI]',{runtime:'browser',...acceleration,elapsedMs:Date.now()-started,threads:activeThreads,outputCharacters:choice.message.content.length});
+     return restored;
+   } catch(e) {
++    // A runtime failure (not a cancel, timeout or invalid output) can leave the
++    // WebAssembly instance unusable. Drop it so the next call reloads the model.
++    if(!abort.signal.aborted&&!req.signal.aborted&&!(e instanceof SyntaxError)&&!/incomplete/i.test(e instanceof Error?e.message:String(e)))await close().catch(()=>{});
+     if(abort.signal.aborted&&!req.signal.aborted)throw new Error('Local AI timed out. No incomplete response was saved. Completed lesson parts and quiz questions are retained; generate again to resume.');
+     throw e;
+   } finally {clearInterval(ticker);clearTimeout(timer);req.signal.removeEventListener('abort',cancel);}
+diff --git a/frontend/src/private/library.ts b/frontend/src/private/library.ts
+index 9bec65e..3d1cb1c 100644
+--- a/frontend/src/private/library.ts
++++ b/frontend/src/private/library.ts
+@@ -6,6 +6,7 @@ import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils';
+ import { BASE_URL, currentSession, SessionChangedError } from '@/api/client';
+ import { device } from './device';
+ import { cancelled } from './busy';
++import { avoidList } from './promptBudget';
+ import type { LocalFile } from './device.types';
+ import { MAX_READING_CHARS, MAX_SECTION_CHARS, ANSWER_SCHEMA, groundedSchema, GROUNDING, COMPACT_LESSON_SCHEMA, COMPACT_MCQ_SCHEMA, compactMcqBatchSchema, markQuiz, requireThat, bookReference, pageSource, lessonPassages, text, validateAnswer, validateBook, validateLesson, validateMCQ, type PrivateBook, type Lesson, type MCQ, type SourceVisual } from './core';
+ export type QuizVersion = { id: string; bookId: string; sectionId: string; createdAt: string; requestedCount?: number; questions: MCQ[] };
+@@ -148,7 +149,7 @@ export class Library {
+       const source=fresh[cursor++%fresh.length];
+       visits.set(source,(visits.get(source)||0)+1);
+       const wanted=singleOnly?1:Math.min(3,count-questions.length);
+-      const avoid=[...excluded,...questions.map(q=>q.question)].map(q=>q.slice(0,160)).join('\n');
++      const avoid=avoidList([...excluded,...questions.map(q=>q.question)]);
+       let raw:unknown;
+       try {
+         detail?.(`Quiz ${questions.length}/${count} · ${wanted===1?'one question':'one local AI batch'} (attempt ${attempt+1}/${budget})`);
+diff --git a/frontend/src/private/promptBudget.ts b/frontend/src/private/promptBudget.ts
+new file mode 100644
+index 0000000..2aad6e1
+--- /dev/null
++++ b/frontend/src/private/promptBudget.ts
+@@ -0,0 +1,32 @@
++/** Prompt sizing for the on-device model.
++ *
++ * wllama 3.x exposes no tokenizer call, so the browser runtime estimates.
++ * Qwen3 averages about 4 characters per English token; 3 is deliberately
++ * pessimistic so OCR noise, numbers and symbols do not slip past the check.
++ * Overflowing the context aborts wllama inside WebAssembly, which is far
++ * worse than rejecting a prompt early with a readable error.
++ */
++import { CONTEXT_TOKENS } from './modelSpec';
++
++export const CHARS_PER_TOKEN_ESTIMATE = 3;
++export const CHAT_TEMPLATE_TOKENS = 64;
++export const RESPONSE_MARGIN_TOKENS = 48;
++
++export function estimateTokens(text: string): number {
++  return Math.ceil(text.length / CHARS_PER_TOKEN_ESTIMATE);
++}
++
++export function exceedsContext(system: string, prompt: string, maxTokens: number, context = CONTEXT_TOKENS): boolean {
++  return estimateTokens(system) + estimateTokens(prompt) + CHAT_TEMPLATE_TOKENS + maxTokens + RESPONSE_MARGIN_TOKENS > context;
++}
++
++/** Wording is matched by the passage-halving retry in library.ts. Keep "exceeds" and "context". */
++export const CONTEXT_OVERFLOW_MESSAGE = 'This prompt exceeds the local model context. Retrying with a shorter passage.';
++
++/** The "do not repeat" list sent to the model. Duplicate checking in code
++ * still compares against every question; this only bounds prompt size. */
++export const AVOID_RECENT = 8;
++export const AVOID_CHARS = 120;
++export function avoidList(questions: string[]): string {
++  return questions.slice(-AVOID_RECENT).map(q => q.slice(0, AVOID_CHARS)).join('\n');
++}
+diff --git a/tests/prompt-budget.mjs b/tests/prompt-budget.mjs
+new file mode 100644
+index 0000000..f2e02c0
+--- /dev/null
++++ b/tests/prompt-budget.mjs
+@@ -0,0 +1,29 @@
++import assert from 'node:assert/strict';
++import {createRequire} from 'node:module';
++import test from 'node:test';
++const require=createRequire(new URL('../frontend/package.json',import.meta.url));
++const {build}=require('esbuild');
++const built=await build({entryPoints:[new URL('../frontend/src/private/promptBudget.ts',import.meta.url).pathname],bundle:true,platform:'node',format:'cjs',write:false});
++const m={exports:{}};new Function('module','exports',built.outputFiles[0].text)(m,m.exports);
++const {exceedsContext,avoidList,CONTEXT_OVERFLOW_MESSAGE,AVOID_RECENT,AVOID_CHARS}=m.exports;
++// Same pattern library.ts uses to trigger its passage-halving retry.
++const RETRY=/(?:exceeds|exceeded|too long|too large).*context|context.*(?:exceeds|exceeded|too long|too large|limit)/i;
++const system='x'.repeat(620);
++test('overflow message triggers the existing passage-halving retry',()=>{assert.match(CONTEXT_OVERFLOW_MESSAGE,RETRY);});
++test('single-module lesson and quiz prompts still fit',()=>{
++ assert.equal(exceedsContext(system,'p'.repeat(600)+'s'.repeat(3200),800),false);
++ assert.equal(exceedsContext(system,'p'.repeat(600)+'q'.repeat(6*160)+'s'.repeat(3200),1200),false);
++});
++test('old 30-question avoid list overflowed; capped list fits',()=>{
++ const questions=Array.from({length:29},(_,i)=>`Question ${i} `+'w'.repeat(200));
++ const old=questions.map(q=>q.slice(0,160)).join('\n');
++ assert.equal(exceedsContext(system,'p'.repeat(600)+old+'s'.repeat(3200),1200),true);
++ assert.equal(exceedsContext(system,'p'.repeat(600)+avoidList(questions)+'s'.repeat(3200),1200),false);
++});
++test('avoid list keeps only the most recent questions, truncated',()=>{
++ const questions=Array.from({length:20},(_,i)=>`Q${i} `+'z'.repeat(300));
++ const lines=avoidList(questions).split('\n');
++ assert.equal(lines.length,AVOID_RECENT);assert.ok(lines[0].startsWith('Q12 '));
++ assert.ok(lines.every(l=>l.length<=AVOID_CHARS));
++ assert.equal(avoidList([]),'');
++});
+-- 
+2.43.0
+
