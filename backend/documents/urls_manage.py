@@ -19,6 +19,7 @@ urlpatterns = [
     path("documents/<uuid:document_id>/ready/", views.MarkReadyView.as_view(), name="documents-ready"),
     path("documents/<uuid:document_id>/publish/", views.PublishView.as_view(), name="documents-publish"),
     path("documents/<uuid:document_id>/unpublish/", views.UnpublishView.as_view(), name="documents-unpublish"),
+    path("documents/<uuid:document_id>/unarchive/", views.UnarchiveView.as_view(), name="documents-unarchive"),
     path("documents/<uuid:document_id>/archive/", views.ArchiveView.as_view(), name="documents-archive"),
     path("documents/<uuid:document_id>/lessons/", views.DocumentLessonsView.as_view(), name="documents-lessons"),
     path("documents/<uuid:document_id>/auto-quizzes/", views.DocumentAutoQuizzesView.as_view(), name="documents-auto-quizzes"),

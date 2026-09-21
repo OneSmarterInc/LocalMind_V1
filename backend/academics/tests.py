@@ -24,7 +24,8 @@ class SubjectTests(TestCase):
         self.assertEqual(self.client.post(url, {"status": "discontinued"}, format="json").data["status"], "discontinued")
         self.assertEqual(self.client.post(url, {"status": "active"}, format="json").data["status"], "active")
         self.assertEqual(self.client.post(url, {"status": "archived"}, format="json").data["status"], "archived")
-        self.assertEqual(self.client.post(url, {"status": "active"}, format="json").status_code, 409)
+        self.assertEqual(self.client.post(url, {"status": "discontinued"}, format="json").status_code, 409)
+        self.assertEqual(self.client.post(url, {"status": "active"}, format="json").data["status"], "active")
 
     def test_delete_subject_removes_it_and_everything_it_owns(self):
         """The admin console deletes subjects outright, so the PROTECT chain

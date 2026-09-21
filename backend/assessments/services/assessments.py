@@ -247,10 +247,29 @@ def set_status(actor, assessment, status, request=None):
             raise Conflict("Add questions before publishing.", code="NO_QUESTIONS")
         if assessment.generator == Generator.FALLBACK and any("Placeholder distractor" in o["text"] for q in assessment.questions if q["type"] == "mcq" for o in q["options"]):
             raise Conflict("Fallback-generated questions contain placeholders; edit them before publishing.", code="PLACEHOLDER_QUESTIONS")
+        # Read current source state rather than trusting cached relation objects.
+        modules = []
+        documents = []
+        if assessment.kind == AssessmentKind.SELECTION:
+            modules = list(assessment.source_modules.select_related("chapter__document").all())
+            documents = [m.chapter.document for m in modules]
+        elif assessment.module_id:
+            module = Module.objects.select_related("chapter__document").get(pk=assessment.module_id)
+            modules, documents = [module], [module.chapter.document]
+        elif assessment.chapter_id:
+            chapter = Chapter.objects.select_related("document").get(pk=assessment.chapter_id)
+            modules, documents = list(chapter.modules.all()), [chapter.document]
+        if any(d.status != "published" for d in documents):
+            raise Conflict("This book is not published yet.", code="BOOK_NOT_PUBLISHED")
+        locked = [m.title for m in modules if m.availability != "open"]
+        chapter_only = assessment.chapter_id and not assessment.module_id and assessment.kind != AssessmentKind.SELECTION
+        blocked = not any(m.availability == "open" for m in modules) if chapter_only else bool(locked)
+        if blocked:
+            raise Conflict("This module is locked. Open it before publishing its quiz.",
+                           code="MODULE_LOCKED_FOR_QUIZ", details={"modules": locked})
         assessment.status, assessment.published_at = status, timezone.now()
         # Publishing by hand is the review a held automatic quiz was waiting for.
         assessment.held_for_review, assessment.hold_reason = False, ""
-        learning.open_target_modules(actor, assessment, "quiz.published", request)
     elif status == AssessmentStatus.CLOSED:
         if assessment.status != AssessmentStatus.PUBLISHED:
             raise Conflict("Only published quizzes can be closed.", code="INVALID_STATE")

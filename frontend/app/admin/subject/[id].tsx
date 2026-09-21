@@ -28,7 +28,7 @@ export default function AdminSubject() {
           {tab === "details" ? <DetailsTab subject={s} onChanged={q.reload} /> : null}
           {tab === "faculty" ? <FacultyTab subjectId={id} faculty={activeFaculty} onChanged={q.reload} /> : null}
           {tab === "students" ? <StudentsTab subjectId={id} /> : null}
-          {s.status === "archived" ? <Notice tone="warning" message="Archived subjects are read-only for teaching. Delete removes the subject and its content for good." /> : null}
+          {s.status === "archived" ? <Notice tone="warning" message="This subject is archived. Unarchive it to restore teaching access and keep its existing records." /> : null}
           <View style={{ height: 4 }} />
         </>
       ) : null}
@@ -51,9 +51,9 @@ function DetailsTab({ subject: s, onChanged }: { subject: any; onChanged: () => 
     const text: Record<string, [string, string]> = {
       discontinued: ["Discontinue this subject?", "Faculty and students keep their records, but the subject is no longer active."],
       archived: ["Archive this subject?", "The subject becomes read-only. Its records stay for reference."],
-      active: ["Reactivate this subject?", "Faculty and enrolled students can use it again."],
+      active: [s.status === "archived" ? "Unarchive this subject?" : "Reactivate this subject?", "Faculty and enrolled students can use it again."],
     };
-    if (!(await confirmAsync(text[next][0], text[next][1], next === "active" ? "Reactivate" : next === "archived" ? "Archive subject" : "Discontinue subject", "Cancel", { tone: next === "active" ? "primary" : "warning" }))) return;
+    if (!(await confirmAsync(text[next][0], text[next][1], next === "active" ? (s.status === "archived" ? "Unarchive subject" : "Reactivate") : next === "archived" ? "Archive subject" : "Discontinue subject", "Cancel", { tone: next === "active" ? "primary" : "warning" }))) return;
     await admin.subjectStatus(s.id, next); onChanged();
   });
   const remove = useAction(async () => {
@@ -92,7 +92,7 @@ function DetailsTab({ subject: s, onChanged }: { subject: any; onChanged: () => 
             <View style={{ height: 1, backgroundColor: colors.border }} />
             <Button title="Open content workspace" variant="secondary" icon="book-outline" full onPress={() => router.push({ pathname: "/manage/books", params: { subject: s.id } })} />
             <View style={{ height: 1, backgroundColor: colors.border }} />
-            {s.status === "active" ? <Button title="Discontinue subject" variant="secondary" full onPress={() => status.run("discontinued")} busy={status.busy} /> : <Button title="Reactivate subject" full onPress={() => status.run("active")} busy={status.busy} />}
+            {s.status === "active" ? <Button title="Discontinue subject" variant="secondary" full onPress={() => status.run("discontinued")} busy={status.busy} /> : <Button title={s.status === "archived" ? "Unarchive subject" : "Reactivate subject"} full onPress={() => status.run("active")} busy={status.busy} />}
             {s.status !== "archived" ? <Button title="Archive subject" variant="secondary" icon="archive-outline" full onPress={() => status.run("archived")} busy={status.busy} /> : null}
             <ErrorBanner message={status.error} />
           </Card>

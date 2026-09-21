@@ -115,6 +115,10 @@ class UnpublishView(_Transition):
     action = "unpublish"
 
 
+class UnarchiveView(_Transition):
+    action = "unarchive"
+
+
 class ArchiveView(_Transition):
     action = "archive"
 
