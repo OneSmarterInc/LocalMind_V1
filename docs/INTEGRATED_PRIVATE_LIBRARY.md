@@ -60,6 +60,16 @@ model is replaced only after a complete, verified download; books, lessons,
 quizzes and study history are retained. Updating the app alone does not download
 or replace a model. The download size is not the model's total runtime memory use.
 
+Where the model file lives: in a browser, the default is the browser's private
+file storage (on this computer's disk, inside the browser profile, not visible
+in File Explorer, deleted if this site's data is cleared). In Chrome or Edge on a
+computer, **Offline AI → Where the model is stored → Save model to a folder on
+this computer** copies the model into a folder you choose, verifies its size and
+SHA-256, and removes the browser copy only after the copy succeeds. The browser
+may ask again for folder access after a restart; **Allow folder access** restores
+it. **Use browser storage instead** moves it back. Other browsers keep the default.
+The Android/iOS app stores the model in the app's documents folder.
+
 Book metadata and module text are stored separately from page images so listing a
 library does not load all its bitmaps. Assets are scoped by account, institution,
 book and import instance. A failed/cancelled import cannot delete another import's

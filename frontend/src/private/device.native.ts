@@ -97,6 +97,7 @@ const implementation:Device={...store,complete,
   try{cancelled(signal);await FS.copyAsync({from:f.uri,to:uri});await accept(uri,f.name,progress,signal);}catch(e){await FS.deleteAsync(uri,{idempotent:true}).catch(()=>{});throw e;}
  }),
  removeModel:()=>lock.run(async()=>{const m=await store.get<Installed>(MODEL_KEY);await close();await store.removePrefix(MODEL_KEY);if(m)await FS.deleteAsync(m.uri,{idempotent:true});}),
- async prepareOffline(){return 'Use an installed release build, not an Expo Go/development session. The release includes its application files. Keep your sign-in, downloaded model and books on this device.';}
+ async prepareOffline(){return 'Use an installed release build, not an Expo Go/development session. The release includes its application files. Keep your sign-in, downloaded model and books on this device.';},
+ async storage(){return {location:'app' as const,path:root,canChooseFolder:false,persistent:true};},
 };
 export async function device():Promise<Device>{return implementation;}
