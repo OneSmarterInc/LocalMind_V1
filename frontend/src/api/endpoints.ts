@@ -162,6 +162,8 @@ export const admin = {
     api<{ columns: { name: string; required: boolean; example: string; aliases: string[] }[]; filename: string; content_base64: string }>(`/admin/${kind}/import/template/`),
   auditLogs: (q: Q = {}) => api<T.Paginated<T.AuditLog>>("/admin/audit-logs/", { query: q }),
   auditActions: () => api<{ actions: { value: string; count: number }[]; targets: string[] }>("/admin/audit-logs/actions/"),
+  auditSummary: (q: Q = {}) => api<T.AuditSummary>("/admin/audit-logs/summary/", { query: q }),
+  auditExport: (q: Q = {}) => api<T.AuditExport>("/admin/audit-logs/export/", { query: q, timeoutMs: 120000 }),
   platform: () => api<any>("/admin/analytics/platform/"),
   platformSubjects: () => api<any>("/admin/analytics/platform/subjects/"),
   aiStatus: (refresh = false) => api<T.AIStatus>("/admin/ai/status/", { query: { refresh: refresh ? 1 : undefined } }),

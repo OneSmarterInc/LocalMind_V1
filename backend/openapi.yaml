@@ -502,6 +502,206 @@ paths:
                     - message
                 required:
                 - error
+  /api/admin/audit-logs/export/:
+    get:
+      operationId: get_admin_audit_logs_export
+      description: |-
+        The filtered audit rows as CSV text, newest first, capped at EXPORT_LIMIT.
+
+        Returned inside JSON (filename, csv, count, truncated) because the app's API
+        client authenticates and parses JSON; the screen turns it into a download.
+      tags:
+      - admin
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                      message:
+                        type: string
+                      details:
+                        type: object
+                    required:
+                    - code
+                    - message
+                required:
+                - error
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                      message:
+                        type: string
+                      details:
+                        type: object
+                    required:
+                    - code
+                    - message
+                required:
+                - error
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                      message:
+                        type: string
+                      details:
+                        type: object
+                    required:
+                    - code
+                    - message
+                required:
+                - error
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                      message:
+                        type: string
+                      details:
+                        type: object
+                    required:
+                    - code
+                    - message
+                required:
+                - error
+  /api/admin/audit-logs/summary/:
+    get:
+      operationId: get_admin_audit_logs_summary
+      description: |-
+        Headline numbers and per-category counts for the audit screen.
+
+        `today_since` is the start of the viewer's day as an ISO timestamp; the
+        server runs in UTC and "today" should mean the administrator's today.
+        The category counts follow the same date, search and role filters as the
+        list, so a chip's number matches what clicking it shows.
+      tags:
+      - admin
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                      message:
+                        type: string
+                      details:
+                        type: object
+                    required:
+                    - code
+                    - message
+                required:
+                - error
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                      message:
+                        type: string
+                      details:
+                        type: object
+                    required:
+                    - code
+                    - message
+                required:
+                - error
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                      message:
+                        type: string
+                      details:
+                        type: object
+                    required:
+                    - code
+                    - message
+                required:
+                - error
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                      message:
+                        type: string
+                      details:
+                        type: object
+                    required:
+                    - code
+                    - message
+                required:
+                - error
   /api/admin/faculty/:
     get:
       operationId: get_admin_faculty
@@ -17040,12 +17240,21 @@ components:
         actor_email:
           type: string
           maxLength: 254
+        actor_name:
+          type: string
+          readOnly: true
         actor_role:
           type: string
           maxLength: 20
         action:
           type: string
           maxLength: 64
+        category:
+          type: string
+          readOnly: true
+        failed:
+          type: string
+          readOnly: true
         target_type:
           type: string
           maxLength: 64
@@ -17065,7 +17274,10 @@ components:
           readOnly: true
       required:
       - action
+      - actor_name
+      - category
       - created_at
+      - failed
       - id
     Chapter:
       type: object

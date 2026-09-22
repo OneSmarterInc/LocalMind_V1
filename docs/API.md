@@ -67,7 +67,7 @@ Manage assignment of faculty with `POST /api/admin/subjects/{id}/faculty/` (`fac
 
 Discontinue or reactivate any user with `POST /api/admin/{faculty|students}/{id}/discontinue/` (optional `reason`) and `.../reactivate/`. Discontinuing revokes outstanding refresh tokens. Reset a password to the initial value with `.../reset-password/`, which also sets the forced-change flag again.
 
-Review everything that changed with `GET /api/admin/audit-logs/?action=&target_type=&target_id=&actor=&actor_email=&since=&until=`.
+Review everything that changed with `GET /api/admin/audit-logs/?action=&target_type=&target_id=&actor=&actor_email=&since=&until=`. Rows include `actor_name`, `category` (content, quiz, people, class, auth, ai, other) and `failed`. Extra filters: `category` (one of those, or `failures`), `q` (searches name, email and item), `role` (admin, faculty, student, or `system`). `GET /api/admin/audit-logs/summary/` returns today's and this week's counts plus per-category counts for the same filters (pass `today_since` as the viewer's local midnight). `GET /api/admin/audit-logs/export/` returns `{filename, csv, count, truncated}` for the same filters, newest 10,000 rows.
 
 Platform-wide numbers are at `GET /api/admin/analytics/platform/` and `.../platform/subjects/` (one row per subject, including `modules_published`). Administrators use the faculty analytics endpoints themselves (`/api/faculty/analytics/...`), unscoped. Books, chapters, modules, quizzes and their analytics have one set of routes, under `/api/faculty/`, which both roles use; they are not repeated under `/api/admin/`.
 

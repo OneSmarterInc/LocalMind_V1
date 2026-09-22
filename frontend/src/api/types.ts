@@ -175,7 +175,10 @@ export interface Message { id: string; role: "user" | "assistant"; content: stri
 export interface AskResponse { conversation_id: string; message: Message; follow_up_suggestions: string[] }
 export interface Conversation { id: string; module_id: string; title: string; last_message_at: string | null; messages?: Message[] }
 
-export interface AuditLog { id: string; actor_email: string; actor_role: string; action: string; target_type: string; target_id: string; target_label: string; summary: Record<string, unknown>; created_at: string }
+export type AuditCategory = "content" | "quiz" | "people" | "class" | "auth" | "ai" | "other";
+export interface AuditLog { id: string; actor_email: string; actor_name?: string | null; actor_role: string; action: string; category?: AuditCategory; failed?: boolean; target_type: string; target_id: string; target_label: string; summary: Record<string, unknown>; ip_address?: string | null; created_at: string }
+export interface AuditSummary { events_today: number; people_today: number; published_week: number; failures_week: number; total: number; failures: number; categories: Record<AuditCategory, number> }
+export interface AuditExport { filename: string; csv: string; count: number; truncated: boolean }
 /** unique: each account gets its own one-time password, returned once. shared: every account starts on the server's INITIAL_USER_PASSWORD. */
 export type InitialPasswordMode = "unique" | "shared";
 export interface IssuedPassword { initial_password?: string | null; initial_password_mode?: InitialPasswordMode }
