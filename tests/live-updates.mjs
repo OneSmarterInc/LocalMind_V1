@@ -122,8 +122,10 @@ test('both Ask a doubt boxes send on Enter',()=>{
   assert.match(fs.readFileSync(path.join(front,f),'utf8'),/label="Your question"[^>]*onEnter=\{/,f);
 });
 
-test('the administrator overview offers Upload a book',()=>{
+test('the administrator overview shows the book picture, like the other portals',()=>{
  const s=fs.readFileSync(path.join(front,'app/admin/index.tsx'),'utf8');
- assert.match(s,/title="Upload a book"[\s\S]{0,80}router\.push\("\/manage\/document\/upload"\)/);
+ const hero=s.match(/<HeroCard[\s\S]*?\/>\s*\n/g)||[];
+ assert.equal(hero.length,1,'one welcome card');
+ assert.doesNotMatch(hero[0],/\bart=/,'default art is the LocalMind book');
  assert.doesNotMatch(s,/system readiness/);
 });

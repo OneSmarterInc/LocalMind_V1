@@ -1,9 +1,8 @@
 import { useRouter } from "expo-router";
 import React from "react";
-import { Text, View } from "react-native";
 import { admin } from "@/api/endpoints";
 import { useAsync } from "@/hooks/useAsync";
-import { Badge, Button, Card, CardHead, CellText, Column, Empty, ErrorBanner, Grid, HeroCard, ListRow, Loading, PageHeading, Screen, Split, Stat, StatRow, Table, TextLink, colors, RequestFailed } from "@/ui";
+import { Badge, Button, Card, CardHead, CellText, Column, Empty, ErrorBanner, Grid, HeroCard, ListRow, Loading, PageHeading, Screen, Split, Stat, StatRow, Table, TextLink, RequestFailed } from "@/ui";
 
 
 export default function AdminOverview() {
@@ -20,14 +19,6 @@ export default function AdminOverview() {
     { key: "n", label: "Students", flex: 0.8, render: (s) => String(s.students_enrolled) },
     { key: "m", label: "Published modules", flex: 1, render: (s) => String(s.modules_published ?? 0) },
   ];
-  const ring = (
-    <View style={{ width: 150, height: 150, borderRadius: 75, borderWidth: 1, borderColor: "#CFE0CB", alignItems: "center", justifyContent: "center" }}>
-      <View style={{ width: 118, height: 118, borderRadius: 59, borderWidth: 9, borderColor: open ? "#E2C27E" : "#A9C7A4", alignItems: "center", justifyContent: "center", backgroundColor: "#F4F8F1" }}>
-        <Text style={{ fontSize: 19, fontWeight: "600", color: colors.ink }}>{monitor.data ? (open ? String(open) : "Clear") : "…"}</Text>
-        <Text style={{ fontSize: 8, letterSpacing: 1, color: colors.muted, textAlign: "center" }}>{open === 1 ? "INCIDENT TO REVIEW" : open ? "INCIDENTS TO REVIEW" : "NO AI INCIDENTS"}</Text>
-      </View>
-    </View>
-  );
   return (
     <Screen refreshing={platform.loading} onRefresh={reload}>
       <PageHeading eyebrow="ADMINISTRATOR WORKSPACE" title="A clear view of your platform." subtitle="People, teaching activity, and AI incidents in one place."
@@ -43,9 +34,7 @@ export default function AdminOverview() {
         main={
           <>
             <HeroCard eyebrow="A HEALTHY LEARNING ENVIRONMENT" title="The right people. The right access." text="Keep accounts and subjects organized so teaching can happen without friction."
-              action={<Button title="Add a person" icon="person-add-outline" onPress={() => router.push("/admin/user/new")} />} art={ring} />
-            <HeroCard eyebrow="FROM BOOK TO LEARNING" title="Add a book to any subject." text="Upload a book, review its modules, and publish when you are ready. It opens in the content workspace."
-              action={<Button title="Upload a book" icon="cloud-upload-outline" onPress={() => router.push("/manage/document/upload")} />} />
+              action={<Button title="Add a person" icon="person-add-outline" onPress={() => router.push("/admin/user/new")} />} />
             <Card>
               <CardHead title="Common tasks" />
               <Grid min={250} gap={10}>
