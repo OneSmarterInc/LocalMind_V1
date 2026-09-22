@@ -7,7 +7,7 @@ import {Library,fingerprint} from '@/private/library';
 import {device} from '@/private/device';
 import {generationJobs} from '@/private/jobs';
 import {makeSections,requireThat,type Lesson,type MCQ} from '@/private/core';
-export type Snapshot={source_visuals?:import('@/ui/SourceFigures').Figure[];module_id:string;document_id:string;title:string;source:string;revision:string;remote_id?:string;institution?:{lesson:CourseLesson|null;quiz:{id:string;status:string;questions:Question[]}|null}};
+export type Snapshot={source_visuals?:import('@/ui/SourceFigures').Figure[];module_id:string;document_id:string;title:string;source:string;revision:string;remote_id?:string;institution?:{lesson:CourseLesson|null;quiz:{id:string;status:string;questions:Question[]}|null;lesson_by?:string|null;quiz_by?:string|null}};
 type Operation={id:string;revision:string;kind:'lesson'|'quiz';reviewed:true;lesson?:Lesson;questions?:MCQ[]};
 export type Draft={snapshot:Snapshot;localBook?:string;sourceBook?:string;sourceSection?:string;lesson?:Lesson;questions?:MCQ[];run?:{kind:'lesson'|'quiz';book:string;done:number;quizCount?:number;sectionIds?:string[];lessonParts:Lesson[];questions:MCQ[]};pausedRuns?:Partial<Record<'lesson'|'quiz',NonNullable<Draft['run']>>>;operation?:Operation;state?:'pending'|'synced'|'conflict';error?:string;quiz_id?:string;shared?:Partial<Record<'lesson'|'quiz',string>>};
 export type ArchivedDraft={id:string;archivedAt:string;draft:Draft};
@@ -36,6 +36,10 @@ export function isFrontMatter(title?:string|null,source?:string|null):boolean{
  return SIGNPOST.test(name)&&(source||'').trim().length<SIGNPOST_MAX;
 }
 const draftOperations=new Set<string>();
+/** Which kind each module is generating right now on this device, so
+ * "Synchronize all" can send finished work without touching the part that is
+ * still being written. */
+const generatingKinds=new Map<string,'lesson'|'quiz'>();
 const preparing=new Map<string,Promise<Draft>>();
 const syncing=new Map<string,Promise<Draft|undefined>>();
 const draftWrites=new Map<string,Promise<unknown>>();
@@ -138,8 +142,14 @@ export class LocalAuthoring {
  async generate(id:string,kind:'lesson'|'quiz',signal:AbortSignal,progress:(message:string)=>void,quizCount=6,restart=false){
   // Both kinds share one checkpoint field. Jobs queue by module; direct callers
   // fail explicitly instead of racing that shared record.
-  return this.exclusive(id,()=>this.generateDraft(id,kind,signal,progress,quizCount,restart),'generation');
+  return this.exclusive(id,async()=>{
+   generatingKinds.set(this.key(id),kind);
+   try{return await this.generateDraft(id,kind,signal,progress,quizCount,restart);}
+   finally{generatingKinds.delete(this.key(id));}
+  },'generation');
  }
+ /** The kind this module is generating on this device right now, if any. */
+ generatingKind(id:string){return generatingKinds.get(this.key(id));}
  private async generateDraft(id:string,kind:'lesson'|'quiz',signal:AbortSignal,progress:(message:string)=>void,quizCount:number,restart=false){
   if(kind==='quiz')requireThat(Number.isInteger(quizCount)&&quizCount>=1&&quizCount<=6,'Choose 1–6 questions.');
   const draft=await this.read(id);requireThat(draft,'Save this module on the device first.');
@@ -175,7 +185,7 @@ export class LocalAuthoring {
  }
  async share(id:string,kind:'lesson'|'quiz'){return this.exclusive(id,()=>this.shareDraft(id,kind),kind);}
  private async shareDraft(id:string,kind:'lesson'|'quiz'){
-  const draft=await this.read(id);requireThat(draft,'No local draft.');requireThat(draft.run?.kind!==kind&&!draft.pausedRuns?.[kind],'Finish generation before sharing.');
+  const draft=await this.read(id);requireThat(draft,'No local draft.');requireThat(draft.run?.kind!==kind&&!draft.pausedRuns?.[kind]&&generatingKinds.get(this.key(id))!==kind,'Finish generation before sharing.');
   requireThat(!await this.isRemoved(draft.snapshot.document_id),'This book was removed or archived.');
   requireThat(!draft.localBook||!activeBookTransfers.has(this.library.prefix+'import:'+draft.localBook),'A book transfer is in progress. Try approval when it finishes.');
   requireThat(kind==='lesson'?draft.lesson:draft.questions?.length,'Generate and review the content first.');
@@ -205,9 +215,17 @@ export class LocalAuthoring {
  }
 }
 
+/** Label for content the institution already holds, synchronized by anyone. */
+export function syncedBy(name?:string|null){return `Synchronized by ${name?.trim()||'another user'}`;}
 export function draftStatus(draft:Draft|undefined,kind:'lesson'|'quiz'){
  const content=kind==='lesson'?draft?.lesson:draft?.questions;
- if(!content||(Array.isArray(content)&&!content.length))return undefined;
+ if(!content||(Array.isArray(content)&&!content.length)){
+  // Nothing generated on this device, but another faculty member (or this
+  // one, earlier) already synchronized it. Say so instead of offering to
+  // generate the same module again.
+  const held=kind==='lesson'?draft?.snapshot.institution?.lesson:draft?.snapshot.institution?.quiz;
+  return held?syncedBy(kind==='lesson'?draft?.snapshot.institution?.lesson_by:draft?.snapshot.institution?.quiz_by):undefined;
+ }
  if(draft?.shared?.[kind]===fingerprint(JSON.stringify(content)))return 'Synchronized';
  if(draft?.operation?.kind===kind&&draft.state==='pending')return 'Awaiting synchronization';
  if(draft?.operation?.kind===kind&&draft.state==='conflict')return 'Synchronization needs review';

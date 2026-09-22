@@ -18,7 +18,7 @@ export function SubjectCard({ row, index, onPress }: { row: CatalogSubject; inde
       </View>
       <View style={{ marginTop: 4 }}>
         <Text style={{ fontSize: 16, fontWeight: "600", color: colors.ink }} numberOfLines={2}>{row.subject.name}</Text>
-        <Text style={{ fontSize: 12, color: colors.muted, marginTop: 4 }} numberOfLines={1}>{faculty || "Faculty not assigned yet"}</Text>
+        <Text style={{ fontSize: 12, color: colors.muted, marginTop: 4 }} numberOfLines={1}>Faculty: {faculty || "Not assigned yet"}</Text>
       </View>
       <View style={{ flex: 1 }} />
       <View style={{ flexDirection: "row", justifyContent: "space-between" }}>

@@ -1,6 +1,7 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
-import { Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { useAuth } from "@/auth/AuthContext";
 import { useAction } from "@/hooks/useAsync";
 import { Button, Card, CardHead, ErrorBanner, Eyebrow, FormFooter, Input, Notice, TextLink, colors } from "@/ui";
@@ -13,12 +14,21 @@ export default function ChangePassword() {
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
   const [done, setDone] = useState(false);
+  const [visible, setVisible] = useState({ current: false, next: false, confirm: false });
+  const eye = (field: keyof typeof visible, label: string) => (
+    <Pressable accessibilityRole="button" accessibilityLabel={`${visible[field] ? "Hide" : "Show"} ${label}`}
+      onPress={() => setVisible(previous => ({ ...previous, [field]: !previous[field] }))}
+      style={{ width: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}>
+      <Ionicons name={visible[field] ? "eye-off-outline" : "eye-outline"} size={20} color={colors.muted} />
+    </Pressable>
+  );
   const mismatch = !!confirm && next !== confirm;
   const home = user?.role === "student" ? "/student" : user?.role === "faculty" ? "/manage" : "/admin";
   const action = useAction(async () => {
     if (next !== confirm) throw new Error("The two new passwords do not match.");
     const forced = mustChangePassword;
     await completePasswordChange(current, next);
+    setVisible({ current: false, next: false, confirm: false });
     setDone(true); setCurrent(""); setNext(""); setConfirm("");
     if (forced) router.replace(home as never);
   });
@@ -31,9 +41,9 @@ export default function ChangePassword() {
       {done && !mustChangePassword ? <Notice tone="success" title="Password updated" message="Use your new password the next time you sign in." /> : null}
       <Card>
         <CardHead title="Secure your account" />
-        <Input label="Current password" required value={current} onChangeText={setCurrent} secureTextEntry textContentType="password" hint={mustChangePassword ? "Use the initial password from your administrator." : "The password you signed in with."} />
-        <Input label="New password" required value={next} onChangeText={setNext} secureTextEntry textContentType="newPassword" hint="At least ten characters, not entirely numbers, not too similar to your email, and different from the current one." />
-        <Input label="Confirm new password" required value={confirm} onChangeText={setConfirm} secureTextEntry textContentType="newPassword" error={mismatch ? "The two new passwords do not match." : null} onSubmitEditing={() => action.run()} />
+        <Input label="Current password" required value={current} onChangeText={setCurrent} secureTextEntry={!visible.current} endAdornment={eye("current", "current password")} autoCapitalize="none" autoCorrect={false} textContentType="password" hint={mustChangePassword ? "Use the initial password from your administrator." : "The password you signed in with."} />
+        <Input label="New password" required value={next} onChangeText={setNext} secureTextEntry={!visible.next} endAdornment={eye("next", "new password")} autoCapitalize="none" autoCorrect={false} textContentType="newPassword" hint="At least ten characters, not entirely numbers, not too similar to your email, and different from the current one." />
+        <Input label="Confirm new password" required value={confirm} onChangeText={setConfirm} secureTextEntry={!visible.confirm} endAdornment={eye("confirm", "confirm new password")} autoCapitalize="none" autoCorrect={false} textContentType="newPassword" error={mismatch ? "The two new passwords do not match." : null} onSubmitEditing={() => action.run()} />
         <ErrorBanner message={action.error} />
         <FormFooter note={mustChangePassword ? "You can use LocalMind once this is done." : "You stay signed in on this device."}>
           {mustChangePassword ? <Button title="Sign out instead" variant="secondary" onPress={() => logout()} /> : null}

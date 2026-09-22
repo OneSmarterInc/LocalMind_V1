@@ -17,7 +17,7 @@ export default function StudentSubject() {
   const reload = () => { docs.reload(); an.reload(); subj.reload(); };
   return (
     <Screen refreshing={docs.loading} onRefresh={reload}>
-      <PageHeading eyebrow="MY SUBJECTS" title={an.data?.subject.name ?? subj.data?.name ?? "Subject"} subtitle={[subj.data?.code ?? an.data?.subject.code, subj.data?.faculty_names?.join(", ")].filter(Boolean).join(" · ")}
+      <PageHeading eyebrow="MY SUBJECTS" title={an.data?.subject.name ?? subj.data?.name ?? "Subject"} subtitle={[subj.data?.code ?? an.data?.subject.code, subj.data ? `Faculty: ${subj.data.faculty_names?.join(", ") || "Not assigned yet"}` : null].filter(Boolean).join(" · ")}
         right={subj.data ? <Badge value={subj.data.status === "active" ? "Enrolled" : subj.data.status} tone={subj.data.status === "active" ? "green" : "neutral"} /> : null} />
       <ErrorBanner message={docs.error || an.error} onRetry={reload} />
       <StatRow>

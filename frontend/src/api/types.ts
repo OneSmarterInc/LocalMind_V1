@@ -89,6 +89,10 @@ export interface OutlineModule {
   /** The module's automatic quiz: ready, checking (waiting for the AI monitor), held (flagged; needs review), pending,
    * generating, failed, dismissed (deleted by faculty), short (module too short), none or off. */
   quiz_status?: string; auto_quiz_id?: string | null;
+  /** Newest non-automatic quiz on this module (for example one synchronized from a faculty device), and who made it. */
+  shared_quiz_id?: string | null; shared_quiz_status?: string | null; shared_quiz_by?: string | null;
+  /** Who last synchronized this module's lesson from a device, when known. */
+  lesson_synced_by?: string | null;
 }
 export interface OutlineChapter { id?: string; title: string; order: number; source_heading_index?: number | null; modules: OutlineModule[] }
 export interface Outline { outline_quality?: Document["outline_quality"]; document_id: string; status: DocumentStatus; content_version: number; headings: Heading[]; outline_source?: string; document_title: string; chapters: OutlineChapter[] }

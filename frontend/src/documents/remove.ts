@@ -1,3 +1,4 @@
+import {device} from '@/private/device';
 import {LocalAuthoring} from '@/authoring/local';
 import {Library} from '@/private/library';
 import {generationJobs} from '@/private/jobs';
@@ -37,4 +38,22 @@ export async function archiveBook(id:string,owner:string){
  await stopBookWork(id,owner);
  await manage.transition(id,'archive');
  await new LocalAuthoring(owner).markRemoved(id);
+}
+
+export async function clearRemovedBook(id:string,owner:string){
+ const service=new LocalAuthoring(owner);service.library.guard();
+ const store=await device(), key=service.library.prefix+'removed:'+id;
+ if(!await store.get(key))return;
+ // Cached offline lists may predate an archive. Only a fresh response may
+ // restore generation after a change made on another device.
+ const document=await manage.document(id,false);service.library.guard();
+ if(document.status==='archived')return;
+ await store.removePrefix(key);
+ service.library.guard();
+}
+export async function unarchiveBook(id:string,owner:string){
+ const service=new LocalAuthoring(owner);service.library.guard();
+ await manage.unarchiveDocument(id);service.library.guard();
+ await(await device()).removePrefix(service.library.prefix+'removed:'+id);
+ service.library.guard();
 }

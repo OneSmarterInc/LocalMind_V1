@@ -2,6 +2,7 @@ import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex } from '@noble/hashes/utils';
 import { MAX_BOOK_BYTES, makeReadingSections, requireThat } from './core';
 import { MODEL, MAX_MODEL_BYTES, CONTEXT_TOKENS } from './modelSpec';
+import { exceedsContext, CONTEXT_OVERFLOW_MESSAGE } from './promptBudget';
 import { PARSER_ASSET } from './generated/parserAsset';
 import { loadAccelerated, accelerationLabel, type Acceleration } from './acceleration';
 import { inferenceThreads } from './performance';
@@ -54,16 +55,36 @@ async function files() {
   requireThat(window.isSecureContext && navigator.storage?.getDirectory,'Local AI needs HTTPS or localhost and a browser supporting device file storage.');
   const root=await navigator.storage.getDirectory(); return root.getDirectoryHandle('localmind-ai',{create:true});
 }
+/** Optional model folder chosen by the user (File System Access API, Chrome and
+ * Edge on desktop). The handle is kept in IndexedDB; the browser stores it
+ * with its permission. Without a folder, the browser's private storage is used. */
+const FOLDER_KEY='@model-folder-v1';
+type Permission='granted'|'denied'|'prompt';
+type FolderHandle=FileSystemDirectoryHandle&{queryPermission?(o:{mode:'readwrite'}):Promise<Permission>;requestPermission?(o:{mode:'readwrite'}):Promise<Permission>};
+type Picker=(o:{id?:string;mode?:'readwrite';startIn?:string})=>Promise<FolderHandle>;
+const canChooseFolder=()=>typeof window!=='undefined'&&typeof (window as unknown as {showDirectoryPicker?:Picker}).showDirectoryPicker==='function';
+async function permission(h:FolderHandle):Promise<Permission>{return h.queryPermission?await h.queryPermission({mode:'readwrite'}):'granted';}
+class FolderAccessNeeded extends Error{constructor(){super('Allow access to your model folder in Offline AI, or switch back to browser storage.');}}
+async function modelFolder():Promise<FolderHandle|undefined>{return store.get<FolderHandle>(FOLDER_KEY);}
+/** The directory holding (or about to hold) the model for ``location``. */
+async function dirFor(location?:'browser'|'folder'):Promise<FileSystemDirectoryHandle>{
+  if(location!=='folder')return files();
+  const h=await modelFolder();if(!h||await permission(h)!=='granted')throw new FolderAccessNeeded();return h;
+}
+/** New installs go wherever the user last chose. */
+async function target():Promise<{dir:FileSystemDirectoryHandle;location:'browser'|'folder'}>{
+  return (await modelFolder())?{dir:await dirFor('folder'),location:'folder'}:{dir:await files(),location:'browser'};
+}
 async function fileOf(f:LocalFile):Promise<File> {
   requireThat(f.file,'Choose a file from this device. Remote book URLs cannot be used for private parsing.');
   requireThat(f.file.size>0 && f.file.size<=MAX_BOOK_BYTES,'Choose a nonempty book up to 100 MB.');return f.file;
 }
-type Installed={file:string;name:string;bytes:number;hash:string};
+type Installed={file:string;name:string;bytes:number;hash:string;location?:'browser'|'folder'};
 let engine:Engine|undefined, loaded:string|undefined;
 const lock=new Exclusive();
 async function close() { if(engine) {const e=engine;engine=undefined;loaded=undefined;await e.exit();} }
 async function install(stream:ReadableStream<Uint8Array>,name:string,progress:(n:number)=>void,signal?:AbortSignal,expected?:{bytes:number;sha256:string}) {
-  const folder=await files(); const temp=`model-${crypto.randomUUID()}.gguf`;
+  const {dir:folder,location}=await target(); const temp=`model-${crypto.randomUUID()}.gguf`;
   const out=await (await folder.getFileHandle(temp,{create:true})).createWritable();
   const reader=stream.getReader(),hash=sha256.create();let size=0,head:number[]=[];
   const abort=()=>{void reader.cancel().catch(()=>{});};signal?.addEventListener('abort',abort,{once:true});
@@ -79,15 +100,22 @@ async function install(stream:ReadableStream<Uint8Array>,name:string,progress:(n
     if(expected) requireThat(size===expected.bytes && digest===expected.sha256,'Model download did not pass the size/checksum check. Previous model retained.');
     cancelled(signal);await out.close();
     const old=await store.get<Installed>(MODEL_KEY);await close();
-    await store.put(MODEL_KEY,{file:temp,name,bytes:size,hash:digest});
-    if(old?.file) await folder.removeEntry(old.file).catch(()=>{});
+    // In a user-visible folder, give the file its real name when the browser
+    // can rename (FileSystemHandle.move); otherwise keep the unique temp name.
+    let file=temp;
+    if(location==='folder'&&old?.file!==name){
+      const handle=await folder.getFileHandle(temp) as FileSystemFileHandle&{move?(name:string):Promise<void>};
+      if(handle.move)try{await folder.removeEntry(name).catch(()=>{});await handle.move(name);file=name;}catch{/* keep temp name */}
+    }
+    await store.put(MODEL_KEY,{file,name,bytes:size,hash:digest,location});
+    if(old?.file&&!(old.file===file&&(old.location||'browser')===location)) await (await dirFor(old.location).catch(()=>undefined))?.removeEntry(old.file).catch(()=>{});
     progress(1);
   } catch(e) { await reader.cancel().catch(()=>{}); await out.abort().catch(()=>{});await folder.removeEntry(temp).catch(()=>{});throw e; }
   finally {signal?.removeEventListener('abort',abort);reader.releaseLock();}
 }
 async function download(progress:(n:number)=>void,signal?:AbortSignal){
  const run=()=>lock.run(async()=>{
-  cancelled(signal);const folder=await files(),partialName=`download-${MODEL.sha256}`;
+  cancelled(signal);const folder=(await target()).dir,partialName=`download-${MODEL.sha256}`;
   const partial=await folder.getDirectoryHandle(partialName,{create:true});
   try{
    try{
@@ -122,7 +150,7 @@ async function complete(req:Completion) {
     req.progress?.("Loading the model on this device…");
     await close(); await script('/private-assets/runtime-loader.js');
     requireThat(window.__LM_WLLAMA__,'The browser AI runtime could not be loaded.');
-    const blob=await (await (await files()).getFileHandle(info.file)).getFile();
+    const blob=await (await (await dirFor(info.location)).getFileHandle(info.file)).getFile();
     activeThreads=inferenceThreads(globalThis.crossOriginIsolated,typeof SharedArrayBuffer!=='undefined',navigator.hardwareConcurrency);
     const result=await loadAccelerated({
       signal:req.signal,gpuAvailable:'gpu' in navigator,progress:req.progress,
@@ -135,6 +163,9 @@ async function complete(req:Completion) {
     if(engine.isMultithread?.()===false)activeThreads=1;
   }
   cancelled(req.signal);
+  // The native runtime tokenizes and rejects oversize prompts; wllama aborts
+  // in WebAssembly instead, leaving a dead engine. Reject before calling it.
+  requireThat(!exceedsContext(req.system,req.prompt,req.maxTokens),CONTEXT_OVERFLOW_MESSAGE);
   const abort=new AbortController();const cancel=()=>abort.abort();req.signal.addEventListener('abort',cancel);
   const started=Date.now();
   const report=()=>req.progress?.(`Generating with ${accelerationLabel(acceleration,activeThreads)} · ${Math.floor((Date.now()-started)/1000)}s`);
@@ -151,10 +182,19 @@ async function complete(req:Completion) {
     console.info('[LocalMind AI]',{runtime:'browser',...acceleration,elapsedMs:Date.now()-started,threads:activeThreads,outputCharacters:choice.message.content.length});
     return restored;
   } catch(e) {
+    // A runtime failure (not a cancel, timeout or invalid output) can leave the
+    // WebAssembly instance unusable. Drop it so the next call reloads the model.
+    if(!abort.signal.aborted&&!req.signal.aborted&&!(e instanceof SyntaxError)&&!/incomplete/i.test(e instanceof Error?e.message:String(e)))await close().catch(()=>{});
     if(abort.signal.aborted&&!req.signal.aborted)throw new Error('Local AI timed out. No incomplete response was saved. Completed lesson parts and quiz questions are retained; generate again to resume.');
     throw e;
   } finally {clearInterval(ticker);clearTimeout(timer);req.signal.removeEventListener('abort',cancel);}
  },req.signal);
+}
+async function storage(){
+  const h=await modelFolder(),estimate=await navigator.storage?.estimate?.().catch(()=>undefined);
+  const persistent=await navigator.storage?.persisted?.().catch(()=>undefined);
+  const needsPermission=h?await permission(h).then(p=>p!=='granted').catch(()=>true):false;
+  return {location:h?'folder' as const:'browser' as const,folderName:h?.name,needsPermission,canChooseFolder:canChooseFolder(),persistent,usedBytes:estimate?.usage,quotaBytes:estimate?.quota};
 }
 const implementation:Device={...store, complete,
  async parse(f, signal, progress, saveVisual) {
@@ -171,10 +211,45 @@ const implementation:Device={...store, complete,
   const file=new File(parts,name);return {name,uri:'device-selected',file,size:file.size};
  },
  async releaseFile(){/* A browser File is released by garbage collection. */},
- async status(){const m=await store.get<Installed>(MODEL_KEY);if(!m)return {installed:false};try {const f=await (await (await files()).getFileHandle(m.file)).getFile();return {installed:f.size===m.bytes,name:m.name,bytes:m.bytes,hash:m.hash,threads:activeThreads,...(loaded===m.file?acceleration:{}),loaded:loaded===m.file};}catch{return {installed:false};}},
+ async status(){const m=await store.get<Installed>(MODEL_KEY);if(!m)return {installed:false};const location=m.location||'browser';try {const f=await (await (await dirFor(m.location)).getFileHandle(m.file)).getFile();return {installed:f.size===m.bytes,location,name:m.name,bytes:m.bytes,hash:m.hash,threads:activeThreads,...(loaded===m.file?acceleration:{}),loaded:loaded===m.file};}catch(e){return {installed:false,location,needsPermission:e instanceof FolderAccessNeeded};}},
  download,
  importModel:(f,progress,signal)=>lock.run(async()=>{requireThat(f.file && /\.gguf$/i.test(f.name),'Choose a .gguf file');requireThat(f.file.size<=MAX_MODEL_BYTES,'Choose a GGUF under 1.8 GB.');await install(f.file.stream(),f.name,progress,signal);}),
- removeModel:()=>lock.run(async()=>{const m=await store.get<Installed>(MODEL_KEY);await close();await store.removePrefix(MODEL_KEY);if(m)await(await files()).removeEntry(m.file).catch(()=>{});}),
+ removeModel:()=>lock.run(async()=>{const m=await store.get<Installed>(MODEL_KEY);await close();await store.removePrefix(MODEL_KEY);if(m)await(await dirFor(m.location).catch(()=>undefined))?.removeEntry(m.file).catch(()=>{});}),
+ storage,
+ async chooseModelFolder(progress,signal){
+  requireThat(canChooseFolder(),'This browser cannot save to a folder you choose. Chrome or Edge on a computer can; other browsers keep the model in their private storage.');
+  // Must run straight from the click: the picker needs the user's gesture.
+  const picker=(window as unknown as {showDirectoryPicker:Picker}).showDirectoryPicker;
+  const h=await picker({id:'localmind-model',mode:'readwrite',startIn:'documents'});
+  requireThat(await (h.requestPermission?h.requestPermission({mode:'readwrite'}):Promise.resolve('granted'))==='granted','Folder access was not allowed. The model stays in browser storage.');
+  await lock.run(async()=>{
+   const old=await store.get<Installed>(MODEL_KEY),previous=await modelFolder();
+   if(old){
+    // Copy with the same size/checksum verification as a download, then keep
+    // the new folder. The previous copy is removed only after success, and a
+    // failure restores the previous location exactly.
+    const source=await (await (await dirFor(old.location)).getFileHandle(old.file)).getFile();
+    await store.put(FOLDER_KEY,h);
+    try{await install(source.stream(),old.name,progress,signal,{bytes:old.bytes,sha256:old.hash});}
+    catch(e){if(previous)await store.put(FOLDER_KEY,previous);else await store.removePrefix(FOLDER_KEY);throw e;}
+   }else await store.put(FOLDER_KEY,h);
+  });
+  return storage();
+ },
+ async grantModelFolder(){const h=await modelFolder();if(!h)return false;return (await (h.requestPermission?h.requestPermission({mode:'readwrite'}):Promise.resolve('granted')))==='granted';},
+ async useBrowserStorage(progress,signal){
+  await lock.run(async()=>{
+   const old=await store.get<Installed>(MODEL_KEY),h=await modelFolder();
+   if(old?.location==='folder'&&h){
+    const source=await (await (await dirFor('folder')).getFileHandle(old.file)).getFile();
+    await store.removePrefix(FOLDER_KEY);
+    try{await install(source.stream(),old.name,progress,signal,{bytes:old.bytes,sha256:old.hash});}
+    catch(e){await store.put(FOLDER_KEY,h);throw e;}
+    await h.removeEntry(old.file).catch(()=>{});
+   }else await store.removePrefix(FOLDER_KEY);
+  });
+  return storage();
+ },
  async prepareOffline(){
    requireThat(window.isSecureContext && 'serviceWorker' in navigator,'Use HTTPS or localhost to install offline application files.');
    await navigator.storage.persist?.();

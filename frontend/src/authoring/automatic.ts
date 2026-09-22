@@ -53,7 +53,7 @@ export async function prepareAutomatically(service:LocalAuthoring,doc:Document){
  for(const m of modules){
   const previous=states[m.id!];
   const lessonShared=m.lesson_status==='ready';
-  const quizShared=['ready','held','checking','dismissed'].includes(m.quiz_status||'');
+  const quizShared=['ready','held','checking','dismissed'].includes(m.quiz_status||'')||!!m.shared_quiz_id;
   // 'Generating' left over from a previous run means that run was interrupted
   // (tab closed, app reloaded) — nothing is generating now. Reset it to
   // 'Queued' so it is picked up again, rather than stranding the module in a

@@ -1,3 +1,4 @@
+import {ApiError} from "@/api/client";
 import {generationJobs} from '@/private/jobs';
 import { useBackTo } from "@/hooks/useBackTo";
 import {jobScope} from '@/private/useGenerationJobs';
@@ -19,7 +20,7 @@ import { useTabParam } from "@/hooks/useTabParam";
 import { useDraft } from "@/hooks/useDraft";
 import {
   Badge, Button, Card, CardHead, CellText, Column, DangerZone, DetailList, Dropdown, Empty, ErrorBanner, FormFooter, Grid, Input, Loading,
-  Notice, OptionCard, PageHeading, PageTabs, Screen, Split, StepList, Table, TableToolbar, TextLink, Tone, colors, confirmAsync, confirmDeleteAsync, fmtSeconds, pct,
+  Notice, OptionCard, PageHeading, PageTabs, Screen, Split, StepList, Table, TableToolbar, TextLink, Tone, colors, alertAsync, confirmAsync, confirmDeleteAsync, fmtSeconds, pct,
 RequestFailed, } from "@/ui";
 import { DateTimeField } from "@/ui/DateTimeField";
 import { ResultsRelease, type ReleaseMode } from "@/ui/ResultsRelease";
@@ -272,10 +273,21 @@ export function QuizDetailPage({ id, note }: { id: string; note?: string }) {
     } else if (sent.id === id) await q.reload();
     return true;
   });
+  const publishStatus = async (status: string) => {
+    try { await manage.quizStatus(id, status); return true; }
+    catch (error) {
+      if (error instanceof ApiError && ["BOOK_NOT_PUBLISHED", "MODULE_LOCKED_FOR_QUIZ"].includes(error.code)) {
+        const names = error.details?.modules;
+        await alertAsync(error.message, Array.isArray(names) ? names.join("\n") : "");
+        return false;
+      }
+      throw error;
+    }
+  };
   const setStatus = useAction(async (s: string) => {
     if (s === "closed" && !(await confirmAsync("Close this quiz?", "Students can no longer start new attempts. Existing attempts and results are kept.", "Close quiz", "Cancel", { tone: "warning" }))) return;
-    if (s === "published" && !(await confirmAsync("Publish this quiz?", "Enrolled students can take it once its module is open.", "Publish quiz", "Cancel"))) return;
-    await manage.quizStatus(id, s); await q.reload();
+    if (s === "published" && !(await confirmAsync("Publish this quiz?", "Students can take it immediately.", "Publish quiz", "Cancel"))) return;
+    if (await publishStatus(s)) await q.reload();
   });
   const review = useAction(async (action: "false_positive" | "confirm", reviewNote: string) => {
     if (!q.data?.hold_incident_id) return;
@@ -286,10 +298,9 @@ export function QuizDetailPage({ id, note }: { id: string; note?: string }) {
   // confirmed, and publishing the corrected quiz clears the hold.
   const publishHeld = useAction(async () => {
     if (!q.data) return;
-    if (!(await confirmAsync("Publish the corrected quiz?", "The monitor’s finding is recorded as confirmed, and your corrected questions become available to students when the module is open.", "Publish corrected quiz", "Cancel"))) return;
+    if (!(await confirmAsync("Publish the corrected quiz?", "The monitor’s finding is recorded as confirmed, and your corrected questions become available to students immediately.", "Publish corrected quiz", "Cancel"))) return;
     if (q.data.hold_incident_id) await manage.reviewIncident(q.data.hold_incident_id, "confirm", "Corrected by faculty and published from the quiz screen.");
-    await manage.quizStatus(id, "published");
-    await q.reload();
+    if (await publishStatus("published")) await q.reload();
   });
   const release = useAction(async (attemptId?: string) => {
     const d = q.data; if (!d) return;

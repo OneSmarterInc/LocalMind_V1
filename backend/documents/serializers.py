@@ -9,12 +9,47 @@ class ModuleSerializer(serializers.ModelSerializer):
     lesson_status = serializers.SerializerMethodField()
     quiz_status = serializers.SerializerMethodField()
     auto_quiz_id = serializers.SerializerMethodField()
+    shared_quiz_id = serializers.SerializerMethodField()
+    shared_quiz_status = serializers.SerializerMethodField()
+    shared_quiz_by = serializers.SerializerMethodField()
+    lesson_synced_by = serializers.SerializerMethodField()
 
     class Meta:
         model = Module
         fields = ["id", "chapter_id", "title", "order", "source_heading_index", "source_text", "source_missing",
                   "start_page", "end_page", "is_user_edited", "availability", "opened_at", "lesson_status",
-                  "quiz_status", "auto_quiz_id", "created_at", "updated_at"]
+                  "quiz_status", "auto_quiz_id", "shared_quiz_id", "shared_quiz_status", "shared_quiz_by",
+                  "lesson_synced_by", "created_at", "updated_at"]
+
+    def _shared(self, module):
+        """Institution quizzes and lesson authors for the module's whole book,
+        fetched once and cached on the root serializer's context, so a book
+        costs a fixed four extra queries however many chapters it has."""
+        from .shared_status import for_document
+        cache = self.context.setdefault("_shared_status", {"chapters": {}, "books": {}}) if isinstance(self.context, dict) else {"chapters": {}, "books": {}}
+        book = cache["chapters"].get(module.chapter_id)
+        if book is None:
+            book = Chapter.objects.filter(pk=module.chapter_id).values_list("document_id", flat=True).first()
+            for chapter_id in Chapter.objects.filter(document_id=book).values_list("pk", flat=True):
+                cache["chapters"][chapter_id] = book
+        if book not in cache["books"]:
+            cache["books"][book] = for_document(book)
+        return cache["books"][book]
+
+    def get_shared_quiz_id(self, module) -> str | None:
+        quiz = self._shared(module)[0].get(str(module.pk))
+        return quiz["id"] if quiz else None
+
+    def get_shared_quiz_status(self, module) -> str | None:
+        quiz = self._shared(module)[0].get(str(module.pk))
+        return quiz["status"] if quiz else None
+
+    def get_shared_quiz_by(self, module) -> str | None:
+        quiz = self._shared(module)[0].get(str(module.pk))
+        return quiz["by"] if quiz else None
+
+    def get_lesson_synced_by(self, module) -> str | None:
+        return self._shared(module)[1].get(str(module.pk))
 
     def get_lesson_status(self, module) -> str:
         """ready | pending | generating | failed | none (the module has no text)."""
@@ -28,7 +63,7 @@ class ModuleSerializer(serializers.ModelSerializer):
         from assessments.services import auto_quiz
         return auto_quiz.state_for(module, getattr(module, "auto_quiz_job", None))
 
-    def get_auto_quiz_id(self, module):
+    def get_auto_quiz_id(self, module) -> str | None:
         job = getattr(module, "auto_quiz_job", None)
         return str(job.assessment_id) if job and job.assessment_id else None
 
@@ -114,7 +149,7 @@ class DocumentDetailSerializer(DocumentSerializer):
         job = Job.objects.filter(kind="document_parse", target=str(doc.id)).order_by("-created_at").first()
         return {"id": str(job.id), "status": job.status, "attempts": job.attempts, "error": job.error} if job else None
 
-    def get_missing_source_modules(self, doc):
+    def get_missing_source_modules(self, doc) -> list[str]:
         """Modules kept without text only because student work refers to them;
         they are hidden from students. Every other empty module is removed."""
         return [str(m.id) for m in Module.objects.filter(chapter__document=doc, source_missing=True)]

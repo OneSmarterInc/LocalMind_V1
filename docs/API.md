@@ -121,3 +121,32 @@ Administrator logs in, changes password, creates a subject, creates a faculty ac
 ## AI Monitoring & Guard
 
 Administrators review the independent evaluations of tutor answers and generated quizzes under `/api/admin/monitor/` (overview, trends, subjects, user impact, incidents with review and assignment, evaluations with feedback and re-evaluation, on-demand evaluation, backlog, policies). Faculty get a read-and-label subset under `/api/faculty/monitor/`, scoped to their subjects and to academic-content issue types. The full endpoint table and the decision logic are in `docs/AI_MONITORING.md`. Review actions use the codes `INVALID_ACTION` (unknown action) and `ACTION_NOT_ALLOWED` (faculty attempting close/escalate/reopen); `NOT_AN_AI_RESPONSE` is returned when a user message is submitted for evaluation and `INVALID_KIND` when `kind` is not `tutor_answer` or `quiz`.
+
+## Publishing prerequisites and unarchive (Developer A)
+
+Manual quiz publication checks all source books before changing quiz state.
+An unpublished source returns `409 BOOK_NOT_PUBLISHED` with the message
+`This book is not published yet.`. Module quizzes require their module open;
+chapter quizzes require at least one open module; selection quizzes require every
+source module open. Otherwise publication returns `409 MODULE_LOCKED_FOR_QUIZ`,
+with locked titles in `error.details.modules`. Quiz publication no longer opens
+modules. Subject-only records without source books are unaffected.
+
+`POST /api/faculty/documents/{id}/unarchive/` (also under `/api/admin/`) returns the
+existing document-detail shape. Normal management access and an archived book are
+required; other states return `409 INVALID_STATE`. The book becomes `unpublished`,
+`archived_at` is cleared, and `document.unarchived` is audited. Modules, availability,
+saved lessons and quizzes remain intact. Republishing is an explicit later action.
+
+The existing admin subject status endpoint accepts archived-to-active and records
+`subject.unarchived`; archived-to-discontinued remains forbidden. Faculty subject
+listings include only active assignments to active/discontinued subjects.
+
+Device removal flags are cleared only after successful unarchive or a fresh,
+non-cached response confirming restoration. Offline cached lists cannot re-enable
+archived books. Run `node tests/unarchive-device.mjs` alongside the standard gates.
+
+Integration: A and B are combined, including the archived-detail page Unarchive
+button in `app/manage/document/[id].tsx` and regenerated `backend/openapi.yaml`.
+No migrations are required. The subject status test intentionally permits
+archived-to-active; its archived-to-discontinued restriction is retained.
