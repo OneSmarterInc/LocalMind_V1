@@ -9,7 +9,9 @@ import { Screen, Card, PageHeading, H2, P, Row, Button, ErrorBanner, Notice, Pro
 import { device } from '../device';
 import { useAuth } from '@/auth/AuthContext';
 import { MODEL } from '../modelSpec';
-import type { ModelStatus } from '../device.types';
+import type { ModelStatus, ModelStorage } from '../device.types';
+
+const gb=(n?:number)=>n===undefined?'unknown':`${(n/1024**3).toFixed(n<1024**3?2:1)} GB`;
 
 export default function OfflineAI() {
   const router = useRouter();
@@ -17,15 +19,17 @@ export default function OfflineAI() {
   const contentSync=useSyncState();
   const {user}=useAuth();const student=user?.role==='student';
   const [status, setStatus] = useState<ModelStatus | null>(null);
+  const [storage, setStorage] = useState<ModelStorage | null>(null);
+  const refreshStorage = async () => { const d = await device(); const s = d.storage ? await d.storage().catch(() => null) : null; if (alive.current) setStorage(s); };
   const [busy, setBusy] = useState(false), [progress, setProgress] = useState(0);
   const [error, setError] = useState(''), [notice, setNotice] = useState('');
   const controller = useRef<AbortController | null>(null), alive = useRef(true), locked = useRef(false);
-  useEffect(() => { alive.current = true; void device().then(d => d.status()).then(s => { if (alive.current) setStatus(s); }).catch(e => { if (alive.current) setError(String(e.message || e)); }); return () => { alive.current = false; controller.current?.abort(); }; }, []);
+  useEffect(() => { alive.current = true; void device().then(d => d.status()).then(s => { if (alive.current) setStatus(s); }).catch(e => { if (alive.current) setError(String(e.message || e)); }); void refreshStorage(); return () => { alive.current = false; controller.current?.abort(); }; }, []);
   const run = async (fn: (signal: AbortSignal) => Promise<void>) => {
     if (locked.current) return;
     locked.current = true; setBusy(true); setProgress(0); setError(''); setNotice('');
     const abort = new AbortController(); controller.current = abort;
-    try { await fn(abort.signal); const s = await (await device()).status(); if (alive.current) setStatus(s); }
+    try { await fn(abort.signal); const s = await (await device()).status(); if (alive.current) setStatus(s); await refreshStorage(); }
     catch (e) { if (alive.current) setError(e instanceof Error ? e.message : String(e)); }
     finally { locked.current = false; controller.current = null; if (alive.current) setBusy(false); }
   };
@@ -60,6 +64,18 @@ export default function OfflineAI() {
       {busy && <><ProgressBar value={progress} /><P>{progress > 0 ? `${progress}% — downloading or verifying` : 'Preparing…'}</P><Button title="Cancel download" variant="secondary" onPress={() => controller.current?.abort()} /></>}
       {status?.installed && <Button title="Remove model only" variant="secondary" disabled={busy} onPress={() => { void run(async () => { if (await confirmAsync('Remove this local model?', 'Books, lessons and quizzes will remain. New AI work will require importing or downloading a model again.', 'Remove model', 'Keep model')) { await (await device()).removeModel(); if (alive.current) setNotice('Model removed. Your saved study material is unchanged.'); } }); }} />}
     </Card>
+    {storage ? <Card>
+      <Row><H2>Where the model is stored</H2><Badge value={storage.location === 'folder' ? 'Your folder' : storage.location === 'app' ? 'App storage' : 'Browser storage'} tone={storage.needsPermission ? 'amber' : 'green'} /></Row>
+      {storage.location === 'app' ? <P>{`On this device, in the app's own folder: ${storage.path}`}</P> : null}
+      {storage.location === 'folder' ? <P>{`In the folder you chose on this computer: ${storage.folderName}. You can see the .gguf file in File Explorer or Finder.`}</P> : null}
+      {storage.location === 'browser' ? <P>{"On this computer's disk, inside this browser's private storage. It is not visible in File Explorer, and clearing this site's data in the browser deletes it."}</P> : null}
+      {storage.location !== 'app' ? <P muted>{`Browser storage used by LocalMind: ${gb(storage.usedBytes)} of ${gb(storage.quotaBytes)} available. ${storage.persistent ? 'Protected from automatic clean-up.' : 'Not yet protected from automatic clean-up; select “Check and save offline app files” below to request it.'}`}</P> : null}
+      {storage.needsPermission ? <Notice tone="warning" title="Folder access needed" message="The browser needs your permission again to read the model folder." action={<Button title="Allow folder access" small disabled={busy} onPress={() => { void run(async () => { const ok = await (await device()).grantModelFolder?.(); if (alive.current) setNotice(ok ? 'Folder access allowed. The model is ready.' : 'Access was not allowed. Allow it, or switch back to browser storage.'); }); }} />} /> : null}
+      {storage.canChooseFolder ? <Row>
+        <Button title={storage.location === 'folder' ? 'Choose a different folder' : 'Save model to a folder on this computer'} icon="folder-outline" variant="secondary" disabled={busy} onPress={() => { void run(async signal => { const s = await (await device()).chooseModelFolder!(report, signal); if (alive.current) setNotice(`Model storage set to your folder “${s.folderName}”.${status?.installed ? ' The model was copied and verified.' : ' Downloads and imports will be saved there.'}`); }); }} />
+        {storage.location === 'folder' ? <Button title="Use browser storage instead" variant="secondary" disabled={busy} onPress={() => { void run(async signal => { if (!(await confirmAsync('Move the model into browser storage?', 'The model is copied and verified, then removed from your folder.', 'Move model', 'Cancel'))) return; await (await device()).useBrowserStorage!(report, signal); if (alive.current) setNotice('The model is now in browser storage.'); }); }} /> : null}
+      </Row> : storage.location === 'browser' ? <P muted>Saving to a folder you choose needs Chrome or Edge on a computer. This browser keeps the model in its private storage.</P> : null}
+    </Card> : null}
     <Card><H2>Content on this device</H2>
       <P>{contentSync.running ? 'Saving content for offline use…' : contentSync.lastSync ? 'Your content copy is saved on this device.' : 'Preparing your first content copy. Keep LocalMind connected until this finishes.'}</P>
       {contentSync.lastSync && <P muted>Last saved: {new Date(contentSync.lastSync).toLocaleString()}</P>}

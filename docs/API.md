@@ -146,8 +146,7 @@ Device removal flags are cleared only after successful unarchive or a fresh,
 non-cached response confirming restoration. Offline cached lists cannot re-enable
 archived books. Run `node tests/unarchive-device.mjs` alongside the standard gates.
 
-Integration: merge A before B. Add the archived-detail page button in
-`app/manage/document/[id].tsx` and regenerate `backend/openapi.yaml` after both
-tracks merge. No migrations are required. The existing subject status test also
-needs an intentional update: its rejection of archived-to-active contradicts the
-new unarchive requirement. Its archived-to-discontinued restriction is retained.
+Integration: A and B are combined, including the archived-detail page Unarchive
+button in `app/manage/document/[id].tsx` and regenerated `backend/openapi.yaml`.
+No migrations are required. The subject status test intentionally permits
+archived-to-active; its archived-to-discontinued restriction is retained.

@@ -6,6 +6,7 @@ import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils';
 import { BASE_URL, currentSession, SessionChangedError } from '@/api/client';
 import { device } from './device';
 import { cancelled } from './busy';
+import { avoidList } from './promptBudget';
 import type { LocalFile } from './device.types';
 import { MAX_READING_CHARS, MAX_SECTION_CHARS, ANSWER_SCHEMA, groundedSchema, GROUNDING, COMPACT_LESSON_SCHEMA, COMPACT_MCQ_SCHEMA, compactMcqBatchSchema, markQuiz, requireThat, bookReference, pageSource, lessonPassages, text, validateAnswer, validateBook, validateLesson, validateMCQ, type PrivateBook, type Lesson, type MCQ, type SourceVisual } from './core';
 export type QuizVersion = { id: string; bookId: string; sectionId: string; createdAt: string; requestedCount?: number; questions: MCQ[] };
@@ -148,7 +149,7 @@ export class Library {
       const source=fresh[cursor++%fresh.length];
       visits.set(source,(visits.get(source)||0)+1);
       const wanted=singleOnly?1:Math.min(3,count-questions.length);
-      const avoid=[...excluded,...questions.map(q=>q.question)].map(q=>q.slice(0,160)).join('\n');
+      const avoid=avoidList([...excluded,...questions.map(q=>q.question)]);
       let raw:unknown;
       try {
         detail?.(`Quiz ${questions.length}/${count} · ${wanted===1?'one question':'one local AI batch'} (attempt ${attempt+1}/${budget})`);

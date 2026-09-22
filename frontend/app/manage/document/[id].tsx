@@ -1,9 +1,10 @@
-import { removeBook, archiveBook } from "@/documents/remove";
+import { removeBook, archiveBook, unarchiveBook } from "@/documents/remove";
 import { useBackTo } from "@/hooks/useBackTo";
 import {prepareAutomatically,preparation,type PreparationMap} from '@/authoring/automatic';
 import {device} from '@/private/device';
 import {useAuth} from "@/auth/AuthContext";
-import {LocalAuthoring,draftStatus,isFrontMatter,type Draft} from "@/authoring/local";
+import {LocalAuthoring,draftStatus,isFrontMatter,syncedBy,type Draft} from "@/authoring/local";
+import {SyncAllButton} from "@/authoring/SyncAllButton";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -131,6 +132,11 @@ export default function DocumentScreen() {
     if (action === "publish") setTab("live");
     if (action === "unpublish") setTab("publish");
   });
+  const restore = useAction(async () => {
+    if (!owner || !(await confirmAsync("Unarchive this book?", "The book returns as unpublished. Its lessons, quizzes and student records are kept. Publish it separately when it is ready.", "Unarchive book", "Cancel"))) return;
+    await unarchiveBook(id, owner);
+    await doc.reload();
+  });
   const remove = useAction(async () => {
     if (!d) return;
     const ok = await confirmDeleteAsync("Delete this book?", "This permanently removes the book, its chapters and modules, and any quiz or assignment built from them, along with student attempts and submissions. It cannot be undone.", { detail: `${d.title} · ${d.original_name}`, okLabel: "Delete book" });
@@ -183,8 +189,8 @@ export default function DocumentScreen() {
     return (
       <Screen refreshing={doc.loading} onRefresh={doc.reload}>
         <PageHeading eyebrow="BOOKS & MODULES" title={`${d.title} is archived.`} subtitle={subtitle} right={<Row style={{ gap: 8, alignItems: "center" }}>{backToBooks}<Badge value="Archived" tone="neutral" /></Row>} />
-        <ErrorBanner message={doc.error ?? remove.error} onRetry={doc.error ? doc.reload : undefined} />
-        <Notice title="This book is read-only." message="Archived books are hidden from students and cannot be edited, processed or published again. Student records that refer to it are kept." />
+        <ErrorBanner message={doc.error ?? restore.error ?? remove.error} onRetry={doc.error ? doc.reload : undefined} />
+        <Notice title="This book is archived." message="Archived books are hidden from students. Unarchive it to resume editing; its content and student records are kept." action={<Button title="Unarchive book" busy={restore.busy} disabled={!owner} onPress={() => restore.run()} />} />
         <Grid min={320} gap={20}>
           <Card>
             <CardHead title="Book details" />
@@ -350,15 +356,21 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
     // never taught. Reporting them as Queued (and later Failed) made a healthy
     // book look broken, and counted them against the prepared total.
     if(isFrontMatter(m.title,m.source_text))return 'Front matter';
-    const saved=draftStatus(local(m.id!),kind);if(saved)return saved;
+    const saved=draftStatus(local(m.id!),kind);if(saved&&!saved.startsWith('Synchronized by'))return saved;
+    // The book detail is fresher than a device snapshot, so it decides who
+    // synchronized content this device never generated.
+    if(kind==='lesson'&&m.lesson_status==='ready')return syncedBy(m.lesson_synced_by);
+    // An automatic quiz waiting on review or the monitor needs attention first.
+    if(kind==='quiz'&&m.shared_quiz_id&&!['held','checking','failed_final'].includes(m.quiz_status||''))return syncedBy(m.shared_quiz_by);
+    if(saved)return saved;
     const shared=kind==='lesson'?m.lesson_status:m.quiz_status;
     if(shared&&['ready','held','checking','failed','failed_final','dismissed'].includes(shared))return (kind==='lesson'?LESSON_TEXT:QUIZ_TEXT)[shared];
     return automatic[m.id!]?.[kind]||(modelInstalled?'Waiting to prepare':'Model setup required');
   };
   const columns: Column<ModuleRow>[] = [
     { key: "m", label: "Module", flex: 2.2, render: (m) => <CellText title={m.title} sub={`Module ${m.number}`} /> },
-    { key: "l", label: "Lesson", flex: 0.8, render: (m) => <Badge value={status(m,"lesson")} tone={status(m,"lesson").startsWith("Ready")?"green":"neutral"} /> },
-    { key: "q", label: "Quiz", flex: 1, render: (m) => <Badge value={status(m,"quiz")} tone={status(m,"quiz").startsWith("Ready")?"green":m.quiz_status==="failed_final"?"red":"neutral"} /> },
+    { key: "l", label: "Lesson", flex: 0.8, render: (m) => <Badge value={status(m,"lesson")} tone={/^(Ready|Synchronized)/.test(status(m,"lesson"))?"green":"neutral"} /> },
+    { key: "q", label: "Quiz", flex: 1, render: (m) => <Badge value={status(m,"quiz")} tone={/^(Ready|Synchronized)/.test(status(m,"quiz"))?"green":m.quiz_status==="failed_final"?"red":"neutral"} /> },
     { key: "draft", label: "Saved work", flex: 1.1, render: (m) => {const d=local(m.id!);return <CellText title={d?.lesson?"Lesson draft saved":"No lesson draft"} sub={automatic[m.id!]?.error||(d?.questions?`${d.questions.length} quiz questions saved`:"No quiz draft")}/>;} },
     { key: "x", label: "", flex: 1.7, render: (m) => (
       <View style={{ flexDirection: "row", gap: 6 }}>
@@ -385,7 +397,7 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
   const teachable = modules.filter(teachableRows);
   const preparedLocally = teachable.filter((m) => {
     const st = lessonState(m);
-    return st === "Ready for review" || st === "Awaiting synchronization" || st === "Synchronized" || st === "Ready";
+    return st === "Ready for review" || st === "Awaiting synchronization" || st.startsWith("Synchronized") || st === "Ready";
   }).length;
   const syncedLessons = l?.ready ?? 0;
   const ready = Math.max(preparedLocally, syncedLessons);
@@ -403,6 +415,7 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
         <Button title="Prepare lessons" variant="secondary" icon="sparkles-outline" onPress={onQueueLessons} busy={lessonsBusy} disabled={!modules.length} />
         <Button title="Prepare quizzes" variant="secondary" icon="refresh" onPress={onQueueQuizzes} busy={quizzesBusy} disabled={!modules.length} />
       </View>
+      {owner ? <SyncAllButton owner={owner} scope={{ documentId: doc.id }} title="Synchronize all lessons and quizzes" onDone={() => { void service?.drafts().then(setDrafts).catch(() => {}); }} /> : null}
     </>
   );
 }
@@ -1208,4 +1221,3 @@ function ModuleSourceVisualsPanel({ moduleId }: { moduleId: string }) {
     </View>
   );
 }
-

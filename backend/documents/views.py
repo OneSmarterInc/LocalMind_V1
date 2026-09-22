@@ -5,6 +5,7 @@ from rest_framework.generics import ListAPIView
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from drf_spectacular.utils import extend_schema, extend_schema_view
 
 from academics.models import Subject
 from core.exceptions import APIError
@@ -68,6 +69,7 @@ def _detail(user, document_id):
 class DocumentDetailView(APIView):
     permission_classes = [IsAdminOrFaculty]
 
+    @extend_schema(responses=DocumentDetailSerializer)
     def get(self, request, document_id):
         return Response(DocumentDetailSerializer(_detail(request.user, document_id)).data)
 
@@ -115,6 +117,7 @@ class UnpublishView(_Transition):
     action = "unpublish"
 
 
+@extend_schema_view(post=extend_schema(request=None, responses=DocumentDetailSerializer))
 class UnarchiveView(_Transition):
     action = "unarchive"
 

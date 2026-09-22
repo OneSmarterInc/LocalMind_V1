@@ -101,6 +101,15 @@ function Authoring(){
  // this, Regenerate silently CONTINUED a run the reviewer had just cancelled.
  const partial=(kind:'lesson'|'quiz')=>draft?.run?.kind===kind||!!draft?.pausedRuns?.[kind];
  const generate=async(kind:'lesson'|'quiz')=>{
+  const local=kind==='lesson'?draft?.lesson:draft?.questions?.length;
+  const held=kind==='lesson'?draft?.snapshot.institution?.lesson:draft?.snapshot.institution?.quiz;
+  if(!local&&held){
+   const by=kind==='lesson'?draft?.snapshot.institution?.lesson_by:draft?.snapshot.institution?.quiz_by;
+   const ok=await confirmAsync(kind==='quiz'?'This quiz is already synchronized':'This lesson is already synchronized',
+    `${by?by+' has':'Someone has'} already synchronized a ${kind} for this module. Generate a new one on this device anyway?`,
+    'Regenerate anyway','Cancel',{tone:'warning'});
+   if(!ok)return;
+  }
   if(!partial(kind))return start(kind,false);
   const done=draft?.run?.done??draft?.pausedRuns?.[kind]?.done??0;
   const fresh=await confirmAsync(
@@ -145,9 +154,9 @@ function Authoring(){
       {frontMatter?<Notice title="This module looks like front matter"
         message="Objectives, contents and similar pages are shown to students on the Read tab, but a lesson or quiz written from them mostly restates them, so automatic preparation skips this module instead of reporting it as Failed. If this one really is teaching material, generate it here and it will be kept."/>:null}
       <Row>
-       <Button title={draft.lesson||draft.snapshot.institution?.lesson?'Regenerate lesson':'Generate lesson'} icon="sparkles-outline"
+       <Button title={draft.lesson?'Regenerate lesson':draft.snapshot.institution?.lesson?'Regenerate anyway':'Generate lesson'} icon="sparkles-outline"
         disabled={busy||task.busy||!modelReady} onPress={()=>{void generate('lesson');}}/>
-       <Button title={draft.questions||draft.snapshot.institution?.quiz?'Regenerate quiz':'Generate quiz'} icon="help-circle-outline"
+       <Button title={draft.questions?'Regenerate quiz':draft.snapshot.institution?.quiz?'Regenerate quiz anyway':'Generate quiz'} icon="help-circle-outline"
         disabled={busy||task.busy||!modelReady||!countValid} onPress={()=>{void generate('quiz');}}/>
       </Row>
       <View style={{maxWidth:220}}>
