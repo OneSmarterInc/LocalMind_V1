@@ -1,3 +1,4 @@
+import { enterHandler } from "./enterKey";
 import { keyboardList } from "./keyboardList";
 import { PageMessagesProvider, showToast, usePageMessages, useTimedMessage } from "./Toast";
 import { Ionicons } from "@expo/vector-icons";
@@ -250,18 +251,18 @@ export function IconButton({ icon, onPress, label, disabled }: { icon: IconName;
   );
 }
 
-export function Input(props: TextInputProps & { label?: string; error?: string | null; hint?: string; required?: boolean; containerStyle?: StyleProp<ViewStyle>; compact?: boolean; icon?: IconName; endAdornment?: React.ReactNode }) {
-  const { label, error, hint, required, style, containerStyle, compact, icon, endAdornment, ...rest } = props;
+export function Input(props: TextInputProps & { label?: string; error?: string | null; hint?: string; required?: boolean; containerStyle?: StyleProp<ViewStyle>; compact?: boolean; icon?: IconName; endAdornment?: React.ReactNode; onEnter?: () => void }) {
+  const { label, error, hint, required, style, containerStyle, compact, icon, endAdornment, onEnter, onKeyPress, ...rest } = props;
   return (
     <View style={[{ gap: 7 }, containerStyle]}>
       {label ? <Text style={s.fieldLabel}>{label}{required ? <Text style={{ color: colors.danger, fontWeight: "400" }}> *</Text> : null}</Text> : null}
       <View>
         {icon ? <Ionicons name={icon} size={17} color={colors.muted} style={{ position: "absolute", left: 12, top: compact ? 10 : 12, zIndex: 1 }} /> : null}
-        <TextInput placeholderTextColor={colors.faint} selectionColor={colors.primary} accessibilityLabel={label} {...rest}
+        <TextInput placeholderTextColor={colors.faint} selectionColor={colors.primary} accessibilityLabel={label} {...rest} onKeyPress={enterHandler(onEnter, onKeyPress, Platform.OS === "web")}
           style={[s.input, compact && s.inputCompact, icon && { paddingLeft: 38 }, rest.multiline && { minHeight: 116, textAlignVertical: "top", lineHeight: 21 }, error && { borderColor: colors.danger }, !!endAdornment && { paddingRight: 48 }, style]} />
         {endAdornment ? <View style={{ position: "absolute", right: 0, top: 0, bottom: 0, justifyContent: "center" }}>{endAdornment}</View> : null}
       </View>
-      {error ? <Text style={{ color: colors.danger, fontSize: 11 }}>{error}</Text> : hint ? <Text style={s.hint}>{hint}</Text> : null}
+      {error ? <Text style={{ color: colors.danger, fontSize: 11 }}>{error}</Text> : hint ? <Text style={s.hint}>{hint}</Text> : onEnter && Platform.OS === "web" ? <Text style={s.hint}>Press Enter to send · Shift+Enter for a new line</Text> : null}
     </View>
   );
 }

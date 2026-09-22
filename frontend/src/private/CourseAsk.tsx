@@ -48,7 +48,7 @@ function CourseAskInner({moduleId}:{moduleId:string}){
   {messages.map(m=><View key={m.id} style={{padding:14,borderRadius:8,backgroundColor:m.role==='user'?'#EAF2ED':colors.bg,gap:6}}><P small muted>{m.role==='user'?'You':m.local?'Local AI · this device':'Course tutor'}</P><P>{m.content}</P>{m.source_reference?<P small muted>From the module: {m.source_reference}</P>:null}</View>)}
   {doubtsBlocked?<Notice inline title="Doubts temporarily unavailable" message={DOUBTS_PAUSED_MESSAGE}/>:null}
   {restoring?<P muted>Restoring your conversation…</P>:null}<ErrorBanner message={task.error}/>
-  <Input label="Your question" value={question} onChangeText={setQuestion} multiline maxLength={1000} editable={!task.busy&&!restoring&&!doubtsBlocked} placeholder="What would you like to understand?"/>
+  <Input label="Your question" value={question} onChangeText={setQuestion} multiline maxLength={1000} editable={!task.busy&&!restoring&&!doubtsBlocked} placeholder="What would you like to understand?" onEnter={()=>{if(question.trim()&&!task.busy&&!restoring&&!doubtsBlocked)send();}}/>
   <Row><Button title="Ask" icon="send-outline" onPress={send} busy={task.busy} disabled={!question.trim()||restoring||doubtsBlocked}/>{task.busy?<Button title="Cancel" variant="secondary" onPress={task.cancel}/>:<Button title="Offline AI setup" variant="secondary" onPress={()=>router.push('/student/offline-ai')}/>}</Row>
  </Card>;
 }

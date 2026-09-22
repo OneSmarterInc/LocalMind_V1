@@ -13,6 +13,7 @@
  * Nothing finished is generated twice: every module keeps its checkpoint
  * (finished lesson parts and quiz questions), and generation resumes from it.
  */
+import { useSyncExternalStore } from 'react';
 import { device } from '@/private/device';
 
 type Current = { moduleId: string; controller: AbortController; reason?: 'priority' | 'pause' };
@@ -20,7 +21,8 @@ export type BookControl = { priority: string[]; paused: Set<string>; current?: C
 
 const controls = new Map<string, BookControl>();
 const listeners = new Set<() => void>();
-const emit = () => listeners.forEach((l) => l());
+let version = 0;
+const emit = () => { version++; listeners.forEach((l) => l()); };
 
 export const controlKey = (scope: string, documentId: string) => `${scope}|${documentId}`;
 export function control(key: string): BookControl {
@@ -52,6 +54,25 @@ export function pauseModule(key: string, moduleId: string) {
 export const currentModule = (key: string) => controls.get(key)?.current?.moduleId;
 export const isModulePaused = (key: string, moduleId: string) => !!controls.get(key)?.paused.has(moduleId);
 export const isSwitching = (key: string) => !!controls.get(key)?.current?.reason;
+
+/** What a screen shows for one book, read in a way React (and the React
+ * Compiler) always sees as current: which module is being written and which
+ * are paused. A new object is returned only when something changed. */
+export type ControlView = { running?: string; paused: ReadonlySet<string> };
+const views = new Map<string, { version: number; view: ControlView }>();
+function viewOf(key: string): ControlView {
+  const cached = views.get(key);
+  if (cached && cached.version === version) return cached.view;
+  const c = controls.get(key);
+  const next: ControlView = { running: c?.current?.moduleId, paused: new Set(c?.paused ?? []) };
+  const same = cached && cached.view.running === next.running && cached.view.paused.size === next.paused.size && [...next.paused].every((id) => cached.view.paused.has(id));
+  const view = same ? cached!.view : next;
+  views.set(key, { version, view });
+  return view;
+}
+export function useBookControls(key: string): ControlView {
+  return useSyncExternalStore(subscribeControls, () => viewOf(key), () => viewOf(key));
+}
 
 const heldKey = (prefix: string, documentId: string) => `${prefix}automatic-held:${documentId}`;
 /** Whole-book pause, saved on this device so reopening the book does not restart it. */

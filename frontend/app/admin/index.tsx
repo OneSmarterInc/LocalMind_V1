@@ -30,7 +30,7 @@ export default function AdminOverview() {
   );
   return (
     <Screen refreshing={platform.loading} onRefresh={reload}>
-      <PageHeading eyebrow="ADMINISTRATOR WORKSPACE" title="A clear view of your platform." subtitle="People, teaching activity, and system readiness in one place."
+      <PageHeading eyebrow="ADMINISTRATOR WORKSPACE" title="A clear view of your platform." subtitle="People, teaching activity, and AI incidents in one place."
         right={<Button title="Create subject" variant="secondary" icon="add" onPress={() => router.push("/admin/subject/new")} />} />
       <ErrorBanner message={platform.error} onRetry={reload} />
       <StatRow>
@@ -44,6 +44,8 @@ export default function AdminOverview() {
           <>
             <HeroCard eyebrow="A HEALTHY LEARNING ENVIRONMENT" title="The right people. The right access." text="Keep accounts and subjects organized so teaching can happen without friction."
               action={<Button title="Add a person" icon="person-add-outline" onPress={() => router.push("/admin/user/new")} />} art={ring} />
+            <HeroCard eyebrow="FROM BOOK TO LEARNING" title="Add a book to any subject." text="Upload a book, review its modules, and publish when you are ready. It opens in the content workspace."
+              action={<Button title="Upload a book" icon="cloud-upload-outline" onPress={() => router.push("/manage/document/upload")} />} />
             <Card>
               <CardHead title="Common tasks" />
               <Grid min={250} gap={10}>

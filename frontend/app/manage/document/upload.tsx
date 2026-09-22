@@ -46,7 +46,7 @@ export default function UploadBook() {
           <Card>
             <CardHead title="Book details" />
             <ErrorBanner message={subjects.error} />
-            {subjects.data && active.length === 0 ? <Notice inline tone="warning" message="You have no active subject. Ask your administrator to assign one." /> : null}
+            {subjects.data && active.length === 0 ? <Notice inline tone="warning" message={user?.role === "admin" ? "There is no active subject yet. Create one under Subjects first." : "You have no active subject. Ask your administrator to assign one."} /> : null}
             <Dropdown label="Subject *" value={subjectId} onChange={setSubjectId} placeholder="Choose a subject" width="100%" options={active.map((s) => ({ value: s.id, label: `${s.code} · ${s.name}` }))} />
             <Notice message="Chapters and modules follow the book’s own headings and content. Review the extracted outline before publishing. Lesson and quiz generation continues on your device." />
             <Input label="Book title" required value={title} onChangeText={setTitle} placeholder="As students should see it" hint="A clear title helps students find the right book." />

@@ -1,7 +1,7 @@
 import { removeBook, archiveBook, unarchiveBook } from "@/documents/remove";
 import { useBackTo } from "@/hooks/useBackTo";
 import {prepareAutomatically,preparation,clearFailure,type PreparationMap} from '@/authoring/automatic';
-import {controlKey,currentModule,generateNow,isHeld,isModulePaused,pauseModule,setHeld,subscribeControls} from '@/authoring/bookControl';
+import {controlKey,generateNow,isHeld,pauseModule,setHeld,useBookControls} from '@/authoring/bookControl';
 import {generationJobs} from '@/private/jobs';
 import {jobScope,useGenerationJobs} from '@/private/useGenerationJobs';
 import {Library} from '@/private/library';
@@ -354,13 +354,12 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
   const prefix=owner?new Library(owner).prefix:"";
   const scope=owner?jobScope(prefix):"";
   const ctlKey=controlKey(scope,doc.id);
-  const [, redraw]=useState(0);
-  useEffect(()=>subscribeControls(()=>redraw(n=>n+1)),[]);
+  const controls=useBookControls(ctlKey);
   const [held,setHeldState]=useState(false);
   useEffect(()=>{let live=true;const read=()=>{if(owner)void isHeld(prefix,doc.id).then(h=>{if(live)setHeldState(h);}).catch(()=>{});};read();const t=setInterval(read,1500);return()=>{live=false;clearInterval(t);};},[owner,prefix,doc.id]);
   const jobs=useGenerationJobs(prefix);
   const bookRunning=jobs.some(j=>(j.documentId===doc.id||j.bookId===doc.id)&&j.kind==='staff-auto'&&['queued','running'].includes(j.state));
-  const running=currentModule(ctlKey);
+  const running=controls.running;
   const start=useCallback(async()=>{if(!service)return;if(await isHeld(prefix,doc.id))await setHeld(prefix,doc.id,false);setHeldState(false);await prepareAutomatically(service,doc);},[service,prefix,doc]);
   const genNow=useAction(async(id:string)=>{if(!service)return;await clearFailure(service,doc,id);generateNow(ctlKey,id);await start();});
   const pauseAll=useAction(async()=>{await setHeld(prefix,doc.id,true);setHeldState(true);await generationJobs.cancelDocument(scope,doc.id);showToast({tone:"info",title:"Generation paused",message:"Everything finished so far is saved. Resume continues from each module's saved point."});});
@@ -370,7 +369,7 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
     const a=automatic[m.id!];const kinds=[a?.lesson,a?.quiz];
     if(running===m.id)return 'running';
     if(kinds.includes('Failed'))return 'failed';
-    if(isModulePaused(ctlKey,m.id!)||kinds.includes('Paused'))return 'paused';
+    if(controls.paused.has(m.id!)||kinds.includes('Paused'))return 'paused';
     if(kinds.some(k=>k==='Queued'||k==='Generating'))return 'queued';
     return null;
   };
@@ -395,7 +394,7 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
     const shared=kind==='lesson'?m.lesson_status:m.quiz_status;
     if(shared&&['ready','held','checking','failed','failed_final','dismissed'].includes(shared))return (kind==='lesson'?LESSON_TEXT:QUIZ_TEXT)[shared];
     const auto=automatic[m.id!]?.[kind];
-    if(auto&&auto!=='Ready for review'&&auto!=='Failed'&&isModulePaused(ctlKey,m.id!))return 'Paused';
+    if(auto&&auto!=='Ready for review'&&auto!=='Failed'&&controls.paused.has(m.id!))return 'Paused';
     return auto||(modelInstalled?'Waiting to prepare':'Model setup required');
   };
   const columns: Column<ModuleRow>[] = [

@@ -13,12 +13,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { NavigationContext } from "@react-navigation/native";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { dismissToast, showToast, useToasts, type Toast, type ToastInput, type ToastTone } from "./toastStore";
 
-export type ToastTone = "info" | "success" | "warning" | "danger";
-export type ToastInput = { tone?: ToastTone; title?: string; message: string; duration?: number };
-type Toast = Required<Pick<ToastInput, "tone" | "message">> & { id: number; title?: string; duration: number };
-
-const DURATION: Record<ToastTone, number> = { success: 6000, info: 6000, warning: 10000, danger: 0 };
+export { dismissToast, showToast, useToasts } from "./toastStore";
+export type { ToastInput, ToastTone } from "./toastStore";
 export const TOAST_TONES: Record<ToastTone, { bg: string; border: string; fg: string; icon: keyof typeof Ionicons.glyphMap }> = {
   info: { bg: "#F1F6FC", border: "#DAE5F1", fg: "#3B5E7E", icon: "information-circle-outline" },
   success: { bg: "#F0F7F1", border: "#DBE9DE", fg: "#336655", icon: "checkmark-circle-outline" },
@@ -26,20 +24,6 @@ export const TOAST_TONES: Record<ToastTone, { bg: string; border: string; fg: st
   danger: { bg: "#FFF3F1", border: "#EDD5D0", fg: "#923C35", icon: "alert-circle-outline" },
 };
 
-let seq = 0;
-let toasts: Toast[] = [];
-const listeners = new Set<() => void>();
-const emit = () => listeners.forEach((l) => l());
-
-export function showToast(input: ToastInput) {
-  const tone = input.tone ?? "info";
-  // The same message already on screen is not stacked twice.
-  if (toasts.some((t) => t.message === input.message && t.title === input.title)) return;
-  const toast: Toast = { id: ++seq, tone, title: input.title, message: input.message, duration: input.duration ?? DURATION[tone] };
-  toasts = [...toasts, toast].slice(-3);
-  emit();
-}
-export function dismissToast(id: number) { toasts = toasts.filter((t) => t.id !== id); emit(); }
 export function useToast() { return useMemo(() => ({ show: showToast, dismiss: dismissToast }), []); }
 
 /* ------------------------------------------------------------------ */
@@ -110,14 +94,13 @@ export function useTimedMessage(input: ToastInput, enabled: boolean) {
 /* ------------------------------------------------------------------ */
 
 export function ToastHost() {
-  const [, force] = useState(0);
-  useEffect(() => { const l = () => force((n) => n + 1); listeners.add(l); return () => { listeners.delete(l); }; }, []);
+  const list = useToasts();
   const { width } = useWindowDimensions();
   const narrow = width < 640;
-  if (!toasts.length) return null;
+  if (!list.length) return null;
   return (
     <View pointerEvents="box-none" style={[st.host, narrow ? { left: 12, right: 12, top: 84 } : { right: 24, top: 88, width: 360 }]} accessibilityLiveRegion="polite">
-      {toasts.map((t) => <ToastCard key={t.id} toast={t} />)}
+      {list.map((t) => <ToastCard key={t.id} toast={t} />)}
     </View>
   );
 }

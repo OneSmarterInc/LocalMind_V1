@@ -67,7 +67,7 @@ export type PortalMeta = {
   profilePath: string;
   /** Extra links under the main navigation (e.g. admin -> content workspace). */
   links?: { label: string; icon: IconName; path: string }[];
-  /** Pages offered by "Find a page". */
+  /** Page list for the workspace (kept for links and help; the search box was removed). */
   finder: FinderEntry[];
   /** The three steps in "New to LocalMind?". */
   help: HelpStep[];
