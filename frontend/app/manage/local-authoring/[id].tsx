@@ -1,3 +1,4 @@
+import {StopGeneration} from '@/private/StopGeneration';
 import {useAsync} from '@/hooks/useAsync';
 import { useBackTo } from "@/hooks/useBackTo";
 import {LocalLessonView} from '@/private/LocalLessonView';
@@ -56,7 +57,7 @@ function Authoring(){
  // Whether the book as a whole is being prepared. Worth knowing — it is why
  // generating here may queue — but it is NOT this module's progress, so it is
  // reported separately and never as "Working" on this module.
- const bookJobs=useGenerationJobs(library?.prefix||'').filter(j=>j.kind==='staff-auto'&&!!draft?.snapshot.document_id&&(j.documentId===draft.snapshot.document_id||j.bookId===draft.snapshot.document_id));
+ const bookJobs=useGenerationJobs(library?.prefix||'').filter(j=>['staff-auto','staff-batch'].includes(j.kind)&&!!draft?.snapshot.document_id&&(j.documentId===draft.snapshot.document_id||j.bookId===draft.snapshot.document_id));
  const bookBusy=bookJobs.some(j=>['queued','running'].includes(j.state));
  const busy=live.length>0;
  // Whether generation of THIS specific kind is in flight. A lesson that has
@@ -178,6 +179,7 @@ function Authoring(){
       {/* The book is preparing elsewhere. Said plainly and separately, because
           it is not this module's progress — showing it as "Working" here was
           the reason a finished module looked like it was still generating. */}
+      <Row><StopGeneration jobs={[...jobs,...bookJobs]} moduleIds={[id,draft?.snapshot.remote_id||id]}/><StopGeneration jobs={bookJobs}/></Row>
       {bookBusy&&!live.length?<Notice title="This book is preparing in the background"
         message="Other modules are being generated. This module is not affected; generating here will start when a slot is free."/>:null}
       {draft.run?<P small muted>Saved through part {draft.run.done}. Generating again offers to continue or start over.</P>:null}

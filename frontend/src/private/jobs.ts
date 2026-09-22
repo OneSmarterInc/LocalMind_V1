@@ -1,13 +1,15 @@
 export const DOUBTS_PAUSED_MESSAGE = "Content generation is in progress. Ask a doubt will be available when generation finishes. You can continue reading and taking saved quizzes.";
 /** App-lifetime jobs. Results are persisted by the library; no page owns cancellation. */
 export type JobState='queued'|'running'|'completed'|'failed'|'cancelled';
+export type ModuleRunner=(moduleId:string,run:(signal:AbortSignal)=>Promise<void>)=>Promise<void>;
 export type Job={id:number;scope:string;bookId:string;sectionId:string;kind:string;label:string;documentId?:string;documentIds?:string[];state:JobState;note:string;error:string;
  /** This job specifically is being cancelled. Per job, never shared: one row
   * cancelling must not make every other row claim it is cancelling too. */
- cancelling?:boolean};
-type Entry=Job&{controller:AbortController;run?:(signal:AbortSignal,progress:(s:string)=>void)=>Promise<unknown>;settled:Promise<void>;finish:()=>void};
+ cancelling?:boolean;moduleIds?:string[];activeModuleId?:string;stoppedModuleIds?:string[]};
+type Entry=Job&{controller:AbortController;run?:(signal:AbortSignal,progress:(s:string)=>void,runModule:ModuleRunner)=>Promise<unknown>;moduleController?:AbortController;onStop?:(moduleId?:string)=>Promise<void>;stopWork?:Promise<void>;settled:Promise<void>;finish:()=>void};
 /** Generation is serialized for shared drafts, not for unrelated documents. */
 function conflicts(a:Job,b:Job):boolean {
+ if(a.scope===b.scope&&a.bookId===b.bookId&&(a.kind==='private-batch'||b.kind==='private-batch'))return true;
  if(a.scope!==b.scope||!a.kind.startsWith('staff-')||!b.kind.startsWith('staff-'))return false;
  if(a.bookId===b.bookId)return true;
  const documents=(j:Job)=>new Set([...(j.documentIds||[]),...(j.documentId?[j.documentId]:[])]);
@@ -25,7 +27,7 @@ export class JobQueue{
  requireDoubtsAvailable(){if(this.hasContentGeneration())throw Error(DOUBTS_PAUSED_MESSAGE);}
  private emit(){this.snapshotJobs=this.entries.map(j=>({...j}));for(const fn of this.listeners)fn();}
  list(scope:string):Job[]{return this.entries.filter(j=>j.scope===scope).map(j=>({...j}));}
- enqueue(meta:Omit<Job,'id'|'state'|'note'|'error'>,run:NonNullable<Entry['run']>){
+ enqueue(meta:Omit<Job,'id'|'state'|'note'|'error'>,run:NonNullable<Entry['run']>,onStop?:(moduleId?:string)=>Promise<void>){
   if(meta.kind==='doubt')this.requireDoubtsAvailable();
   const old=this.entries.find(j=>j.scope===meta.scope&&j.bookId===meta.bookId&&j.sectionId===meta.sectionId&&j.kind===meta.kind&&['queued','running'].includes(j.state));if(old)return old.id;
   // The book-wide lock exists to stop two WHOLE-BOOK preparations running over
@@ -39,7 +41,7 @@ export class JobQueue{
   if(this.entries.filter(j=>['queued','running'].includes(j.state)).length>=20)throw Error('Twenty jobs are already waiting. Let some finish before adding more.');
   this.entries=this.entries.filter(j=>['queued','running'].includes(j.state)||j.id>this.serial-40);
   let finish=()=>{};const settled=new Promise<void>(resolve=>{finish=resolve;});
-  const job:Entry={...meta,id:++this.serial,state:'queued',note:'Waiting to start',error:'',cancelling:false,controller:new AbortController(),run,settled,finish};this.entries.push(job);this.emit();this.pump();return job.id;
+  const job:Entry={...meta,id:++this.serial,state:'queued',note:'Waiting to start',error:'',cancelling:false,controller:new AbortController(),run,onStop,settled,finish,stoppedModuleIds:[]};this.entries.push(job);this.emit();this.pump();return job.id;
  }
  /** Cancel one job. A queued job stops at once; a running one is aborted and
   * settles when its current model call returns.
@@ -50,16 +52,36 @@ export class JobQueue{
   * that had already been cancelled because the job was still `running`.
   * With this flag a row can hide its own button and show its own progress
   * without speaking for any other row. */
- cancel(id:number){const j=this.entries.find(j=>j.id===id);if(!j||!['queued','running'].includes(j.state)||j.cancelling)return;j.cancelling=true;j.controller.abort();if(j.state==='queued'){j.state='cancelled';j.note='Cancelled';j.run=undefined;j.finish();}else j.note='Cancelling…';this.emit();}
+ cancel(id:number){
+  const j=this.entries.find(j=>j.id===id);if(!j||!['queued','running'].includes(j.state)||j.cancelling)return;
+  j.cancelling=true;j.controller.abort();j.moduleController?.abort();j.note='Stopping…';
+  j.stopWork=(j.stopWork||Promise.resolve()).then(()=>j.onStop?.()).catch(e=>{j.error=`Could not save stop preference: ${String(e)}`;});
+  if(j.state==='queued'){j.state='cancelled';j.run=undefined;void j.stopWork.finally(()=>{j.cancelling=false;j.note='Stopped';j.finish();this.emit();this.pump();});}
+  this.emit();
+ }
+ cancelModule(id:number,moduleId:string){
+  const j=this.entries.find(j=>j.id===id);if(!j||j.cancelling||!['queued','running'].includes(j.state)||!j.moduleIds?.includes(moduleId))return;
+  j.stoppedModuleIds=[...new Set([...(j.stoppedModuleIds||[]),moduleId])];
+  j.stopWork=(j.stopWork||Promise.resolve()).then(()=>j.onStop?.(moduleId)).catch(e=>{j.error=`Could not save stop preference: ${String(e)}`;});
+  if(j.activeModuleId===moduleId)j.moduleController?.abort();this.emit();
+ }
+ private async runModule(j:Entry,moduleId:string,run:(signal:AbortSignal)=>Promise<void>){
+  if(j.controller.signal.aborted)throw Error('Generation stopped.');
+  if(j.stoppedModuleIds?.includes(moduleId))return;
+  const controller=new AbortController();j.moduleController=controller;j.activeModuleId=moduleId;
+  const abort=()=>controller.abort();j.controller.signal.addEventListener('abort',abort,{once:true});this.emit();
+  try{await run(controller.signal);}catch(e){if(!controller.signal.aborted||j.controller.signal.aborted)throw e;}
+  finally{j.controller.signal.removeEventListener('abort',abort);j.moduleController=undefined;j.activeModuleId=undefined;this.emit();}
+ }
  cancelOtherScopes(scope:string){for(const j of this.entries)if(j.scope!==scope)this.cancel(j.id);}
  async cancelDocument(scope:string,documentId:string,moduleIds:string[]=[]){const jobs=this.entries.filter(j=>j.scope===scope&&(j.documentId===documentId||j.documentIds?.includes(documentId)||j.bookId===documentId||moduleIds.includes(j.bookId)));for(const j of jobs)this.cancel(j.id);await Promise.all(jobs.map(j=>j.settled));}
  async cancelBook(scope:string,bookId:string){const jobs=this.entries.filter(j=>j.scope===scope&&j.bookId===bookId);for(const j of jobs)this.cancel(j.id);await Promise.all(jobs.map(j=>j.settled));}
  private pump(){
   while(true){const running=this.entries.filter(j=>j.state==='running');
    const j=this.entries.find(j=>j.state==='queued'&&!running.some(r=>conflicts(j,r))&&(this.doubtLane?(j.kind==='doubt'?!running.some(r=>r.kind==='doubt'):running.filter(r=>r.kind!=='doubt').length<this.concurrency):this.active<this.concurrency));if(!j)break;this.active++;j.state='running';j.note='Preparing on this device';this.emit();
-   void(async()=>{try{await j.run!(j.controller.signal,s=>{if(!j.controller.signal.aborted){j.note=s;this.emit();}});j.state=j.controller.signal.aborted?'cancelled':'completed';j.note=j.state==='completed'?'Saved on this device':'Cancelled';}
+   void(async()=>{try{await j.run!(j.controller.signal,s=>{if(!j.controller.signal.aborted){j.note=s;this.emit();}},(id,run)=>this.runModule(j,id,run));j.state=j.controller.signal.aborted?'cancelled':'completed';j.note=j.state==='completed'?'Saved on this device':'Cancelled';}
     catch(e){j.state=j.controller.signal.aborted?'cancelled':'failed';j.error=j.state==='failed'?(e instanceof Error?e.message:String(e)):'';}
-    finally{j.run=undefined;j.cancelling=false;j.finish();this.active--;this.emit();this.pump();}})();
+    finally{await j.stopWork;j.run=undefined;j.cancelling=false;j.finish();this.active--;this.emit();this.pump();}})();
   }
  }
 }

@@ -34,12 +34,14 @@ export async function clearFailure(service:LocalAuthoring,doc:Document,moduleId:
 }
 
 /** One book job, sequential module operations, with durable progress and isolated failures. */
-export async function prepareAutomatically(service:LocalAuthoring,doc:Document){
+export async function prepareAutomatically(service:LocalAuthoring,doc:Document,options:{manual?:boolean;moduleIds?:string[]}={}){
  const store=await device();service.library.guard();
+ const pauseKey=`${key(service,doc)}:paused`;
+ if(!options.manual&&await store.get<boolean>(pauseKey))return false;
  if(await service.isRemoved(doc.id)||!(await store.status()).installed)return false;
  const scope=jobScope(new Library(service.library.owner).prefix);
  if(generationJobs.snapshot().some(j=>j.scope===scope&&(j.bookId===doc.id||j.documentId===doc.id)&&['queued','running'].includes(j.state)))return true;
- const modules=(doc.chapters||[]).flatMap(c=>c.modules).filter(m=>m.id);
+ const modules=(doc.chapters||[]).flatMap(c=>c.modules).filter(m=>m.id&&(!options.moduleIds||options.moduleIds.includes(m.id)));
  const states=await preparation(service,doc);
  const save=async()=>{service.library.guard();await store.put(key(service,doc),states);};
  // Seed each module's state, PRESERVING what a previous run concluded.
@@ -58,18 +60,19 @@ export async function prepareAutomatically(service:LocalAuthoring,doc:Document){
   // (tab closed, app reloaded) — nothing is generating now. Reset it to
   // 'Queued' so it is picked up again, rather than stranding the module in a
   // state nothing will ever move it out of.
-  const carry=(v?:string)=>v==='Generating'?'Queued':v;
+  const carry=(v?:string)=>v==='Generating'||v==='Stopped'||(options.manual&&v==='Failed')?'Queued':v;
   states[m.id!]={
-   lesson:lessonShared?'Shared':previous?.lesson==='Failed'?'Failed':carry(previous?.lesson)||'Queued',
-   quiz:quizShared?'Shared':previous?.quiz==='Failed'?'Failed':carry(previous?.quiz)||'Queued',
-   ...(previous?.error&&!(lessonShared&&quizShared)?{error:previous.error}:{}),
+   lesson:lessonShared?'Shared':carry(previous?.lesson)||'Queued',
+   quiz:quizShared?'Shared':carry(previous?.quiz)||'Queued',
+   ...(previous?.error&&!options.manual&&!(lessonShared&&quizShared)?{error:previous.error}:{}),
   };
  }
  await save();
- generationJobs.enqueue({scope,bookId:doc.id,documentId:doc.id,sectionId:doc.id,kind:'staff-auto',label:`${doc.title} · lessons and quizzes`},async(signal,progress)=>{
+ generationJobs.enqueue({scope,bookId:doc.id,documentId:doc.id,sectionId:doc.id,kind:'staff-auto',moduleIds:modules.map(m=>m.id!),label:`${doc.title} · lessons and quizzes`},async(signal,progress,runModule)=>{
   const saved=await service.drafts();
   for(const m of modules){
    if(signal.aborted||await service.isRemoved(doc.id))throw Error('Preparation cancelled. Saved drafts are retained.');
+   await runModule(m.id!,async signal=>{
    const state=states[m.id!];
    // Nothing left to do for this module, or it already failed. A failed module
    // is NOT retried automatically: it failed for a reason that another
@@ -77,13 +80,13 @@ export async function prepareAutomatically(service:LocalAuthoring,doc:Document){
    // retrying it on every pass is what made the app look like it regenerated
    // modules by itself. Open the module and generate to retry deliberately.
    const settled=(v?:string)=>v==='Shared'||v==='Ready for review'||v==='Failed'||v==='No source text'||v==='Front matter'||v==='Brief source — review';
-   if(settled(state.lesson)&&settled(state.quiz))continue;
-   if(m.source_missing||!m.source_text?.trim()){state.lesson='No source text';state.quiz='No source text';await save();continue;}
+   if(settled(state.lesson)&&settled(state.quiz))return;
+   if(m.source_missing||!m.source_text?.trim()){state.lesson='No source text';state.quiz='No source text';await save();return;}
    // Front matter is read, never taught. Skipping it here is what stops a
    // chapter-objectives module reporting as Failed for the rest of time.
-   if(isFrontMatter(m.title,m.source_text)){state.lesson='Front matter';state.quiz='Front matter';await save();continue;}
+   if(isFrontMatter(m.title,m.source_text)){state.lesson='Front matter';state.quiz='Front matter';await save();return;}
    // Front matter is retained in the outline, but is not enough grounded material for generation.
-   if(m.source_text.trim().length<80){state.lesson='Brief source — review';state.quiz='Brief source — review';await save();continue;}
+   if(m.source_text.trim().length<80){state.lesson='Brief source — review';state.quiz='Brief source — review';await save();return;}
    try{
     const id=saved.find(d=>d.snapshot.remote_id===m.id)?.snapshot.module_id||m.id!;
     let draft=await service.ensure(id);
@@ -103,7 +106,8 @@ export async function prepareAutomatically(service:LocalAuthoring,doc:Document){
      }catch(e){if(signal.aborted)throw e;state[kind]='Failed';state.error=String(e instanceof Error?e.message:e);}
      await save();
     }
-   }catch(e){if(signal.aborted)throw e;state.lesson=state.lesson==='Queued'?'Failed':state.lesson;state.quiz=state.quiz==='Queued'?'Failed':state.quiz;state.error=String(e instanceof Error?e.message:e);await save();}
+   }catch(e){if(signal.aborted)throw e;state.lesson=state.lesson==='Queued'?'Failed':state.lesson;state.quiz=state.quiz==='Queued'?'Failed':state.quiz;state.error=String(e instanceof Error?e.message:e);await save();}finally{if(signal.aborted){for(const kind of ['lesson','quiz'] as const)if(['Queued','Generating'].includes(state[kind]||''))state[kind]='Stopped';await save();}}
+   });
   }
   // Failures are RECORDED, never thrown.
   //
@@ -116,5 +120,5 @@ export async function prepareAutomatically(service:LocalAuthoring,doc:Document){
   // Nothing is hidden by returning quietly: each module's own state already
   // holds 'Failed' plus its error, and the readiness table renders both.
   await save();
- });return true;
+ },async moduleId=>{service.library.guard();await store.put(pauseKey,true);for(const [id,state] of Object.entries(states)){if(moduleId&&id!==moduleId)continue;for(const kind of ['lesson','quiz'] as const)if(['Queued','Generating'].includes(state[kind]||''))state[kind]='Stopped';}await save();});return true;
 }

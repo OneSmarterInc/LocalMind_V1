@@ -1,3 +1,6 @@
+import {Library} from '@/private/library';
+import {StopGeneration} from '@/private/StopGeneration';
+import {useGenerationJobs} from '@/private/useGenerationJobs';
 import { removeBook, archiveBook, unarchiveBook } from "@/documents/remove";
 import { useBackTo } from "@/hooks/useBackTo";
 import {prepareAutomatically,preparation,type PreparationMap} from '@/authoring/automatic';
@@ -42,10 +45,13 @@ export default function DocumentScreen() {
   const doc = useAsync(() => manage.document(id), [id]);
   const subjects = useAsync(() => manage.subjects(), []);
   const d = doc.data;
+  const generation=useGenerationJobs(owner?new Library(owner).prefix:'').filter(j=>j.documentId===id||j.bookId===id);
   const sourceChapters=d?.chapters;
   const [automatic,setAutomatic]=useState<PreparationMap>({});
   const [modelInstalled,setModelInstalled]=useState(false);
   const autoStarted=useRef('');
+  const resumeGeneration=useAction(async()=>{if(authoring&&d)await prepareAutomatically(authoring,d,{manual:true});});
+  const generationControls=<Row><StopGeneration jobs={generation}/>{d&&['under_review','ready','published'].includes(d.status)?<Button title="Generate all remaining modules" variant="secondary" busy={resumeGeneration.busy} disabled={!modelInstalled||generation.some(j=>['queued','running'].includes(j.state)||j.cancelling)} onPress={()=>resumeGeneration.run()}/>:null}</Row>;
   useEffect(()=>{let live=true;const poll=async()=>{if(!authoring||!d)return;try{const status=await(await device()).status();const rows=await preparation(authoring,d);if(live){setModelInstalled(status.installed);setAutomatic(rows);}}catch(e){if(live)setPrepareError(errorMessage(e));}};void poll();const timer=setInterval(poll,1500);return()=>{live=false;clearInterval(timer);};},[authoring,d]);
   useEffect(()=>{if(!authoring||!d||!modelInstalled||!['under_review','ready','published'].includes(d.status))return;
     const token=`${owner}:${d.id}:${d.content_version}`;if(autoStarted.current===token)return;autoStarted.current=token;
@@ -159,7 +165,7 @@ export default function DocumentScreen() {
   if (!editable) {
     return (
       <Screen refreshing={doc.loading} onRefresh={doc.reload}>
-        {prepareError?<Notice tone="warning" title="Source preparation needs attention" message={prepareError}/>:null}{jobNotice}<ErrorBanner message={retryJob.error}/>
+        {generationControls}<ErrorBanner message={resumeGeneration.error}/>{prepareError?<Notice tone="warning" title="Source preparation needs attention" message={prepareError}/>:null}{jobNotice}<ErrorBanner message={retryJob.error}/>
         <ErrorBanner message={doc.error} onRetry={doc.reload} />
         {doc.loading && !d ? <Loading /> : null}
         {d ? (
@@ -220,7 +226,7 @@ export default function DocumentScreen() {
   if (preview) {
     return (
       <Screen>
-      {jobNotice}<ErrorBanner message={retryJob.error}/>
+      {generationControls}<ErrorBanner message={resumeGeneration.error}/>{jobNotice}<ErrorBanner message={retryJob.error}/>
         <PageHeading eyebrow="FACULTY PREVIEW" title="Preview the student lesson" subtitle={preview.title}
           right={<Button title="Back to readiness" variant="secondary" icon="arrow-back" onPress={() => { setPreview(null); setTab("lessons"); void doc.reload(); }} />} />
         <ModuleLessonPanel moduleId={preview.id} textEdited={false} />
@@ -237,6 +243,7 @@ export default function DocumentScreen() {
   if (tab === "live" && live) {
     return (
       <Screen refreshing={doc.loading} onRefresh={doc.reload}>
+        {generationControls}<ErrorBanner message={resumeGeneration.error}/>
         <PageHeading eyebrow="BOOKS & MODULES" title={`${d!.title} is published.`} subtitle={subtitle} right={<Row style={{ gap: 8, alignItems: "center" }}>{backToBooks}{statusBadge}</Row>} />
         <ErrorBanner message={doc.error ?? act.error ?? remove.error} onRetry={doc.error ? doc.reload : undefined} />
         <Notice tone="success" title="Students can now find this book." message="Enrolled students see its open modules, ready lessons and published quizzes." />
@@ -270,7 +277,7 @@ export default function DocumentScreen() {
 
   return (
     <Screen>
-      {jobNotice}<ErrorBanner message={retryJob.error}/>
+      {generationControls}<ErrorBanner message={resumeGeneration.error}/>{jobNotice}<ErrorBanner message={retryJob.error}/>
       <PageHeading eyebrow="BOOKS & MODULES" title={d!.title} subtitle={subtitle} right={<Row style={{ gap: 8, alignItems: "center" }}>{backToBooks}{statusBadge}</Row>} />
       {!live ? stepper(tab === "publish" ? 2 : 1) : null}
       <ErrorBanner message={tabError ?? doc.error ?? act.error ?? remove.error} onRetry={doc.error ? doc.reload : undefined} />
@@ -343,6 +350,11 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
   const {user}=useAuth(),owner=user?.id;
   const service=useMemo(()=>owner?new LocalAuthoring(owner):null,[owner]);
   const [drafts,setDrafts]=useState<Draft[]>([]);
+  const jobs=useGenerationJobs(owner?new Library(owner).prefix:'').filter(j=>j.documentId===doc.id||j.bookId===doc.id);
+  const active=jobs.some(j=>['queued','running'].includes(j.state)||j.cancelling);
+  const [generationError,setGenerationError]=useState('');
+  const [starting,setStarting]=useState(false);
+  const start=async(moduleIds?:string[])=>{if(!service)return;setStarting(true);setGenerationError('');try{await prepareAutomatically(service,doc,{manual:true,moduleIds});}catch(e){setGenerationError(errorMessage(e));}finally{setStarting(false);}};
   useEffect(()=>{let live=true;const read=()=>service?.drafts().then(rows=>{if(live)setDrafts(rows);}).catch(()=>{});void read();const timer=setInterval(read,1500);return()=>{live=false;clearInterval(timer);};},[service]);
   const local=(id:string)=>drafts.find(d=>d.snapshot.remote_id===id)||drafts.find(d=>d.snapshot.module_id===id);
   let n = 0;
@@ -374,6 +386,7 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
     { key: "draft", label: "Saved work", flex: 1.1, render: (m) => {const d=local(m.id!);return <CellText title={d?.lesson?"Lesson draft saved":"No lesson draft"} sub={automatic[m.id!]?.error||(d?.questions?`${d.questions.length} quiz questions saved`:"No quiz draft")}/>;} },
     { key: "x", label: "", flex: 1.7, render: (m) => (
       <View style={{ flexDirection: "row", gap: 6 }}>
+        <StopGeneration jobs={jobs} moduleIds={[m.id!,local(m.id!)?.snapshot.module_id||m.id!]}/><Button title="Generate remaining" small variant="secondary" disabled={active||starting||!modelInstalled||!teachableRows(m)} onPress={()=>{void start([m.id!]);}}/>
         <Button title="Open module" small variant="secondary" onPress={()=>router.push(`/manage/local-authoring/${local(m.id!)?.snapshot.module_id||m.id}`)}/>
         <Button title="Preview lesson" small variant="secondary" disabled={m.lesson_status === "none"} onPress={() => onPreview({ id: m.id!, title: m.title, quizStatus: m.quiz_status ?? "off", quizId: m.auto_quiz_id ?? null })} />
         {m.quiz_status === "held" && m.auto_quiz_id
@@ -407,7 +420,7 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
       <Notice tone={heldCount || !allReady ? "warning" : "success"}
         title={`${ready} of ${total} lesson${total === 1 ? "" : "s"} prepared${syncedLessons < ready ? ` \u00b7 ${syncedLessons} synchronized to the institution` : ""}.${heldCount ? ` ${heldCount === 1 ? "One quiz needs" : `${heldCount} quizzes need`} your review.` : ""}`}
         message={modelInstalled?"Lessons and quizzes prepare automatically on this device. Keep the app open; you can navigate while it works. Open each module to review and approve saved drafts for synchronization. Failed modules do not stop the rest of the book.":"Set up a model in Offline AI to start automatic lesson and quiz generation. The extracted source text is already saved."} />
-      <ErrorBanner message={error} />
+      <ErrorBanner message={generationError||error} />
       <Card flush>
         <Table noun="module" columns={columns} rows={modules} keyOf={(m) => m.id!} minWidth={860} empty={<Empty icon="school-outline" text="This book has no modules yet." />} />
       </Card>

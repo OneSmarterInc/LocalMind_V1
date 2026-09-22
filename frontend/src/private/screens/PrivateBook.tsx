@@ -1,3 +1,5 @@
+import {StopGeneration} from '../StopGeneration';
+import {generateRemaining} from '../remaining';
 import {LocalLessonView} from '../LocalLessonView';
 import { useBackTo } from "@/hooks/useBackTo";
 import {generationJobs,DOUBTS_PAUSED_MESSAGE} from '../jobs';
@@ -25,10 +27,16 @@ export default function PrivateBook(){
  useEffect(()=>{let alive=true;if(library&&book.data)void library.viewState(id,'section').then(saved=>{if(alive)setSectionId(book.data!.sections.find(s=>s.id===(targetSection||saved))?.id||book.data!.sections[0].id);});return()=>{alive=false;};},[book.data,id,library,targetSection]);
  const selectSection=(value:string)=>{setSectionId(value);void library?.saveViewState(id,'section',value).catch(()=>{});};
  const b=book.data,s=b?.sections.find(x=>x.id===sectionId);
+ const jobs=useGenerationJobs(library?.prefix||'').filter(j=>j.bookId===id);
+ const busy=jobs.some(j=>['queued','running'].includes(j.state)||j.cancelling);
+ const [generationError,setGenerationError]=useState('');
+ const remaining=async(ids:string[])=>{if(!library||!b||!(await confirmLeave()))return;try{setGenerationError('');generationJobs.enqueue({scope:jobScope(library.prefix),bookId:id,sectionId:id,kind:'private-batch',moduleIds:ids,label:`${b.title} · remaining modules`},(signal,progress,runModule)=>generateRemaining(library,id,ids,signal,progress,runModule));}catch(e){setGenerationError(String(e));}};
  const sidebar=<Card><H2>Modules</H2><P muted>Open any module. Quiz results never lock the next one.</P><Input value={query} onChangeText={setQuery} placeholder="Find a module"/><ScrollView style={{maxHeight:550}}>
   {(b?.sections||[]).filter(x=>x.title.toLowerCase().includes(query.toLowerCase())).map((x)=><Pressable key={x.id} accessibilityRole="button" accessibilityState={{selected:x.id===sectionId}} onPress={()=>{void confirmLeave().then(ok=>{if(ok)selectSection(x.id);});}} style={{padding:12,borderRadius:8,marginBottom:5,backgroundColor:x.id===sectionId?colors.primary:'transparent'}}><P style={{color:x.id===sectionId?'white':colors.text}}>{x.title}</P></Pressable>)}
  </ScrollView></Card>;
  return <Screen><PageHeading title={b?.title||'Private book'} subtitle="Personal study · Saved only on this device" right={<Button title="Back to library" variant="secondary" onPress={()=>back('/student/private-library')}/>}/><ErrorBanner message={book.error} onRetry={book.reload}/>
+  <ErrorBanner message={generationError}/>{b?<Row><StopGeneration jobs={jobs}/><Button title="Generate all remaining modules" disabled={busy} onPress={()=>remaining(b.sections.map(s=>s.id))}/><Button title="Generate remaining for this module" variant="secondary" disabled={busy||!s} onPress={()=>{if(s)remaining([s.id]);}}/></Row>:null}
+  {jobs.filter(j=>j.kind==='private-batch').slice(-1).map(j=><Notice key={j.id} title={j.cancelling?'Stopping generation':j.state==='cancelled'?'Generation stopped':j.state==='completed'?'Generation finished':j.state==='failed'?'Generation needs attention':'Book generation'} message={j.error||`${j.note}. Completed work is retained; generate remaining modules to continue.`}/>)}
   {book.loading&&!b?<Loading/>:null}
   {b?.warnings.length?<Notice tone="warning" title="About this import" message={b.warnings.join('\n')}/>:null}
   {b&&s&&library?<Split side={sidebar} main={<ModuleLearning key={`${library.prefix}:${id}:${s.id}`} bookId={id} initialTab={targetTab} onSourceSaved={book.reload} section={s} hasNext={b.sections.findIndex(x=>x.id===s.id)<b.sections.length-1} next={()=>{const n=b.sections.findIndex(x=>x.id===s.id)+1;if(b.sections[n])void confirmLeave().then(ok=>{if(ok)selectSection(b.sections[n].id);});}}/>}/>:null}
@@ -37,8 +45,10 @@ export default function PrivateBook(){
 function ModuleLearning({bookId,section,next,hasNext,initialTab,onSourceSaved}:{bookId:string;section:Section;next:()=>void;hasNext:boolean;initialTab?:string;onSourceSaved:()=>Promise<unknown>}){
  const library=useLibrary()!,router=useRouter();
  const doubtsBlocked=useDoubtsBlocked();
- const jobs=useGenerationJobs(library.prefix).filter(j=>j.bookId===bookId&&j.sectionId===section.id);
- const completed=jobs.filter(j=>j.state==='completed').map(j=>j.id).join(',');
+ const bookJobs=useGenerationJobs(library.prefix).filter(j=>j.bookId===bookId);
+ const jobs=bookJobs.filter(j=>j.sectionId===section.id);
+ const batchBusy=bookJobs.some(j=>j.kind==='private-batch'&&['queued','running'].includes(j.state));
+ const completed=bookJobs.map(j=>`${j.id}:${j.state}:${j.activeModuleId||''}`).join(',');
  const [tab,setTabState]=useState<Tab>('read'),[count,setCount]=useState('6');
  const figures=useAsync(()=>library.visuals(bookId,section.id),[library,bookId,section.id]);
  const lessons=useAsync(()=>library.lessons(bookId,section.id),[library,bookId,section.id,completed]);
@@ -55,7 +65,7 @@ function ModuleLearning({bookId,section,next,hasNext,initialTab,onSourceSaved}:{
  useEffect(()=>{if(!quizId&&quizzes.data?.length)setQuizId(quizzes.data[0].id);},[quizId,quizzes.data]);
  const currentKind=tab==='ask'?'doubt':tab;
  const current=jobs.slice().reverse().find(j=>j.kind===currentKind);
- const active=(kind:string)=>jobs.some(j=>j.kind===kind&&['queued','running'].includes(j.state));
+ const active=(kind:string)=>batchBusy||jobs.some(j=>j.kind===kind&&['queued','running'].includes(j.state));
  const [localError,setLocalError]=useState('');
  const [editing,setEditing]=useState(false),[sourceDraft,setSourceDraft]=useState(section.source),[savingSource,setSavingSource]=useState(false);
  const sourceRef=useRef(sourceDraft);sourceRef.current=sourceDraft;
@@ -75,14 +85,15 @@ function ModuleLearning({bookId,section,next,hasNext,initialTab,onSourceSaved}:{
  const generateQuiz=()=>{const total=Number(count);enqueue('quiz',async(signal,progress)=>{const result=await library.generateQuiz(bookId,section.id,total,signal,n=>progress(`Prepared question ${n} of ${total}`),progress);generatedQuiz.current=result.id;return result;});};
  const ask=()=>{const q=question.trim();enqueue('doubt',(signal,progress)=>library.ask(bookId,section.id,q,signal,progress));};
  return <Card><Row><H2>{section.title}</H2><Badge value="All modules open" tone="green"/></Row>
+  <StopGeneration jobs={bookJobs} moduleIds={[section.id]}/>
   <PageTabs value={tab} onChange={t=>{if(t!==tab)void confirmLeave().then(ok=>{if(ok)setTab(t);});}} tabs={[{key:'read',label:'Read'},{key:'lesson',label:'Lesson'},{key:'quiz',label:'Practice quiz'},{key:'ask',label:'Ask a doubt'}]}/>
   <ErrorBanner message={task.error||figures.error||lessons.error||quizzes.error||chats.error}/>
   {task.busy?<Notice title="Working on this device" message={`${task.note} You can leave this page; the job will continue while the app stays open.`} action={<Button title="Cancel" variant="secondary" onPress={task.cancel}/>}/>:null}
   {section.ocr?<Notice title="Text recognised on this device" message="Compare OCR text with the original image, especially numbers, formulas and tables."/>:null}
   {!section.source.trim()?<Notice message="This page is available as an image. No usable text was recognised, so local AI cannot explain it."/>:null}
   {tab==='read'?<>{editing?<><Input label="Correct extracted source" value={sourceDraft} onChangeText={setSourceDraft} multiline maxLength={section.readingUnit?MAX_READING_CHARS:MAX_SECTION_CHARS}/><P muted>Compare with the original page. Saving cancels unfinished jobs for this book; existing lessons and quizzes remain as earlier versions. Regenerate them to use the correction.</P><Row><Button title="Save source correction" onPress={()=>{void saveSource();}} busy={savingSource}/><Button title="Cancel correction" variant="secondary" disabled={savingSource} onPress={()=>setEditing(false)}/></Row></>:<><SourceContent text={section.source}/><Button title="Correct extracted text" variant="secondary" onPress={()=>{setSourceDraft(section.source);setEditing(true);}}/></>}<Row><Button title="Generate a lesson" onPress={()=>{void confirmLeave().then(ok=>{if(ok){setTab('lesson');generateLesson();}});}} disabled={active('lesson')}/><Button title={hasNext?"Next module":"Final module"} variant="secondary" disabled={!hasNext} onPress={next}/></Row></>:null}
-  {tab==='lesson'?<><Row><Button title={lesson?'Regenerate lesson':'Generate lesson'} icon="sparkles-outline" onPress={generateLesson} disabled={task.busy}/>{lessons.data?.length?<Dropdown label="Saved lesson" value={lesson?.id||''} onChange={setLessonId} options={lessons.data.map((l,i)=>({value:l.id,label:`Version ${lessons.data!.length-i} · ${new Date(l.createdAt).toLocaleString()}`}))}/>:null}</Row>{lesson?<LocalLessonView lesson={lesson.lesson} visuals={figures.data||[]}/>:<P muted>Generate an explanation from this module with your local AI model.</P>}</>:null}
-  {tab==='quiz'?<><Row><Dropdown label="Questions" value={count} onChange={v=>{if(!task.busy)setCount(v);}} options={Array.from({length:10},(_,i)=>({value:String(i+1),label:String(i+1)}))}/><Button title={quiz?'Generate another quiz':'Generate quiz'} icon="sparkles-outline" onPress={()=>{void confirmLeave().then(ok=>{if(ok)generateQuiz();});}} disabled={task.busy}/>{quizzes.data?.length?<Dropdown label="Saved quiz" value={quiz?.id||''} onChange={v=>{void confirmLeave().then(ok=>{if(ok)setQuizId(v);});}} options={quizzes.data.map((q,i)=>({value:q.id,label:`Version ${quizzes.data!.length-i} · ${q.questions.length} questions`}))}/>:null}</Row>
+  {tab==='lesson'?<><Row><Button title={lesson?'Regenerate lesson':'Generate lesson'} icon="sparkles-outline" onPress={generateLesson} disabled={task.busy||batchBusy}/>{lessons.data?.length?<Dropdown label="Saved lesson" value={lesson?.id||''} onChange={setLessonId} options={lessons.data.map((l,i)=>({value:l.id,label:`Version ${lessons.data!.length-i} · ${new Date(l.createdAt).toLocaleString()}`}))}/>:null}</Row>{lesson?<LocalLessonView lesson={lesson.lesson} visuals={figures.data||[]}/>:<P muted>Generate an explanation from this module with your local AI model.</P>}</>:null}
+  {tab==='quiz'?<><Row><Dropdown label="Questions" value={count} onChange={v=>{if(!task.busy)setCount(v);}} options={Array.from({length:10},(_,i)=>({value:String(i+1),label:String(i+1)}))}/><Button title={quiz?'Generate another quiz':'Generate quiz'} icon="sparkles-outline" onPress={()=>{void confirmLeave().then(ok=>{if(ok)generateQuiz();});}} disabled={task.busy||batchBusy}/>{quizzes.data?.length?<Dropdown label="Saved quiz" value={quiz?.id||''} onChange={v=>{void confirmLeave().then(ok=>{if(ok)setQuizId(v);});}} options={quizzes.data.map((q,i)=>({value:q.id,label:`Version ${quizzes.data!.length-i} · ${q.questions.length} questions`}))}/>:null}</Row>
    {quiz?.requestedCount&&quiz.questions.length<quiz.requestedCount?<Notice tone="warning" title="Shorter quiz saved" message={`${quiz.questions.length} of ${quiz.requestedCount} requested questions could be grounded in this module. You can practise these questions or generate another version.`}/>:null}
    {quiz?<QuizPractice key={quiz.id} quiz={quiz}/>:<P muted>Create a quiz to practise. If the source supports fewer questions than requested, a shorter quiz is saved and labelled with its question count.</P>}</>:null}
   {tab==='ask'?<>{doubtsBlocked?<Notice title="Doubts temporarily unavailable" message={DOUBTS_PAUSED_MESSAGE}/>:null}<P muted>Your private doubts stay on this device.</P>{(chats.data||[]).map(c=><Chat key={c.id} chat={c}/>)}<Input label="Your question" value={question} onChangeText={changeQuestion} multiline maxLength={1000} placeholder="What would you like to understand?" editable={viewReady&&!task.busy&&!doubtsBlocked}/><Button title="Ask local AI" icon="send-outline" onPress={ask} disabled={!viewReady||task.busy||doubtsBlocked||!question.trim()}/></>:null}

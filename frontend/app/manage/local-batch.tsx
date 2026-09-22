@@ -1,3 +1,4 @@
+import {StopGeneration} from '@/private/StopGeneration';
 import React,{useEffect,useMemo,useState} from 'react';
 import { useBackTo } from "@/hooks/useBackTo";
 import {useLocalSearchParams,useNavigation,useRouter} from 'expo-router';
@@ -47,18 +48,20 @@ function Batch({owner}:{owner:string}){
   void device().then(d=>d.status()).then(s=>{if(live)setModelReady(s.installed);}).catch(()=>{});
   return()=>{live=false;};
  },[service,id]);
- const run=(kind:'lesson'|'quiz')=>{try{
+ const run=(kind:'lesson'|'quiz'|'both')=>{try{
   setError('');const ids=rows.map(d=>d.snapshot.module_id);
-  generationJobs.enqueue({scope:jobScope(library!.prefix),bookId:id,documentId:id,sectionId:id,kind:'staff-batch',label:`Book · local ${kind}s`},(signal,progress)=>runMissingBatch({ids,kind,signal,read:id=>service.read(id),generate:(...args)=>service.generate(...args),progress,isShared:(local,k)=>{const d=rows.find(r=>r.snapshot.module_id===local);return !!shared[d?.snapshot.remote_id||local]?.[k];}})
-  );
+  generationJobs.enqueue({scope:jobScope(library!.prefix),bookId:id,documentId:id,sectionId:id,kind:'staff-batch',moduleIds:ids,label:kind==='both'?'Book · remaining lessons and quizzes':`Book · local ${kind}s`},async(signal,progress,runModule)=>{
+   const kinds:('lesson'|'quiz')[]=kind==='both'?['lesson','quiz']:[kind];
+   for(const next of kinds)await runMissingBatch({runModule,ids,kind:next,signal,read:id=>service.read(id),generate:(...args)=>service.generate(...args),progress,isShared:(local,k)=>{const d=rows.find(r=>r.snapshot.module_id===local);return !!shared[d?.snapshot.remote_id||local]?.[k];}});
+  });
  }catch(e){setError(String(e));}};
  return <Screen><PageHeading title="Prepare book" subtitle="Generate lessons and quizzes, then review your drafts." right={<Button title="Offline AI" variant="secondary" onPress={()=>router.push('/manage/offline-ai')}/>}/>
  <Row><Button title={id?"Back to outline":"Back to books"} icon="arrow-back" variant="secondary" onPress={()=>back(id?{pathname:"/manage/document/[id]",params:{id,tab:"outline"}}:"/manage/books")}/></Row>
  <ErrorBanner message={error}/><Card><P muted>{preparing?'Preparing book sources…':'Sources and generated work save automatically.'}</P>
  {!modelReady?<P>Download or import a model in Offline AI before generating.</P>:null}
  <P muted>Continue using the app while generation runs. After a refresh, restart the batch to resume missing work. Review drafts before publishing.</P>
- <Row><Button title="Generate missing lessons" disabled={busy||preparing||!modelReady||!rows.length} onPress={()=>run('lesson')}/><Button title="Generate missing quizzes" disabled={busy||preparing||!modelReady||!rows.length} onPress={()=>run('quiz')}/></Row>
+ <Row><Button title="Generate all remaining modules" disabled={busy||preparing||!modelReady||!rows.length} onPress={()=>run('both')}/><Button title="Generate missing lessons" disabled={busy||preparing||!modelReady||!rows.length} onPress={()=>run('lesson')}/><Button title="Generate missing quizzes" disabled={busy||preparing||!modelReady||!rows.length} onPress={()=>run('quiz')}/></Row>
  {id?<SyncAllButton owner={owner} scope={{documentId:id}} title="Synchronize all lessons and quizzes" onDone={()=>{void draftsFor(service,id).then(setRows).catch(()=>{});}}/>:null}
- {jobs.map(j=><Row key={j.id}><Badge value={j.state}/><P>{j.error||j.note}</P>{['running','queued'].includes(j.state)?<Button title="Cancel batch" variant="secondary" onPress={()=>generationJobs.cancel(j.id)}/>:null}</Row>)}</Card>
- <Card><H2>Saved modules</H2>{rows.map(d=><Row key={d.snapshot.module_id}><P>{d.snapshot.title} · Lesson {d.lesson?'saved':shared[d.snapshot.remote_id||d.snapshot.module_id]?.lesson?'synchronized':'missing'} · Quiz {d.questions?.length?'saved':shared[d.snapshot.remote_id||d.snapshot.module_id]?.quiz?'synchronized':'missing'}</P><Button title="Review draft" small variant="secondary" onPress={()=>router.push(`/manage/local-authoring/${d.snapshot.module_id}`)}/></Row>)}</Card></Screen>;
+ <StopGeneration jobs={jobs}/>{jobs.map(j=><Row key={j.id}><Badge value={j.state}/><P>{j.error||j.note}</P>{['running','queued'].includes(j.state)?<Button title={j.cancelling?"Stopping…":"Stop batch"} disabled={j.cancelling} variant="secondary" onPress={()=>generationJobs.cancel(j.id)}/>:null}</Row>)}</Card>
+ <Card><H2>Saved modules</H2>{rows.map(d=><Row key={d.snapshot.module_id}><P>{d.snapshot.title} · Lesson {d.lesson?'saved':shared[d.snapshot.remote_id||d.snapshot.module_id]?.lesson?'synchronized':'missing'} · Quiz {d.questions?.length?'saved':shared[d.snapshot.remote_id||d.snapshot.module_id]?.quiz?'synchronized':'missing'}</P><StopGeneration jobs={jobs} moduleIds={[d.snapshot.module_id,d.snapshot.remote_id||d.snapshot.module_id]}/><Button title="Review draft" small variant="secondary" onPress={()=>router.push(`/manage/local-authoring/${d.snapshot.module_id}`)}/></Row>)}</Card></Screen>;
 }
