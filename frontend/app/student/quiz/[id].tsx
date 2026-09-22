@@ -126,7 +126,7 @@ function StudentQuizEditor({ id }: { id: string }) {
       <Screen refreshing={info.loading} onRefresh={info.reload}>
         <ErrorBanner message={info.error} onRetry={info.reload} />
         {info.loading && !q ? <Loading /> : null}
-        {!info.loading && !q && !info.error ? <Notice tone="warning" title="Quiz not available" message="This quiz is closed or not open to you any more." /> : null}
+        {!info.loading && !q && !info.error ? <Notice inline tone="warning" title="Quiz not available" message="This quiz is closed or not open to you any more." /> : null}
         {q ? (
           <>
             <PageHeading eyebrow={eyebrow} title={q.title} subtitle={q.instructions || "A short check of what you have learned."}
@@ -147,7 +147,7 @@ function StudentQuizEditor({ id }: { id: string }) {
                     ]} />
                   </View>
                   <StepList steps={[["Choose one answer for each question.", ""], ["You can move between questions before you submit.", ""], ["Review your answers before the final submission.", ""]]} />
-                  <Notice tone={online ? "info" : "warning"} title={online ? "Your work is saved on this device." : "You are offline."} message="Downloaded MCQ quizzes work offline. Immediate results are marked here; answers wait for synchronization and server validation. Held results remain hidden. Changed access, deadlines or attempt limits may require review when reconnecting." />
+                  <Notice inline tone={online ? "info" : "warning"} title={online ? "Your work is saved on this device." : "You are offline."} message="Downloaded MCQ quizzes work offline. Immediate results are marked here; answers wait for synchronization and server validation. Held results remain hidden. Changed access, deadlines or attempt limits may require review when reconnecting." />
                   <ErrorBanner message={start.error} />
                   <FormFooter note={q.time_limit_minutes ? `The timer starts with the attempt. When the ${q.time_limit_minutes} minutes run out, your answers are submitted automatically.` : "Nothing is submitted until you confirm."}>
                     <Button title="Start quiz" icon="arrow-forward" onPress={() => start.run()} busy={start.busy} disabled={left === 0} />
@@ -173,7 +173,7 @@ function StudentQuizEditor({ id }: { id: string }) {
     return (
       <Screen>
         <PageHeading eyebrow={eyebrow} title="Review your answers" subtitle={`${attempt.questions.length - blank} of ${attempt.questions.length} answered. Change anything before you submit.`} right={remaining !== null ? <Badge value={`${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, "0")} left`} tone={remaining < 60 ? "red" : "blue"} /> : null} />
-        {blank ? <Notice tone="warning" title={`${blank} question${blank === 1 ? " is" : "s are"} not answered.`} message="Unanswered questions score nothing. You can still go back and answer them." /> : null}
+        {blank ? <Notice inline tone="warning" title={`${blank} question${blank === 1 ? " is" : "s are"} not answered.`} message="Unanswered questions score nothing. You can still go back and answer them." /> : null}
         <Card>
           {attempt.questions.map((x, i) => {
             const a = answers[x.id]?.trim();
@@ -203,8 +203,8 @@ function StudentQuizEditor({ id }: { id: string }) {
   return (
     <Screen>
       <PageHeading eyebrow={eyebrow} title={q?.title ?? "Quiz"} subtitle="Focus on one question at a time." right={<Badge value={`Attempt ${attempt.attempt_number}`} tone="blue" />} />
-      {restored === null ? <Notice title="Restoring saved answers…" message="Your answers saved on this device are being loaded. Submitting waits until that is done." /> : null}
-      {attempt.resumed && restored !== null ? <Notice title="Resuming your open attempt" message={restored ? "Your answers saved on this device were restored. Check them before you submit." : "No answers were saved on this device for this attempt, so check each question."} /> : null}
+      {restored === null ? <Notice inline title="Restoring saved answers…" message="Your answers saved on this device are being loaded. Submitting waits until that is done." /> : null}
+      {attempt.resumed && restored !== null ? <Notice inline title="Resuming your open attempt" message={restored ? "Your answers saved on this device were restored. Check them before you submit." : "No answers were saved on this device for this attempt, so check each question."} /> : null}
       <Split sideWidth={265}
         main={
           <Card style={{ padding: 30 }}>

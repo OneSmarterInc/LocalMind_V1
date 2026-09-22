@@ -1,6 +1,7 @@
 import React,{useEffect} from "react";
 import {courseEvents,retryCourseEvent} from "@/offline/coursework";
-import { Text } from "react-native";
+import { Text, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import type { DocumentTree, Subject, TeachResponse } from "@/api/types";
 import { useAsync } from "@/hooks/useAsync";
@@ -8,7 +9,7 @@ import { useOnline } from "@/offline/connectivity";
 import { readEntry } from "@/offline/store";
 import { syncNow, useSyncState } from "@/offline/sync";
 import { device } from "@/private/device";
-import { Badge, Button, Card, CardHead, ErrorBanner, Grid, ListRow, Notice, PageHeading, Row, Screen, colors, fmtDate } from "@/ui";
+import { Badge, Button, Card, CardHead, DetailList, ErrorBanner, Grid, ListRow, PageHeading, Row, Screen, colors, fmtDate } from "@/ui";
 
 type Saved = { subjects: number; books: number; modules: number; lessons: number; conversations: number };
 async function countSaved(): Promise<Saved> {
@@ -49,16 +50,48 @@ export default function OfflineLibrary() {
   const s = saved.data;
   return (
     <Screen refreshing={saved.loading} onRefresh={() => { saved.reload(); model.reload(); }}>
-      <PageHeading eyebrow="OFFLINE AVAILABILITY" title="Learning without a connection" subtitle="Course updates and saved progress synchronize automatically while connected. Private study stays local."
-        right={<Button title="Refresh course copy" icon="refresh" onPress={refresh} busy={sync.running} disabled={!online} />} />
-      <Row><Button title="Open Private Library" icon="book-outline" onPress={() => router.push('/student/private-library')} /><Button title="Set up Offline AI" variant="secondary" icon="hardware-chip-outline" onPress={() => router.push('/student/offline-ai')} /></Row>
-      <Notice tone={model.data?.installed ? "success" : "info"} title={model.data?.installed ? "A local model is installed." : "Local AI setup is needed for new explanations and doubts."}
-        message="Install a model once. Application files save automatically while connected; check readiness in Offline AI before disconnecting. The same model serves Private Library and new doubts about downloaded, authorized course modules. Saved reading and checking existing private MCQs do not need inference." />
-      <ErrorBanner message={model.error} onRetry={model.reload} />
-      <Notice tone={sync.lastSync ? "success" : "info"} title={sync.lastSync ? "Your course copy is saved." : "No complete course download yet."}
-        message={`${sync.lastSync ? `Course copy from ${fmtDate(sync.lastSync)}: ${s?.modules ?? 0} modules, ${s?.lessons ?? 0} ready lessons.` : "The course copy downloads automatically while connected."} Only published, open course modules are included. This count does not include your separate Private Library.`} />
+      <PageHeading eyebrow="OFFLINE AVAILABILITY" title="Course sync" subtitle="What is saved on this device and what is waiting to send." />
+      {(() => {
+        const waiting = pending.length;
+        const tone = !online ? "warning" : waiting ? "warning" : "success";
+        const bg = tone === "success" ? colors.pale : "#FFFAEC", fg = tone === "success" ? colors.primary : "#866028";
+        const title = !online ? "You are offline" : waiting ? `${waiting} item${waiting === 1 ? "" : "s"} waiting to send` : "Everything is up to date";
+        const sub = `${sync.lastSync ? `Last synced ${fmtDate(sync.lastSync)}.` : "No course copy downloaded yet."} ${online ? "Connected to LocalMind; syncing happens automatically." : "Your work is saved here and sends when you reconnect."}`;
+        return (
+          <Card>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+              <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: bg, alignItems: "center", justifyContent: "center" }}>
+                <Ionicons name={!online ? "cloud-offline-outline" : waiting ? "sync-outline" : "checkmark-circle-outline"} size={22} color={fg} />
+              </View>
+              <View style={{ flex: 1, minWidth: 220 }}>
+                <Text style={{ fontSize: 16, fontWeight: "600", color: colors.ink }} accessibilityRole="header">{title}</Text>
+                <Text style={{ fontSize: 12.5, color: colors.muted, marginTop: 2 }}>{sub}</Text>
+              </View>
+              <Button title="Sync now" icon="sync-outline" onPress={refresh} busy={sync.running} disabled={!online} />
+            </View>
+          </Card>
+        );
+      })()}
       <ErrorBanner message={sync.error ? `The last course refresh did not finish: ${sync.error}` : null} />
-      <Card><CardHead title="Course synchronization"/><Notice message={`${pending.length} saved events waiting for synchronization or review. Private Library activity is not uploaded.`}/><ErrorBanner message={work.error}/>{pending.map(row=><Row key={row.event.id}><Text>{row.event.kind} · {row.state}{row.error?` · ${row.error}`:''}</Text>{row.state==='conflict'?<Button title="Retry synchronization" disabled={!online} onPress={()=>{void retryCourseEvent(row.event.id).then(work.reload).catch(work.reload);}}/>:null}</Row>)}</Card>
+      <ErrorBanner message={model.error} onRetry={model.reload} />
+      <Grid min={320} gap={20}>
+        <Card>
+          <CardHead title="Waiting to send" subtitle="Quiz answers and progress saved on this device" />
+          <ErrorBanner message={work.error} />
+          {pending.length ? <>{pending.map(row=><Row key={row.event.id}><Text>{row.event.kind} · {row.state}{row.error?` · ${row.error}`:''}</Text>{row.state==='conflict'?<Button title="Retry synchronization" disabled={!online} onPress={()=>{void retryCourseEvent(row.event.id).then(work.reload).catch(work.reload);}}/>:null}</Row>)}</> : <Text style={{ fontSize: 13, color: colors.muted }}>Nothing is waiting. Private Library activity is never uploaded.</Text>}
+        </Card>
+        <Card>
+          <CardHead title="Saved on this device" subtitle="Available without a connection" />
+          <DetailList items={[
+            ["Subjects", String(s?.subjects ?? 0)],
+            ["Books", String(s?.books ?? 0)],
+            ["Modules for offline reading", String(s?.modules ?? 0)],
+            ["Lessons ready", String(s?.lessons ?? 0)],
+            ["Offline AI", <Badge key="ai" value={model.data?.installed ? "Installed" : "Not set up"} tone={model.data?.installed ? "green" : "neutral"} />],
+          ]} />
+          <Row><Button title="Open Private Library" small variant="secondary" icon="book-outline" onPress={() => router.push('/student/private-library')} /><Button title="Set up Offline AI" small variant="secondary" icon="hardware-chip-outline" onPress={() => router.push('/student/offline-ai')} /></Row>
+        </Card>
+      </Grid>
       <Grid min={320} gap={20}>
         <Card>
           <CardHead title="Available on this device" />

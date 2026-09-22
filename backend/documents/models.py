@@ -35,7 +35,7 @@ class DocumentQuerySet(models.QuerySet):
             return self
         if user.role == Role.FACULTY:
             return self.filter(subject__faculty_links__faculty=user,
-                               subject__faculty_links__status=AssignmentStatus.ACTIVE).distinct()
+                               subject__faculty_links__status=AssignmentStatus.ACTIVE).exclude(subject__status="archived").distinct()
         if user.role == Role.STUDENT:
             return self.filter(status=DocumentStatus.PUBLISHED, subject__status="active",
                                subject__enrollments__student=user,

@@ -11,5 +11,5 @@ export default function NotFound() {
     if (mustChangePassword) return <Redirect href="/change-password" />;
     return <Redirect href={user.role === "student" ? "/student/quizzes" : "/manage/quizzes"} />;
   }
-  return <Screen><Notice title="Page not found" message="This page is unavailable. Use your workspace navigation to continue." /></Screen>;
+  return <Screen><Notice inline title="Page not found" message="This page is unavailable. Use your workspace navigation to continue." /></Screen>;
 }

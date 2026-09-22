@@ -315,6 +315,24 @@ export function lessonPassages(source:string, size=800):string[]{
  while(rest){let end=Math.min(rest.length,size);if(end<rest.length){const at=Math.max(rest.lastIndexOf('. ',end),rest.lastIndexOf('\n',end));if(at>size/2)end=at+1;}parts.push(rest.slice(0,end).trim());rest=rest.slice(end).trim();}
  return parts;
 }
+/** Lesson passages that follow the module's own headings.
+ * A module built from several short book sections (for example 1.1 and 1.2,
+ * merged because each was too short on its own) keeps their headings in its
+ * text. Splitting only by size put them in one passage, so the lesson taught
+ * mostly the first. Each heading now starts its own passage, and long sections
+ * are still split by size. Text without headings behaves exactly as before. */
+export function headingPassages(source:string, size=2800):string[]{
+ const blocks:string[]=[];let current:string[]=[];
+ for(const line of source.trim().split('\n')){
+  if(/^#{1,6}\s+\S/.test(line)&&current.some(l=>l.trim()&&!/^#{1,6}\s/.test(l))){blocks.push(current.join('\n').trim());current=[];}
+  current.push(line);
+ }
+ if(current.join('\n').trim())blocks.push(current.join('\n').trim());
+ if(blocks.length<=1)return lessonPassages(source,size);
+ return blocks.flatMap(b=>lessonPassages(b,size));
+}
+/** The heading a passage starts with, if any. */
+export const passageHeading=(passage:string)=>passage.match(/^#{1,6}\s+(.+)$/m)?.[1]?.trim();
 /** Retrieve bounded passages from this private book, allowing small spelling mistakes. */
 export function bookReference(sections:Section[], selected:string, question:string, budget=1800):string{
  const stop=new Set(['what','does','this','that','with','from','have','explain','about','which','where','please','could','would','tell','give','some','is','of','in','on','to','me','an','as','be','do','it']);

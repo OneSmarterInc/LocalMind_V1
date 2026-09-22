@@ -41,12 +41,12 @@ export default function ManageLayout() {
   const shell = useShell(meta);
   return (
     <Tabs backBehavior="fullHistory" UNSTABLE_router={portalRouter} screenOptions={shell.screenOptions} tabBar={shell.tabBar}>
-      <Tabs.Screen name="offline-ai" options={{ title: "Offline AI", tabBarIcon: icon("hardware-chip-outline") }} />
       <Tabs.Screen name="index" options={{ title: "Overview", tabBarIcon: icon("home-outline") }} />
       <Tabs.Screen name="subjects" options={{ title: "Subjects", tabBarIcon: icon("library-outline") }} />
-      <Tabs.Screen name="private-library" options={{ title: "Private study books", tabBarIcon: icon("library-outline") }} />
       <Tabs.Screen name="books" options={{ title: "Books & modules", tabBarIcon: icon("book-outline") }} />
       <Tabs.Screen name="quizzes" options={{ title: "Quizzes", tabBarIcon: icon("help-circle-outline") }} />
+      <Tabs.Screen name="private-library" options={{ title: "Private study books", tabBarIcon: icon("library-outline") }} />
+      <Tabs.Screen name="offline-ai" options={{ title: "Offline AI", tabBarIcon: icon("hardware-chip-outline") }} />
       <Tabs.Screen name="profile" options={{ href: admin ? null : undefined, title: "My profile", tabBarIcon: icon("person-circle-outline") }} />
       <Tabs.Screen name="subject/[id]" options={shellScreen({ href: null, title: "Subject" }, { backTo: "/manage/subjects", backLabel: "Subjects" })} />
       <Tabs.Screen name="student/[id]" options={shellScreen({ href: null, title: "Student progress" }, { backTo: "/manage/subjects", backLabel: "Subjects" })} />

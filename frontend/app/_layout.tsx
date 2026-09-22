@@ -7,7 +7,7 @@ import React from "react";
 import { Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider, useAuth } from "@/auth/AuthContext";
-import { DialogHost, Loading, colors } from "@/ui";
+import { DialogHost, Loading, ToastHost, colors } from "@/ui";
 import { NativeDatePickerHost } from "@/ui/NativeDatePicker";
 
 /**
@@ -74,6 +74,7 @@ export function AppNavigator() {
         </Stack.Protected>
       </Stack>
       <DialogHost />
+      <ToastHost />
       {workspace ? <ParserHost /> : null}
       <NativeDatePickerHost />
     </>

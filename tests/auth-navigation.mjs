@@ -18,7 +18,7 @@ const fixtures={
  export function Redirect({href}){return React.createElement('span',{'data-redirect':href})}`,
  '@/auth/AuthContext':`export const useAuth=()=>globalThis.authFixture;export const AuthProvider=({children})=>children;`,
  'react-native':`import React from 'react';export const Platform={OS:'test'};export const View=({children})=>React.createElement('div',null,children);export const ScrollView=View,Text=View,Pressable=View;`,
- '@/ui':`import React from 'react';export const colors={};export const Loading=()=>React.createElement('span',{'data-loading':true});export const DialogHost=()=>null;`,
+ '@/ui':`import React from 'react';export const colors={};export const Loading=()=>React.createElement('span',{'data-loading':true});export const DialogHost=()=>null;export const ToastHost=()=>null;`,
  '@/private/GenerationJobs':`import React from 'react';export const GenerationHost=()=>React.createElement('span',{'data-generation':true});`,
  '@/private/ParserHost':`export default function ParserHost(){return null}`,
  '@/ui/NativeDatePicker':`export const NativeDatePickerHost=()=>null;`,

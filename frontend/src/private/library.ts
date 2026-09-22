@@ -8,7 +8,7 @@ import { device } from './device';
 import { cancelled } from './busy';
 import { avoidList } from './promptBudget';
 import type { LocalFile } from './device.types';
-import { MAX_READING_CHARS, MAX_SECTION_CHARS, ANSWER_SCHEMA, groundedSchema, GROUNDING, COMPACT_LESSON_SCHEMA, COMPACT_MCQ_SCHEMA, compactMcqBatchSchema, markQuiz, requireThat, bookReference, pageSource, lessonPassages, text, validateAnswer, validateBook, validateLesson, validateMCQ, type PrivateBook, type Lesson, type MCQ, type SourceVisual } from './core';
+import { MAX_READING_CHARS, MAX_SECTION_CHARS, ANSWER_SCHEMA, groundedSchema, GROUNDING, COMPACT_LESSON_SCHEMA, COMPACT_MCQ_SCHEMA, compactMcqBatchSchema, markQuiz, requireThat, bookReference, pageSource, lessonPassages, headingPassages, passageHeading, text, validateAnswer, validateBook, validateLesson, validateMCQ, type PrivateBook, type Lesson, type MCQ, type SourceVisual } from './core';
 export type QuizVersion = { id: string; bookId: string; sectionId: string; createdAt: string; requestedCount?: number; questions: MCQ[] };
 export type LessonVersion = { id: string; sectionId: string; createdAt: string; lesson: Lesson };
 export type PracticeResult = { id: string; quizId: string; createdAt: string; answers: Record<string, number> } & ReturnType<typeof markQuiz>;
@@ -85,7 +85,7 @@ export class Library {
   async generateLesson(bookId: string, sectionId: string, signal: AbortSignal, progress?: (message:string)=>void) {
     const book = await this.book(bookId); const section = book.sections.find(s => s.id === sectionId); requireThat(section, 'Choose a module in this book');
     const sourceText=pageSource(book.sections, sectionId);
-    let passages=lessonPassages(sourceText,2800);requireThat(passages.length,'This module has no readable text.');
+    let passages=headingPassages(sourceText,2800);requireThat(passages.length,'This module has no readable text.');
     const d=await device(), model=await d.status();
     const lessonKey=(parts:string[])=>`${this.work(bookId)}checkpoint:lesson:${sectionId}:${fingerprint(JSON.stringify({version:1,passages:parts,title:section.title,model:model.hash||model.name}))}:`;
     // Resume checkpoints created by earlier builds before starting the larger, faster passages.
@@ -100,7 +100,7 @@ export class Library {
       progress:done=>progress?.(`${done} of ${passages.length} lesson parts saved. Generate again after an interruption to resume.`),
       generate:async index=>{
         this.guard();const source=passages[index];
-        const raw=await d.complete({system:GROUNDING,prompt:`Teach this entire source passage in plain language. Explain its definitions, relationships, examples and formulas when present. Do not just name the main idea. Write one introductory sentence, one explanatory section and one takeaway. Each call covers one consecutive part of the module. Use an exact supporting quote.\nMODULE: ${section.title} — part ${index+1} of ${passages.length}\nSTORED BOOK REFERENCE:\n${source}`,schema:groundedSchema(COMPACT_LESSON_SCHEMA,source),maxTokens:800,temperature:0.2,signal,
+        const raw=await d.complete({system:GROUNDING,prompt:`Teach this entire source passage in plain language. Explain its definitions, relationships, examples and formulas when present. Do not just name the main idea. Write one introductory sentence, one explanatory section and one takeaway. Each call covers one consecutive part of the module. Use an exact supporting quote.\nMODULE: ${section.title}${passageHeading(source)?` (this part: ${passageHeading(source)})`:''} — part ${index+1} of ${passages.length}\nSTORED BOOK REFERENCE:\n${source}`,schema:groundedSchema(COMPACT_LESSON_SCHEMA,source),maxTokens:800,temperature:0.2,signal,
           progress:message=>progress?.(`Part ${index+1}/${passages.length} · ${message}`)});
         return validateLesson(raw,source);
       }});

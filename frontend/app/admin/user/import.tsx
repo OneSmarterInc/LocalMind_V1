@@ -65,7 +65,7 @@ export default function ImportPeople() {
     return (
       <Screen>
         <PageHeading eyebrow="PEOPLE · IMPORT RESULTS" title="Review the import report" subtitle={file?.name ?? "Excel import"} right={<Button title="Go to people" icon="arrow-forward" onPress={done} />} />
-        <Notice tone={report.invalid || report.already_existing ? "warning" : "success"} title={`${report.created} row${report.created === 1 ? "" : "s"} accepted. ${report.invalid + report.already_existing} need${report.invalid + report.already_existing === 1 ? "s" : ""} attention.`}
+        <Notice inline tone={report.invalid || report.already_existing ? "warning" : "success"} title={`${report.created} row${report.created === 1 ? "" : "s"} accepted. ${report.invalid + report.already_existing} need${report.invalid + report.already_existing === 1 ? "s" : ""} attention.`}
           message="Rows that were created are not created twice. Correct the marked rows in the sheet and import it again." />
         {credentials.length ? <OneTimeCredentials title={`${credentials.length} one-time password${credentials.length === 1 ? "" : "s"}`} rows={credentials} filename={`localmind-${who}-one-time-passwords.csv`} /> : null}
         <Card flush><Table noun="row" columns={columns} rows={rows} keyOf={(r) => `${r.row}-${r.email}`} minWidth={820} /></Card>

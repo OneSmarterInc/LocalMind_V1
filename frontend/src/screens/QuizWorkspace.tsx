@@ -345,12 +345,12 @@ export function QuizDetailPage({ id, note }: { id: string; note?: string }) {
         { key: "settings", label: "Settings & release" }, { key: "attempts", label: "Student attempts", count: d.attempt_count ? d.attempt_count : null },
       ]} />
       <ErrorBanner message={save.error ?? setStatus.error ?? release.error ?? remove.error ?? review.error ?? publishHeld.error} />
-      {leftBehind ? <Notice tone="warning" title="Unsaved changes were left on another quiz." message={`Your edits to ${leftBehind.label} are kept with that quiz and were not applied here.`}
+      {leftBehind ? <Notice inline tone="warning" title="Unsaved changes were left on another quiz." message={`Your edits to ${leftBehind.label} are kept with that quiz and were not applied here.`}
         action={<View style={{ flexDirection: "row", gap: 8 }}><Button title="Open that quiz" small variant="secondary" onPress={() => router.push(`/manage/quiz/${leftBehind.id}`)} /><Button title="Discard them" small variant="ghost" onPress={forgetLeftBehind} /></View>} /> : null}
-      {changedMeanwhile ? <Notice tone="warning" title="This quiz changed on the server while you were editing." message="Your edits are kept. Saving replaces the server copy; discard your edits to load the latest version." /> : null}
-      {held && fixing ? <Notice tone="warning" title="Correcting a held quiz" message="Save your corrections, then use “Publish corrected quiz”. The quiz stays hidden from students until you publish it." /> : null}
-      {note ? <Notice tone="warning" title="Generated with notes" message={`${note}. Review the questions, add any that are missing by hand, or generate again.`} /> : null}
-      {d.generator === "fallback" ? <Notice tone="warning" title="Placeholder questions" message="This older draft was produced without the AI. Rewrite the marked options before publishing." /> : null}
+      {changedMeanwhile ? <Notice inline tone="warning" title="This quiz changed on the server while you were editing." message="Your edits are kept. Saving replaces the server copy; discard your edits to load the latest version." /> : null}
+      {held && fixing ? <Notice inline tone="warning" title="Correcting a held quiz" message="Save your corrections, then use “Publish corrected quiz”. The quiz stays hidden from students until you publish it." /> : null}
+      {note ? <Notice inline tone="warning" title="Generated with notes" message={`${note}. Review the questions, add any that are missing by hand, or generate again.`} /> : null}
+      {d.generator === "fallback" ? <Notice inline tone="warning" title="Placeholder questions" message="This older draft was produced without the AI. Rewrite the marked options before publishing." /> : null}
 
       {tab === "questions" && held && !fixing ? (
         <HeldReview quiz={d} source={first} busy={review.busy} onFix={() => setFixing(true)} onDecide={(a, n) => review.run(a, n)} canDecide={!!d.hold_incident_id} />
@@ -422,7 +422,7 @@ export function QuizDetailPage({ id, note }: { id: string; note?: string }) {
                 <Card>
                   <CardHead title="Release results" subtitle={d.results_released_at ? "Results have been released. Students receive them when connected and synchronized." : "Saving a release setting does not release held results. Offline attempts must synchronize before their results reach students."} />
                   {d.results_release !== "immediate" && !d.results_released_at ? <Button title="Release results now" icon="checkmark" onPress={() => release.run()} busy={release.busy} disabled={dirty} /> : <Notice message="Results are available after evaluation and synchronization." />}
-                  {dirty ? <Notice message="Save your settings before releasing results." /> : null}
+                  {dirty ? <Notice inline message="Save your settings before releasing results." /> : null}
                 </Card>
                 <DangerZone title="Quiz lifecycle" text="Closing prevents new attempts. Deleting permanently removes the quiz and its attempts.">
                   {d.status === "published" ? <Button title="Close quiz" variant="secondary" onPress={() => setStatus.run("closed")} busy={setStatus.busy} disabled={dirty} /> : null}
@@ -517,7 +517,7 @@ function HeldReview({ quiz, source, busy, onFix, onDecide, canDecide }: { quiz: 
   const evidence = details?.evidence?.length ? details.evidence : source ? [{ ref: source.title, text: source.source_text }] : [];
   return (
     <>
-      <Notice tone="warning" title="This automatic quiz is hidden from students." message={`The AI monitor found a possible problem${quiz.hold_reason ? `: ${quiz.hold_reason}` : ""}. Compare the flagged question with the source, then correct and publish the quiz, or mark the finding as a false alarm.`} />
+      <Notice inline tone="warning" title="This automatic quiz is hidden from students." message={`The AI monitor found a possible problem${quiz.hold_reason ? `: ${quiz.hold_reason}` : ""}. Compare the flagged question with the source, then correct and publish the quiz, or mark the finding as a false alarm.`} />
       <Grid min={320} gap={20}>
         <Card>
           <CardHead title={flagged.length > 1 ? "Flagged questions" : "Generated question"} />
@@ -591,7 +591,7 @@ function AttemptsTab({ quiz, pending, onRelease, releasing }: { quiz: Quiz; pend
   return (
     <>
       {pending ? (
-        <Notice tone="warning" title={`${pending} student${pending === 1 ? " is" : "s are"} waiting for their results.`} message="Their attempts are evaluated. Releasing makes their own scores and feedback visible to them. Release cannot be undone."
+        <Notice inline tone="warning" title={`${pending} student${pending === 1 ? " is" : "s are"} waiting for their results.`} message="Their attempts are evaluated. Releasing makes their own scores and feedback visible to them. Release cannot be undone."
           action={<Button title="Release all results" icon="checkmark" small onPress={() => onRelease()} busy={releasing} />} />
       ) : null}
       <ErrorBanner message={q.error} onRetry={q.reload} />
@@ -643,7 +643,7 @@ export function AttemptReviewPage({ attemptId, quizId }: { attemptId: string; qu
         right={<Button title="Back to attempts" variant="secondary" icon="arrow-back" onPress={back} />} />
       <ErrorBanner message={quiz.error ?? attempts.error ?? save.error ?? rerun.error ?? release.error} onRetry={() => { void quiz.reload(); void attempts.reload(); }} />
       {attempts.loading && !a ? <Loading /> : null}
-      {attempts.data && !a ? <Notice tone="warning" title="Attempt not found" message="It may belong to an older version of this quiz." /> : null}
+      {attempts.data && !a ? <Notice inline tone="warning" title="Attempt not found" message="It may belong to an older version of this quiz." /> : null}
       {a && z ? (
         <>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 16 }}>

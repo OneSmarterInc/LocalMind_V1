@@ -1,9 +1,12 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
+import { View } from "react-native";
 import { admin } from "@/api/endpoints";
 import type { Subject } from "@/api/types";
 import { useAsync } from "@/hooks/useAsync";
 import { useDebounced } from "@/hooks/useDebounced";
+import { deleteSubjectFlow } from "@/screens/admin/deleteSubject";
+import { useToast } from "@/ui/Toast";
 import { Badge, Button, Card, CellText, Column, Dropdown, Empty, ErrorBanner, Input, Loading, Notice, PageHeading, Screen, Table, TableToolbar, RequestFailed } from "@/ui";
 
 export default function Subjects() {
@@ -17,13 +20,26 @@ export default function Subjects() {
   const list = useAsync(() => admin.subjects({ status: status || undefined, q: query }), [status, query]);
   const stats = useAsync(() => admin.platformSubjects(), []);
   const byId = useMemo(() => new Map<string, any>((stats.data?.subjects ?? []).map((s: any) => [s.subject_id, s])), [stats.data]);
+  const toast = useToast();
+  const remove = async (s: Subject) => {
+    try {
+      const done = await deleteSubjectFlow(s, { students: byId.get(s.id)?.students_enrolled, books: byId.get(s.id)?.documents_published });
+      if (!done) return;
+      toast.show({ tone: "success", title: done === "deleted" ? `${s.name} deleted` : `${s.name} archived`, message: done === "deleted" ? "The subject and everything in it were removed." : "Hidden from faculty and students. Unarchive it any time." });
+      list.reload(); stats.reload();
+    } catch (e) { toast.show({ tone: "danger", title: "Could not delete the subject", message: e instanceof Error ? e.message : String(e) }); }
+  };
   const columns: Column<Subject>[] = [
     { key: "s", label: "Subject", flex: 2, render: (s) => <CellText title={s.name} sub={s.code} /> },
     { key: "f", label: "Faculty", flex: 1.4, render: (s) => (byId.get(s.id)?.faculty ?? []).join(", ") || "Not assigned" },
     { key: "n", label: "Students", flex: 0.7, render: (s) => String(byId.get(s.id)?.students_enrolled ?? "—") },
     { key: "b", label: "Books", flex: 0.6, render: (s) => String(byId.get(s.id)?.documents_published ?? "—") },
     { key: "t", label: "Status", flex: 0.9, render: (s) => <Badge value={s.status.charAt(0).toUpperCase() + s.status.slice(1)} tone={s.status === "active" ? "green" : "neutral"} /> },
-    { key: "x", label: "", flex: 1.1, render: (s) => <Button title="Manage subject" small variant="secondary" icon="arrow-forward" onPress={() => router.push(`/admin/subject/${s.id}`)} /> },
+    { key: "x", label: "Actions", flex: 1.7, render: (s) => (
+      <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+        <Button title="Manage subject" small variant="secondary" icon="arrow-forward" onPress={() => router.push(`/admin/subject/${s.id}`)} />
+        <Button title="Delete" small variant="secondary" icon="trash-outline" accessibilityLabel={`Delete ${s.name}`} onPress={() => void remove(s)} />
+      </View>) },
   ];
   return (
     <Screen refreshing={list.loading} onRefresh={() => { list.reload(); stats.reload(); }}>

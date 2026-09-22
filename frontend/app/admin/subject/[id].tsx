@@ -1,3 +1,4 @@
+import { deleteSubjectFlow } from "@/screens/admin/deleteSubject";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useDraft } from "@/hooks/useDraft";
 import { confirmLeave } from "@/hooks/unsavedGuard";
@@ -6,7 +7,7 @@ import React, { useMemo, useState } from "react";
 import { Text, View } from "react-native";
 import { admin, manage } from "@/api/endpoints";
 import { useAction, useAsync } from "@/hooks/useAsync";
-import { Badge, Button, Card, CardHead, CellText, Column, DangerZone, DetailList, Empty, ErrorBanner, Input, Loading, Notice, OptionCard, PageHeading, PageTabs, ProgressBar, Screen, Split, Table, colors, confirmAsync, confirmDeleteAsync, pct, RequestFailed } from "@/ui";
+import { Badge, Button, Card, CardHead, CellText, Column, DangerZone, DetailList, Empty, ErrorBanner, Input, Loading, Notice, OptionCard, PageHeading, PageTabs, ProgressBar, Screen, Split, Table, colors, confirmAsync, pct, RequestFailed } from "@/ui";
 import { StudentPicker } from "@/ui/StudentPicker";
 
 type Tab = "details" | "faculty" | "students";
@@ -28,7 +29,7 @@ export default function AdminSubject() {
           {tab === "details" ? <DetailsTab subject={s} onChanged={q.reload} /> : null}
           {tab === "faculty" ? <FacultyTab subjectId={id} faculty={activeFaculty} onChanged={q.reload} /> : null}
           {tab === "students" ? <StudentsTab subjectId={id} /> : null}
-          {s.status === "archived" ? <Notice tone="warning" message="This subject is archived. Unarchive it to restore teaching access and keep its existing records." /> : null}
+          {s.status === "archived" ? <Notice inline tone="warning" message="This subject is archived. Unarchive it to restore teaching access and keep its existing records." /> : null}
           <View style={{ height: 4 }} />
         </>
       ) : null}
@@ -57,10 +58,9 @@ function DetailsTab({ subject: s, onChanged }: { subject: any; onChanged: () => 
     await admin.subjectStatus(s.id, next); onChanged();
   });
   const remove = useAction(async () => {
-    const ok = await confirmDeleteAsync("Delete this subject?", "This permanently removes the subject along with its books, modules, quizzes, attempts and enrolment records. It cannot be undone.", { detail: `${s.code} · ${s.name}`, okLabel: "Delete subject" });
-    if (!ok) return;
-    await admin.deleteSubject(s.id);
-    router.replace({ pathname: "/admin/subjects", params: { notice: `${s.code} · ${s.name} was deleted.` } });
+    const done = await deleteSubjectFlow(s, { students: stats.data?.students_enrolled ?? s.active_students, books: stats.data?.documents_published });
+    if (done === "deleted") router.replace({ pathname: "/admin/subjects", params: { notice: `${s.code} · ${s.name} was deleted.` } });
+    else if (done === "archived") onChanged();
   });
   return (
     <>

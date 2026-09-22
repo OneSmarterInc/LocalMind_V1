@@ -8,12 +8,12 @@ import {recordCourseWork} from '@/offline/coursework';
 import CourseAsk from "@/private/CourseAsk";
 import { SourceContent } from "@/ui/SourceContent";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef } from "react";
 import { AppState, Pressable, Text, View } from "react-native";
 import { student } from "@/api/endpoints";
 import type { ModuleFull, ModuleNeighbour, Quiz } from "@/api/types";
 import { useAsync } from "@/hooks/useAsync";
-import { Badge, Button, Card, CardHead, DetailList, Empty, ErrorBanner, Eyebrow, FormFooter, Input, Loading, Notice, PageHeading, PageTabs, Screen, Split, StepList, TextLink, colors, pct } from "@/ui";
+import { Badge, Button, Card, CardHead, DetailList, Empty, ErrorBanner, Eyebrow, FormFooter, Loading, Notice, PageHeading, PageTabs, Screen, Split, StepList, TextLink, colors, pct } from "@/ui";
 import { LessonView } from "@/ui/LessonView";
 
 type Tab = "read" | "lesson" | "ask";
@@ -86,14 +86,13 @@ export default function StudentModule() {
   const go = (moduleId: string) => router.push(`/student/module/${moduleId}`);
   const side = m ? (
     <>
-      <ModuleSearch documentId={m.document_id} currentId={id} onGo={go} />
       <ModuleSide module={m} quizzes={quizzes.data ?? []} onQuiz={(qid) => router.push(`/student/quiz/${qid}`)} onOffline={() => router.push("/student/offline")} />
     </>
   ) : null;
   const lessonState = teach.data?.status;
   return (
     <Screen refreshing={mod.loading} onRefresh={() => { mod.reload(); teach.reload(); }}>
-      {m?.progress?.sync_pending?<Notice message="This progress is saved on your device and awaits institution synchronization."/>:null}
+      {m?.progress?.sync_pending?<Notice inline message="This progress is saved on your device and awaits institution synchronization."/>:null}
       <ErrorBanner message={mod.error} onRetry={mod.reload} />
       {mod.loading && !m ? <Loading /> : null}
       {m ? (
@@ -245,8 +244,8 @@ function ModuleNav({ previous, next, onGo }: { previous?: ModuleNeighbour | null
     const locked = n.availability !== "open";
     const body = (
       <View style={{ flex: 1, gap: 3, alignItems: side === "next" ? "flex-end" : "flex-start" }}>
-        <Text style={{ fontSize: 11, color: colors.muted, textTransform: "uppercase", letterSpacing: 0.4 }}>
-          {side === "next" ? "Next" : "Previous"} · Module {n.number}
+        <Text style={{ fontSize: 12, color: colors.muted }}>
+          {side === "next" ? "Next module" : "Previous module"} {n.number}
         </Text>
         <Text numberOfLines={1} style={{ fontSize: 14, fontWeight: "600", color: locked ? colors.muted : colors.ink, textAlign: side === "next" ? "right" : "left" }}>
           {n.title}
@@ -256,7 +255,7 @@ function ModuleNav({ previous, next, onGo }: { previous?: ModuleNeighbour | null
     );
     const inner = (
       <View style={{ flexDirection: side === "next" ? "row-reverse" : "row", alignItems: "center", gap: 10, flex: 1 }}>
-        <Ionicons name={side === "next" ? "arrow-forward" : "arrow-back"} size={16} color={locked ? colors.faint : colors.ink} />
+        <Ionicons name={side === "next" ? "chevron-forward" : "chevron-back"} size={18} color={locked ? colors.faint : colors.primary} />
         {body}
       </View>
     );
@@ -269,7 +268,7 @@ function ModuleNav({ previous, next, onGo }: { previous?: ModuleNeighbour | null
     }
     return (
       <Pressable accessibilityRole="button" accessibilityLabel={`Go to module ${n.number}: ${n.title}`} onPress={() => onGo(n.id)}
-        style={({ pressed }) => [{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, backgroundColor: pressed ? "#F1F5EF" : colors.surface }]}>
+        style={(st: any) => [{ flex: 1, minHeight: 64, borderWidth: 1, borderColor: st.hovered ? colors.borderStrong : colors.border, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, backgroundColor: st.pressed || st.hovered ? "#F1F5EF" : colors.surface }]}>
         {inner}
       </Pressable>
     );
@@ -282,84 +281,3 @@ function ModuleNav({ previous, next, onGo }: { previous?: ModuleNeighbour | null
   );
 }
 
-/** Jump to any module the student is enrolled in, by name, chapter or number.
- *
- * Sits in the sidebar rather than the header: it is a navigation aid, not the
- * subject of the page, and putting a search field above the title would push
- * the module the student is actually reading below the fold. Results are
- * capped so the card never grows taller than the ones beside it.
- *
- * The search covers the whole library, not just the open book. Searching one
- * book only answered "find a module in here", when the thing a student
- * actually asks for is "take me to that module" — and the module they mean is
- * often in another book of the same subject. The current book is searched
- * immediately from the outline the page already holds; the rest of the
- * library is fetched once, in the background, the first time anything is
- * typed, so opening a module never pays for a search that may not happen.
- * Rows from the current book are listed first, and a row from elsewhere says
- * which book it belongs to.
- */
-type Hit = { id: string; title: string; chapter: string; number: number; availability?: string; book: string; here: boolean; elsewhere: boolean };
-
-function ModuleSearch({ documentId, currentId, onGo }: { documentId?: string; currentId: string; onGo: (id: string) => void }) {
-  const [term, setTerm] = useState("");
-  const [wanted, setWanted] = useState(false);
-  const tree = useAsync(() => (documentId ? student.document(documentId) : Promise.resolve(null)), [documentId]);
-
-  // Every other book, fetched once and only after the student starts typing.
-  const rest = useAsync(async () => {
-    if (!wanted) return null;
-    const books: { id: string; title: string }[] = [];
-    for (const s of await student.subjects()) for (const d of await student.documents(s.id)) if (d.id !== documentId) books.push({ id: d.id, title: d.title });
-    const out: Hit[] = [];
-    for (const b of books) {
-      try {
-        const t = await student.document(b.id);
-        let n = 0;
-        for (const c of t.chapters) for (const m of c.modules) out.push({ id: m.id, title: m.title, chapter: c.title, number: ++n, availability: m.availability, book: t.title, here: false, elsewhere: true });
-      } catch { /* a book that cannot be read is simply not offered */ }
-    }
-    return out;
-  }, [wanted, documentId]);
-
-  const here = useMemo<Hit[]>(() => {
-    const bookTitle = tree.data?.title ?? "";
-    const rows = (tree.data?.chapters ?? []).flatMap((c) => c.modules.map((m) => ({ ...m, chapter: c.title })));
-    return rows.map((m, i) => ({ id: m.id, title: m.title, chapter: m.chapter, number: i + 1, availability: m.availability, book: bookTitle, here: m.id === currentId, elsewhere: false }));
-  }, [tree.data, currentId]);
-
-  const hits = useMemo(() => {
-    const q = term.trim().toLowerCase();
-    if (!q) return [];
-    const match = (m: Hit) => m.title.toLowerCase().includes(q) || m.chapter.toLowerCase().includes(q) || m.book.toLowerCase().includes(q) || String(m.number) === q;
-    // This book first: a student searching while reading usually means this one.
-    return [...here.filter(match), ...(rest.data ?? []).filter(match)].slice(0, 8);
-  }, [here, rest.data, term]);
-
-  const change = (v: string) => { setTerm(v); if (v.trim() && !wanted) setWanted(true); };
-  if (!documentId) return null;
-  return (
-    <Card>
-      <CardHead title="Find a module" subtitle="Search every book you are enrolled in, by name, chapter or number." />
-      <Input value={term} onChangeText={change} placeholder="Search modules" icon="search" accessibilityLabel="Search modules across your books" />
-      {term.trim() && !hits.length ? (
-        <Text style={{ fontSize: 12, color: colors.muted }}>{rest.loading ? "Searching your other books\u2026" : "No module matches that."}</Text>
-      ) : null}
-      <View style={{ gap: 6 }}>
-        {hits.map((m) => {
-          const locked = m.availability !== "open";
-          return (
-            <Pressable key={m.id} disabled={locked || m.here} accessibilityRole="button" accessibilityLabel={`${m.title}${m.elsewhere ? `, in ${m.book}` : ""}${locked ? ", not open yet" : ""}`}
-              onPress={() => { setTerm(""); onGo(m.id); }}
-              style={({ pressed }) => [{ borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, opacity: locked ? 0.55 : 1,
-                backgroundColor: m.here ? "#EDF5EA" : pressed ? "#F1F5EF" : "transparent" }]}>
-              <Text numberOfLines={1} style={{ fontSize: 13, color: colors.ink, fontWeight: m.here ? "600" : "400" }}>{m.number}. {m.title}</Text>
-              <Text numberOfLines={1} style={{ fontSize: 11, color: colors.muted }}>{m.here ? "You are here" : locked ? "Not open yet" : m.elsewhere ? m.book : m.chapter}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
-      {term.trim() && rest.loading ? <Text style={{ fontSize: 11, color: colors.faint }}>Still looking through your other books\u2026</Text> : null}
-    </Card>
-  );
-}

@@ -102,7 +102,7 @@ export default function IncidentReview() {
                   {resolved ? (
                     <>
                       <Text style={{ fontSize: 12, color: colors.text }}>This incident is {sentence(i.status).toLowerCase()}{i.resolved_by ? ` by ${i.resolved_by.full_name}` : ""}{i.resolved_at ? ` on ${fmtDay(i.resolved_at)}` : ""}.</Text>
-                      {i.reviewer_note ? <Notice message={`Review note: ${i.reviewer_note}`} /> : null}
+                      {i.reviewer_note ? <Notice inline message={`Review note: ${i.reviewer_note}`} /> : null}
                       <Input label="Note (optional)" multiline value={note} onChangeText={setNote} placeholder="Why it is being reopened" style={{ minHeight: 80 }} />
                       <Button title="Reopen incident" variant="secondary" icon="refresh" full onPress={() => review.run("reopen")} busy={review.busy} />
                     </>

@@ -8,7 +8,7 @@ import {useAuth} from "@/auth/AuthContext";
 import {BookUploads} from "@/authoring/uploads";
 import { manage } from "@/api/endpoints";
 import { useAction, useAsync } from "@/hooks/useAsync";
-import { Button, Card, CardHead, Dropdown, ErrorBanner, FormFooter, Input, Notice, PageHeading, Screen, Split, StepList, Stepper, TileIcon, colors } from "@/ui";
+import { Button, Card, CardHead, Dropdown, ErrorBanner, FormFooter, Input, Notice, PageHeading, Screen, Split, StepList, Stepper, TileIcon, colors, fmtSize } from "@/ui";
 
 export default function UploadBook() {
   const router = useRouter();
@@ -34,7 +34,7 @@ export default function UploadBook() {
     else {setFile(null);setTitle('');}
 
   });
-  const size = file?.size ? `${(file.size / 1024 / 1024).toFixed(1)} MB` : "";
+  const size = fmtSize(file?.size);
   return (
     <Screen>
       <PageHeading eyebrow="BOOKS & MODULES" title="Let’s add a book." subtitle="We’ll walk you from source material to student-ready modules."
@@ -46,7 +46,7 @@ export default function UploadBook() {
           <Card>
             <CardHead title="Book details" />
             <ErrorBanner message={subjects.error} />
-            {subjects.data && active.length === 0 ? <Notice tone="warning" message="You have no active subject. Ask your administrator to assign one." /> : null}
+            {subjects.data && active.length === 0 ? <Notice inline tone="warning" message="You have no active subject. Ask your administrator to assign one." /> : null}
             <Dropdown label="Subject *" value={subjectId} onChange={setSubjectId} placeholder="Choose a subject" width="100%" options={active.map((s) => ({ value: s.id, label: `${s.code} · ${s.name}` }))} />
             <Notice message="Chapters and modules follow the book’s own headings and content. Review the extracted outline before publishing. Lesson and quiz generation continues on your device." />
             <Input label="Book title" required value={title} onChangeText={setTitle} placeholder="As students should see it" hint="A clear title helps students find the right book." />

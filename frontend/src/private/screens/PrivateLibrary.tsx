@@ -56,7 +56,7 @@ export default function PrivateLibrary(){
    {filteredBooks.map(b=><ListRow key={b.id} title={b.title} subtitle={`${b.sections.length} modules · ${b.origin==='shared'?'Institution copy':'Your own book'} · Saved on this device`} icon="book-outline" onPress={()=>{if(!task.busy)open(b.id);}} right={<Button title="Remove" small variant="danger" disabled={task.busy} onPress={()=>task.run(async()=>{if(library&&await confirmAsync('Remove this private book?','Its locally generated lessons, quizzes, results and doubts will also be removed. The institution book and official grades are not changed.','Remove','Keep book')){await library.remove(b.id);await books.reload();}})}/>}/>) }
   </Card>:<Card><H2>Books shared with you</H2>
    <P muted>Published books from your subjects and books shared for private study. Download once; then learn independently.</P>
-   {!online?<Notice tone="warning" message="Connect to your institution once to add another shared book. Your saved books still work offline."/>:null}
+   {!online?<Notice inline tone="warning" message="Connect to your institution once to add another shared book. Your saved books still work offline."/>:null}
    <ErrorBanner message={available.error} onRetry={available.reload}/>
    {available.loading?<Loading/>:null}
    {online&&!available.loading&&!available.error&&!available.data?.length?<Empty title="No shared books yet" text="Your admin or faculty can upload one in Books for private study. Published books from enrolled subjects also appear here."/>:null}

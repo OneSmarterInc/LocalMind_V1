@@ -166,6 +166,7 @@ def student_subject_detail(student, subject, window=(None, None), released_only=
         p = progress.get(m.id)
         rows.append({
             "module_id": str(m.id), "title": m.title, "chapter": m.chapter.title, "document": m.chapter.document.title,
+            "document_id": str(m.chapter.document_id),
             "availability": m.availability,
             "status": p.status if p else "not_started",
             "best_quiz_percentage": p.best_quiz_percentage if p else None,

@@ -4,6 +4,7 @@ import {device} from '@/private/device';
 import {generationJobs} from '@/private/jobs';
 import {jobScope} from '@/private/useGenerationJobs';
 import {Library} from '@/private/library';
+import {control,controlKey,isHeld,notifyControls} from './bookControl';
 export type Preparation={lesson?:string;quiz?:string;error?:string};
 export type PreparationMap=Record<string,Preparation>;
 const key=(service:LocalAuthoring,doc:Document)=>`${service.library.prefix}automatic:${doc.id}:${doc.content_version}`;
@@ -38,6 +39,8 @@ export async function prepareAutomatically(service:LocalAuthoring,doc:Document){
  const store=await device();service.library.guard();
  if(await service.isRemoved(doc.id)||!(await store.status()).installed)return false;
  const scope=jobScope(new Library(service.library.owner).prefix);
+ // "Pause all" is saved on the device: reopening the book must not restart it.
+ if(await isHeld(service.library.prefix,doc.id))return false;
  if(generationJobs.snapshot().some(j=>j.scope===scope&&(j.bookId===doc.id||j.documentId===doc.id)&&['queued','running'].includes(j.state)))return true;
  const modules=(doc.chapters||[]).flatMap(c=>c.modules).filter(m=>m.id);
  const states=await preparation(service,doc);
@@ -58,7 +61,7 @@ export async function prepareAutomatically(service:LocalAuthoring,doc:Document){
   // (tab closed, app reloaded) — nothing is generating now. Reset it to
   // 'Queued' so it is picked up again, rather than stranding the module in a
   // state nothing will ever move it out of.
-  const carry=(v?:string)=>v==='Generating'?'Queued':v;
+  const carry=(v?:string)=>v==='Generating'?'Queued':v;  // 'Paused' is kept: the person chose it.
   states[m.id!]={
    lesson:lessonShared?'Shared':previous?.lesson==='Failed'?'Failed':carry(previous?.lesson)||'Queued',
    quiz:quizShared?'Shared':previous?.quiz==='Failed'?'Failed':carry(previous?.quiz)||'Queued',
@@ -66,55 +69,70 @@ export async function prepareAutomatically(service:LocalAuthoring,doc:Document){
   };
  }
  await save();
+ const ctl=control(controlKey(scope,doc.id));
+ for(const m of modules){const st=states[m.id!];if((st.lesson==='Paused'||st.quiz==='Paused')&&!ctl.priority.includes(m.id!))ctl.paused.add(m.id!);}
  generationJobs.enqueue({scope,bookId:doc.id,documentId:doc.id,sectionId:doc.id,kind:'staff-auto',label:`${doc.title} · lessons and quizzes`},async(signal,progress)=>{
   const saved=await service.drafts();
-  for(const m of modules){
-   if(signal.aborted||await service.isRemoved(doc.id))throw Error('Preparation cancelled. Saved drafts are retained.');
+  // Nothing left to do for a kind, or it already failed. A failed module is NOT
+  // retried automatically: it failed for a reason another identical attempt
+  // will not change. Open the module (or press Retry) to try again deliberately.
+  const settled=(v?:string)=>v==='Shared'||v==='Ready for review'||v==='Failed'||v==='No source text'||v==='Front matter'||v==='Brief source — review';
+  const pending=(m:typeof modules[number])=>{const st=states[m.id!];return !(settled(st.lesson)&&settled(st.quiz));};
+  const attempted=new Set<string>();
+  // Priority first ("Generate now"), then book order, skipping paused modules.
+  const pick=()=>{
+   while(ctl.priority.length){const m=modules.find(x=>x.id===ctl.priority[0]);if(m&&pending(m))return m;ctl.priority.shift();}
+   return modules.find(m=>pending(m)&&!ctl.paused.has(m.id!)&&!attempted.has(m.id!));
+  };
+  const markPaused=async()=>{let changed=false;for(const id of ctl.paused){const st=states[id];if(!st)continue;for(const k of ['lesson','quiz'] as const)if(!settled(st[k])&&st[k]!=='Paused'){st[k]='Paused';changed=true;}}if(changed)await save();};
+  const runModule=async(m:typeof modules[number],sig:AbortSignal)=>{
    const state=states[m.id!];
-   // Nothing left to do for this module, or it already failed. A failed module
-   // is NOT retried automatically: it failed for a reason that another
-   // identical attempt will not change (usually too little source text), and
-   // retrying it on every pass is what made the app look like it regenerated
-   // modules by itself. Open the module and generate to retry deliberately.
-   const settled=(v?:string)=>v==='Shared'||v==='Ready for review'||v==='Failed'||v==='No source text'||v==='Front matter'||v==='Brief source — review';
-   if(settled(state.lesson)&&settled(state.quiz))continue;
-   if(m.source_missing||!m.source_text?.trim()){state.lesson='No source text';state.quiz='No source text';await save();continue;}
-   // Front matter is read, never taught. Skipping it here is what stops a
-   // chapter-objectives module reporting as Failed for the rest of time.
-   if(isFrontMatter(m.title,m.source_text)){state.lesson='Front matter';state.quiz='Front matter';await save();continue;}
-   // Front matter is retained in the outline, but is not enough grounded material for generation.
-   if(m.source_text.trim().length<80){state.lesson='Brief source — review';state.quiz='Brief source — review';await save();continue;}
+   for(const k of ['lesson','quiz'] as const)if(state[k]==='Paused')state[k]='Queued';
+   if(m.source_missing||!m.source_text?.trim()){state.lesson='No source text';state.quiz='No source text';await save();return;}
+   // Front matter is read, never taught.
+   if(isFrontMatter(m.title,m.source_text)){state.lesson='Front matter';state.quiz='Front matter';await save();return;}
+   if(m.source_text.trim().length<80){state.lesson='Brief source — review';state.quiz='Brief source — review';await save();return;}
    try{
     const id=saved.find(d=>d.snapshot.remote_id===m.id)?.snapshot.module_id||m.id!;
     let draft=await service.ensure(id);
     if(draft.snapshot.source!==m.source_text)throw Error('Source changed. Open the module and refresh its source before generating.');
     for(const kind of ['lesson','quiz'] as const){
-     if(signal.aborted)throw Error('Preparation cancelled.');
-     // Skip anything already concluded for this kind, not just 'Shared'. A
-     // lesson that failed must not be retried just because the quiz beside it
-     // is still pending.
+     if(sig.aborted)throw Error('Preparation paused.');
      if(settled(state[kind]))continue;
      draft=(await service.read(id))!;
      if(kind==='lesson'?draft.lesson:draft.questions?.length){state[kind]='Ready for review';await save();continue;}
      try{
       state[kind]='Generating';await save();progress(`${m.title} · ${kind}`);
-      await service.generate(id,kind,signal,progress,Math.max(1,Math.min(5,Math.floor(m.source_text.trim().length/800))));
+      // Resumes from the saved checkpoint: finished parts are never generated twice.
+      await service.generate(id,kind,sig,progress,Math.max(1,Math.min(5,Math.floor(m.source_text.trim().length/800))));
       state[kind]='Ready for review';
-     }catch(e){if(signal.aborted)throw e;state[kind]='Failed';state.error=String(e instanceof Error?e.message:e);}
+     }catch(e){if(sig.aborted)throw e;state[kind]='Failed';state.error=String(e instanceof Error?e.message:e);}
      await save();
     }
-   }catch(e){if(signal.aborted)throw e;state.lesson=state.lesson==='Queued'?'Failed':state.lesson;state.quiz=state.quiz==='Queued'?'Failed':state.quiz;state.error=String(e instanceof Error?e.message:e);await save();}
-  }
-  // Failures are RECORDED, never thrown.
-  //
-  // This used to throw so the count surfaced in the UI. The caller's .catch
-  // cleared its "already started this book" guard, its effect re-ran, and the
-  // whole book started preparing again — which failed again, which cleared the
-  // guard again. A single unprepared module put the app in a permanent
-  // regeneration loop that looked like modules regenerating by themselves.
-  //
-  // Nothing is hidden by returning quietly: each module's own state already
-  // holds 'Failed' plus its error, and the readiness table renders both.
+   }catch(e){if(sig.aborted)throw e;state.lesson=state.lesson==='Queued'?'Failed':state.lesson;state.quiz=state.quiz==='Queued'?'Failed':state.quiz;state.error=String(e instanceof Error?e.message:e);await save();}
+  };
+  try{
+   while(true){
+    if(signal.aborted||await service.isRemoved(doc.id))throw Error('Preparation cancelled. Saved drafts are retained.');
+    await markPaused();
+    const m=pick();if(!m)break;
+    ctl.priority=ctl.priority.filter(x=>x!==m.id);attempted.add(m.id!);
+    const inner=new AbortController();const follow=()=>inner.abort();signal.addEventListener('abort',follow,{once:true});
+    ctl.current={moduleId:m.id!,controller:inner};notifyControls();
+    let reason:string|undefined;
+    try{await runModule(m,inner.signal);}
+    catch(e){if(signal.aborted||!inner.signal.aborted)throw e;}
+    finally{signal.removeEventListener('abort',follow);reason=ctl.current?.reason;ctl.current=undefined;notifyControls();}
+    if(!signal.aborted&&inner.signal.aborted){
+     // Stopped between saved parts: keep the checkpoint and decide what happens next.
+     const st=states[m.id!];
+     for(const k of ['lesson','quiz'] as const)if(!settled(st[k]))st[k]=reason==='pause'?'Paused':'Queued';
+     if(reason!=='pause')attempted.delete(m.id!);
+     await save();
+    }
+   }
+  }finally{ctl.current=undefined;notifyControls();}
+  // Failures are RECORDED, never thrown: throwing restarted the whole book in a loop.
   await save();
  });return true;
 }

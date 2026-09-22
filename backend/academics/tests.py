@@ -297,3 +297,31 @@ class SubjectStudyDeletionTests(TestCase):
         self.assertEqual(response.data["error"]["code"], "INVALID_STATE")
         for record in self.records[self.subject.pk]:
             self.assertTrue(type(record).objects.filter(pk=record.pk).exists())
+
+
+class ArchivedSubjectFacultyScopeTests(TestCase):
+    """An archived subject leaves the faculty workspace: its books and quizzes
+    are no longer listed or manageable, while administrators still see them."""
+
+    def test_archived_subject_books_and_quizzes_hidden_from_faculty_but_not_admin(self):
+        from core.testing import make_admin, make_published_document
+        from assessments.models import Assessment
+        subject = make_subject()
+        faculty = make_faculty()
+        assign(faculty, subject)
+        doc = make_published_document(subject)
+        Assessment.objects.create(subject=subject, title="Q", created_by=faculty)
+        fac = client_for(faculty)
+        self.assertEqual(len(fac.get("/api/faculty/documents/").data["results"] if isinstance(fac.get("/api/faculty/documents/").data, dict) else fac.get("/api/faculty/documents/").data), 1)
+        subject.status = "archived"
+        subject.save(update_fields=["status"])
+        docs = fac.get("/api/faculty/documents/").data
+        docs = docs["results"] if isinstance(docs, dict) else docs
+        self.assertEqual(docs, [])
+        self.assertEqual(fac.get(f"/api/faculty/documents/{doc.pk}/").status_code, 404)
+        quizzes = fac.get("/api/faculty/quizzes/").data
+        quizzes = quizzes["results"] if isinstance(quizzes, dict) else quizzes
+        self.assertEqual(quizzes, [])
+        admin_docs = client_for(make_admin()).get("/api/faculty/documents/").data
+        admin_docs = admin_docs["results"] if isinstance(admin_docs, dict) else admin_docs
+        self.assertEqual(len(admin_docs), 1)

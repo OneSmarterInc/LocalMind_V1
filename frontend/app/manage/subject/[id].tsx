@@ -4,8 +4,9 @@ import { useBackTo } from "@/hooks/useBackTo";
 import React, { useMemo, useState } from "react";
 import { Text, View } from "react-native";
 import { manage } from "@/api/endpoints";
+import { ApiError, errorMessage } from "@/api/client";
 import { useAction, useAsync } from "@/hooks/useAsync";
-import { Badge, Button, Card, CardHead, CellText, Column, Dropdown, Empty, ErrorBanner, Input, ListRow, Loading, Notice, PageHeading, PageTabs, ProgressBar, Screen, Split, Stat, StatRow, Table, TableToolbar, TextLink, colors, confirmAsync, fmtDay, fmtSeconds, pct, RequestFailed } from "@/ui";
+import { Badge, Button, Card, CardHead, CellText, Column, Dropdown, Empty, ErrorBanner, Input, ListRow, Loading, Notice, PageHeading, PageTabs, ProgressBar, Screen, Split, Stat, StatRow, Table, TableToolbar, TextLink, colors, confirmAsync, fmtDay, fmtSeconds, pct, RequestFailed, Checkbox, confirmDeleteAsync, useToast } from "@/ui";
 import { StudentPicker } from "@/ui/StudentPicker";
 
 type Tab = "overview" | "students" | "modules";
@@ -117,29 +118,85 @@ function StudentsTab({ subjectId }: { subjectId: string }) {
 }
 
 function ModulesTab({ subjectId }: { subjectId: string }) {
+  const router = useRouter();
+  const toast = useToast();
   const rows = useAsync(() => manage.subjectModules(subjectId), [subjectId]);
   const [q, setQ] = useState("");
-  const toggle = useAction(async (m: any) => {
-    const locking = m.availability === "open";
-    if (locking && !(await confirmAsync("Lock this module?", "Students stop seeing it and its quizzes right away. Its content and earlier attempts are kept.", "Lock module", "Cancel", { tone: "warning" }))) return;
-    await manage.moduleAvailability(m.module_id, locking ? "locked" : "open"); await rows.reload();
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const all: any[] = useMemo(() => rows.data?.modules ?? [], [rows.data]);
+  // Position in its book, recounted from the current list, so numbers stay continuous after a delete.
+  const numberOf = useMemo(() => {
+    const seen = new Map<string, number>(), out = new Map<string, number>();
+    all.forEach((m) => { const n = (seen.get(m.document_id) ?? 0) + 1; seen.set(m.document_id, n); out.set(m.module_id, n); });
+    return out;
+  }, [all]);
+  const list = all.filter((m) => `${m.title} ${m.document} ${m.chapter} ${numberOf.get(m.module_id)}`.toLowerCase().includes(q.trim().toLowerCase()));
+  const selectable = list.filter((m) => !m.source_missing);
+  const allOn = selectable.length > 0 && selectable.every((m) => picked.has(m.module_id));
+  const someOn = selectable.some((m) => picked.has(m.module_id));
+  const flip = (id: string) => setPicked((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  const setMany = useAction(async (availability: "open" | "locked", targets: any[]) => {
+    const todo = targets.filter((m) => m.availability !== availability && !m.source_missing);
+    if (!todo.length) { toast.show({ tone: "info", message: `All selected modules are already ${availability === "open" ? "open" : "locked"}.` }); return; }
+    if (availability === "locked" && !(await confirmAsync(todo.length === 1 ? "Lock this module?" : `Lock ${todo.length} modules?`, "Students stop seeing them and their quizzes right away. Content and earlier attempts are kept.", todo.length === 1 ? "Lock module" : "Lock modules", "Cancel", { tone: "warning" }))) return;
+    const failed: string[] = [];
+    for (const m of todo) { try { await manage.moduleAvailability(m.module_id, availability); } catch (e) { failed.push(`${m.title}: ${errorMessage(e)}`); } }
+    setPicked(new Set()); await rows.reload();
+    const done = todo.length - failed.length;
+    if (done) toast.show({ tone: "success", title: `${done} module${done === 1 ? "" : "s"} ${availability === "open" ? "opened" : "locked"}`, message: availability === "open" ? "Students can read them now." : "Students no longer see them. Their progress is kept." });
+    if (failed.length) toast.show({ tone: "danger", title: `${failed.length} could not be changed`, message: failed.join("\n") });
   });
+  const remove = useAction(async (m: any) => {
+    if (!(await confirmDeleteAsync("Delete this module?", "Its lesson and quiz are deleted too. The modules after it move up one number. This cannot be undone.", { detail: m.title, okLabel: "Delete module" }))) return;
+    try {
+      const outline = await manage.outline(m.document_id);
+      const chapters = outline.chapters.map((c) => ({ ...c, modules: c.modules.filter((x) => x.id !== m.module_id).map((x, i) => ({ ...x, order: i + 1 })) }));
+      await manage.saveOutline(m.document_id, chapters, undefined, outline.content_version);
+      setPicked((prev) => { const next = new Set(prev); next.delete(m.module_id); return next; });
+      await rows.reload();
+      toast.show({ tone: "success", title: "Module deleted", message: "The modules after it now have the next numbers." });
+    } catch (e) {
+      if (e instanceof ApiError && e.code === "MODULE_IN_USE") {
+        const lock = await confirmAsync("Students have worked in this module", "It can't be deleted because their progress would be lost. Lock it instead to hide it from students and keep their records.", "Lock module", "Cancel", { tone: "warning" });
+        if (lock) { await manage.moduleAvailability(m.module_id, "locked"); await rows.reload(); toast.show({ tone: "success", title: "Module locked", message: "Students no longer see it. Their progress is kept." }); }
+        return;
+      }
+      throw e;
+    }
+  });
+  const edit = (m: any) => router.push({ pathname: "/manage/document/[id]", params: { id: m.document_id, tab: "outline", module: m.module_id } } as never);
   const enrolled = rows.data?.students_enrolled ?? 0;
-  const list = (rows.data?.modules ?? []).filter((m: any) => `${m.title} ${m.document} ${m.chapter}`.toLowerCase().includes(q.trim().toLowerCase()));
   const columns: Column<any>[] = [
+    { key: "sel", label: "", width: 44, render: (m) => m.source_missing ? null : <Checkbox on={picked.has(m.module_id)} onPress={() => flip(m.module_id)} label={`Select ${m.title}`} /> },
+    { key: "n", label: "No.", width: 56, render: (m) => <Text style={{ fontWeight: "700", color: colors.primary, fontVariant: ["tabular-nums"] }}>{numberOf.get(m.module_id)}</Text> },
     { key: "m", label: "Module", flex: 2.2, render: (m) => <CellText title={m.title} sub={`${m.document} · ${m.chapter}`} /> },
-    { key: "a", label: "Availability", flex: 0.9, render: (m) => <Badge value={m.source_missing ? "No text" : m.availability === "open" ? "Open" : "Locked"} tone={m.source_missing ? "red" : m.availability === "open" ? "green" : "neutral"} /> },
-    { key: "s", label: "Started", flex: 0.8, render: (m) => `${m.students_started} of ${enrolled}` },
-    { key: "c", label: "Completed", flex: 0.8, render: (m) => `${m.students_completed} of ${enrolled}` },
-    { key: "x", label: "", flex: 1, render: (m) => <Button title={m.availability === "open" ? "Lock module" : "Open module"} small variant="secondary" icon={m.availability === "open" ? "lock-closed-outline" : "lock-open-outline"} disabled={m.source_missing || toggle.busy} onPress={() => toggle.run(m)} /> },
+    { key: "a", label: "Access", flex: 0.8, render: (m) => <Badge value={m.source_missing ? "No text" : m.availability === "open" ? "Open" : "Locked"} tone={m.source_missing ? "red" : m.availability === "open" ? "green" : "neutral"} /> },
+    { key: "s", label: "Students", flex: 1, render: (m) => `${m.students_started} started, ${m.students_completed} done of ${enrolled}` },
+    { key: "x", label: "Actions", flex: 2.2, render: (m) => (
+      <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
+        <Button title={m.availability === "open" ? "Lock" : "Open"} small variant="secondary" icon={m.availability === "open" ? "lock-closed-outline" : "lock-open-outline"} disabled={m.source_missing || setMany.busy} onPress={() => setMany.run(m.availability === "open" ? "locked" : "open", [m])} accessibilityLabel={`${m.availability === "open" ? "Lock" : "Open"} ${m.title}`} />
+        <Button title="Edit" small variant="secondary" icon="create-outline" onPress={() => edit(m)} accessibilityLabel={`Edit ${m.title} in the outline`} />
+        <Button title="Delete" small variant="secondary" icon="trash-outline" busy={remove.busy} onPress={() => remove.run(m)} accessibilityLabel={`Delete ${m.title}`} />
+      </View>) },
   ];
+  const chosen = all.filter((m) => picked.has(m.module_id));
   return (
     <>
       <Notice title="Set the pace for your class." message="Open modules when you want students to see them. Locking a module does not delete its content or historical attempts." />
-      <ErrorBanner message={rows.error ?? toggle.error} onRetry={rows.reload} />
+      <ErrorBanner message={rows.error ?? setMany.error ?? remove.error} onRetry={rows.reload} />
       <Card flush>
-        <TableToolbar><Input icon="search" placeholder="Search this list…" value={q} onChangeText={setQ} compact accessibilityLabel="Search modules" /></TableToolbar>
-        {rows.error && !rows.data ? <RequestFailed onRetry={rows.reload} /> : rows.loading && !rows.data ? <Loading lines={2} /> : <Table noun="module" columns={columns} rows={list} keyOf={(m) => m.module_id} minWidth={760} empty={<Empty icon="layers-outline" text="No published modules yet." />} />}
+        <TableToolbar right={selectable.length ? <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}><Checkbox on={allOn} mixed={!allOn && someOn} onPress={() => setPicked(allOn ? new Set() : new Set(selectable.map((m) => m.module_id)))} label="Select all modules in this list" /><Text style={{ fontSize: 12, color: colors.muted }}>Select all</Text></View> : undefined}>
+          <Input icon="search" placeholder="Search modules" value={q} onChangeText={setQ} compact accessibilityLabel="Search modules" />
+        </TableToolbar>
+        {chosen.length ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap", paddingHorizontal: 16, paddingVertical: 10, backgroundColor: colors.pale, borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.border }} accessibilityLiveRegion="polite">
+            <Text style={{ fontWeight: "600", color: colors.ink, flex: 1, minWidth: 120 }}>{chosen.length} selected</Text>
+            <Button title="Open selected" small icon="lock-open-outline" busy={setMany.busy} onPress={() => setMany.run("open", chosen)} />
+            <Button title="Lock selected" small variant="secondary" icon="lock-closed-outline" busy={setMany.busy} onPress={() => setMany.run("locked", chosen)} />
+            <Button title="Clear" small variant="secondary" icon="close" onPress={() => setPicked(new Set())} />
+          </View>
+        ) : null}
+        {rows.error && !rows.data ? <RequestFailed onRetry={rows.reload} /> : rows.loading && !rows.data ? <Loading lines={2} /> : <Table noun="module" columns={columns} rows={list} keyOf={(m) => m.module_id} minWidth={980} empty={<Empty icon="layers-outline" text={q ? "No module matches this search." : "No published modules yet."} />} />}
       </Card>
     </>
   );

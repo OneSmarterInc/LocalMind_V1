@@ -43,13 +43,13 @@ export default function AdminLayout() {
   const shell = useShell(META);
   return (
     <Tabs backBehavior="fullHistory" UNSTABLE_router={portalRouter} screenOptions={shell.screenOptions} tabBar={shell.tabBar}>
-      <Tabs.Screen name="offline-ai" options={{ title: "Offline AI", tabBarIcon: icon("hardware-chip-outline") }} />
       <Tabs.Screen name="index" options={{ title: "Overview", tabBarIcon: icon("home-outline") }} />
       <Tabs.Screen name="users" options={{ title: "People", tabBarIcon: icon("people-outline") }} />
       <Tabs.Screen name="subjects" options={{ title: "Subjects", tabBarIcon: icon("library-outline") }} />
       <Tabs.Screen name="monitoring" options={{ title: "AI monitoring", tabBarIcon: icon("shield-checkmark-outline") }} />
       <Tabs.Screen name="audit" options={{ title: "Audit log", tabBarIcon: icon("receipt-outline") }} />
-      <Tabs.Screen name="system" options={{ title: "System status", tabBarIcon: icon("pulse-outline") }} />
+      <Tabs.Screen name="offline-ai" options={{ title: "Offline AI", tabBarIcon: icon("hardware-chip-outline") }} />
+      <Tabs.Screen name="system" options={shellScreen({ href: null, title: "System status" }, {})} />
       <Tabs.Screen name="profile" options={{ title: "My profile", tabBarIcon: icon("person-circle-outline") }} />
       <Tabs.Screen name="content" options={shellScreen({ href: null, title: "Content workspace" }, {})} />
       <Tabs.Screen name="subject/[id]" options={shellScreen({ href: null, title: "Subject" }, { backTo: "/admin/subjects", backLabel: "Subjects" })} />

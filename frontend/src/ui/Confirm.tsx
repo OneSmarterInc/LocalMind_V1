@@ -21,6 +21,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
   useWindowDimensions,
 } from "react-native";
@@ -39,6 +40,8 @@ export interface DialogOptions {
   detail?: string;
   /** Hides the cancel button; used by alertAsync. */
   acknowledge?: boolean;
+  /** Irreversible actions: the confirm button stays disabled until this exact text is typed. */
+  confirmText?: string;
 }
 
 interface DialogRequest extends DialogOptions {
@@ -92,6 +95,7 @@ export function confirmAsync(
       icon: options.icon,
       detail: options.detail,
       acknowledge: options.acknowledge,
+      confirmText: options.confirmText,
       resolve: (v) => resolve(v === true),
     });
   });
@@ -144,6 +148,9 @@ export function DialogHost() {
   }, []);
 
   const current = pending[0];
+  const [typed, setTyped] = useState("");
+  useEffect(() => { setTyped(""); }, [current?.id]);
+  const blocked = !!current?.confirmText && typed.trim() !== current.confirmText;
   const answer = useCallback((value: boolean | "extra") => {
     if (!current) return;
     current.resolve(value);
@@ -188,6 +195,14 @@ export function DialogHost() {
               <Text style={s.detailText}>{current.detail}</Text>
             </View>
           ) : null}
+          {current.confirmText ? (
+            <View style={{ gap: 6 }}>
+              <Text style={{ ...font.small, color: colors.text }}>Type <Text style={{ fontWeight: "700", color: colors.ink }}>{current.confirmText}</Text> to confirm.</Text>
+              <TextInput value={typed} onChangeText={setTyped} autoCapitalize="none" autoCorrect={false} autoFocus
+                accessibilityLabel={`Type ${current.confirmText} to confirm`} placeholder={current.confirmText} placeholderTextColor={colors.faint}
+                style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radiusSm, paddingHorizontal: 12, paddingVertical: 9, fontSize: 14, color: colors.ink, backgroundColor: colors.surface2 }} />
+            </View>
+          ) : null}
           <View style={s.actions}>
             {current.acknowledge ? null : (
               <Pressable
@@ -204,9 +219,11 @@ export function DialogHost() {
               </Pressable>
             ) : null}
             <Pressable
-              onPress={() => answer(true)}
+              onPress={() => { if (!blocked) answer(true); }}
               accessibilityRole="button"
-              style={({ pressed }) => [s.btn, { backgroundColor: okColor }, pressed && { opacity: 0.85 }]}
+              accessibilityState={{ disabled: blocked }}
+              disabled={blocked}
+              style={({ pressed }) => [s.btn, { backgroundColor: okColor }, blocked && { opacity: 0.45 }, pressed && !blocked && { opacity: 0.85 }]}
             >
               <Text style={[s.btnText, { color: okText }]}>{current.okLabel}</Text>
             </Pressable>

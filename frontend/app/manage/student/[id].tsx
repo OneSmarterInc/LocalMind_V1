@@ -72,7 +72,7 @@ export default function FacultyStudent() {
               <View style={{ flexDirection: "row" }}><Button title="Discontinue enrollment" variant="danger" small icon="person-remove-outline" onPress={() => drop.run()} busy={drop.busy} /></View>
               <ErrorBanner message={drop.error} />
             </>
-          ) : <Notice message="Open a student from a subject to see module progress and quiz attempts for that subject." />}
+          ) : <Notice inline message="Open a student from a subject to see module progress and quiz attempts for that subject." />}
         </>
       ) : null}
     </Screen>

@@ -1,11 +1,12 @@
+import {Ionicons} from '@expo/vector-icons';
 import {LocalLessonView} from '../LocalLessonView';
 import { useBackTo } from "@/hooks/useBackTo";
 import {generationJobs,DOUBTS_PAUSED_MESSAGE} from '../jobs';
 import {jobScope,useGenerationJobs,useDoubtsBlocked} from '../useGenerationJobs';
 import React,{useEffect,useRef,useState} from 'react';
-import {Pressable,ScrollView,View} from 'react-native';
+import {Pressable,View} from 'react-native';
 import {useLocalSearchParams,useRouter} from 'expo-router';
-import {Screen,PageHeading,Card,Row,H2,P,Button,Badge,Notice,ErrorBanner,Loading,PageTabs,Input,Split,Dropdown,confirmAsync,colors} from '@/ui';
+import {Screen,PageHeading,Card,Row,H2,P,Button,Badge,Notice,ErrorBanner,Loading,PageTabs,Input,Split,Dropdown,confirmAsync,colors,showToast} from '@/ui';
 import {SourceVisuals} from '../SourceVisuals';
 import {SourceContent} from '@/ui/SourceContent';
 import {useAsync} from '@/hooks/useAsync';
@@ -22,16 +23,34 @@ export default function PrivateBook(){
  const back=useBackTo();
  const book=useAsync(()=>{if(!library)throw Error('Open the library after signing in.');return library.book(id);},[id,library]);
  const [sectionId,setSectionId]=useState(''),[query,setQuery]=useState('');
+ // The book opens to its module list; a link to a specific module opens it directly.
+ const [listing,setListing]=useState(!targetSection);
+ useEffect(()=>{setListing(!targetSection);},[id,targetSection]);
  useEffect(()=>{let alive=true;if(library&&book.data)void library.viewState(id,'section').then(saved=>{if(alive)setSectionId(book.data!.sections.find(s=>s.id===(targetSection||saved))?.id||book.data!.sections[0].id);});return()=>{alive=false;};},[book.data,id,library,targetSection]);
- const selectSection=(value:string)=>{setSectionId(value);void library?.saveViewState(id,'section',value).catch(()=>{});};
+ const selectSection=(value:string)=>{setSectionId(value);setListing(false);void library?.saveViewState(id,'section',value).catch(()=>{});};
  const b=book.data,s=b?.sections.find(x=>x.id===sectionId);
- const sidebar=<Card><H2>Modules</H2><P muted>Open any module. Quiz results never lock the next one.</P><Input value={query} onChangeText={setQuery} placeholder="Find a module"/><ScrollView style={{maxHeight:550}}>
-  {(b?.sections||[]).filter(x=>x.title.toLowerCase().includes(query.toLowerCase())).map((x)=><Pressable key={x.id} accessibilityRole="button" accessibilityState={{selected:x.id===sectionId}} onPress={()=>{void confirmLeave().then(ok=>{if(ok)selectSection(x.id);});}} style={{padding:12,borderRadius:8,marginBottom:5,backgroundColor:x.id===sectionId?colors.primary:'transparent'}}><P style={{color:x.id===sectionId?'white':colors.text}}>{x.title}</P></Pressable>)}
- </ScrollView></Card>;
- return <Screen><PageHeading title={b?.title||'Private book'} subtitle="Personal study · Saved only on this device" right={<Button title="Back to library" variant="secondary" onPress={()=>back('/student/private-library')}/>}/><ErrorBanner message={book.error} onRetry={book.reload}/>
+ const needle=query.trim().toLowerCase();
+ const listed=(b?.sections||[]).map((x,i)=>({x,n:i+1})).filter(({x,n})=>!needle||`${x.title} module ${n}`.toLowerCase().includes(needle));
+ if(listing)return <Screen><PageHeading title={b?.title||'Private book'} subtitle={b?`${b.sections.length} modules · Personal study, saved only on this device`:'Personal study, saved only on this device'} right={<Button title="Back to library" variant="secondary" icon="arrow-back" onPress={()=>back('/student/private-library')}/>}/><ErrorBanner message={book.error} onRetry={book.reload}/>
   {book.loading&&!b?<Loading/>:null}
-  {b?.warnings.length?<Notice tone="warning" title="About this import" message={b.warnings.join('\n')}/>:null}
-  {b&&s&&library?<Split side={sidebar} main={<ModuleLearning key={`${library.prefix}:${id}:${s.id}`} bookId={id} initialTab={targetTab} onSourceSaved={book.reload} section={s} hasNext={b.sections.findIndex(x=>x.id===s.id)<b.sections.length-1} next={()=>{const n=b.sections.findIndex(x=>x.id===s.id)+1;if(b.sections[n])void confirmLeave().then(ok=>{if(ok)selectSection(b.sections[n].id);});}}/>}/>:null}
+  {b?.warnings.length?<Notice inline tone="warning" title="About this import" message={b.warnings.join('\n')}/>:null}
+  {b?<Card flush>
+   <View style={{padding:16,flexDirection:'row',alignItems:'center',gap:12,flexWrap:'wrap',borderBottomWidth:1,borderColor:colors.border}}>
+    <Input icon="search" compact value={query} onChangeText={setQuery} placeholder="Search modules" accessibilityLabel="Search modules in this book" containerStyle={{flex:1,minWidth:220,maxWidth:420}}/>
+    <P muted>{needle?`${listed.length} of ${b.sections.length} modules`:'Choose a module to read, generate a lesson or practise.'}</P>
+   </View>
+   {listed.length?listed.map(({x,n})=><Pressable key={x.id} accessibilityRole="button" accessibilityLabel={`Open module ${n}: ${x.title}`} onPress={()=>selectSection(x.id)}
+     style={(st:any)=>({flexDirection:'row',alignItems:'center',gap:12,paddingHorizontal:16,paddingVertical:13,borderBottomWidth:1,borderColor:colors.rowLine,backgroundColor:st.hovered||st.pressed?colors.surface2:colors.surface})}>
+     <View style={{width:30,height:30,borderRadius:7,backgroundColor:colors.pale,alignItems:'center',justifyContent:'center'}}><P style={{fontWeight:'700',color:colors.primary}}>{n}</P></View>
+     <View style={{flex:1,minWidth:0}}><P style={{fontWeight:'600',color:colors.ink}} numberOfLines={1}>{x.title}</P>{x.id===sectionId?<P small muted>Last opened</P>:null}</View>
+     <Ionicons name="chevron-forward" size={16} color={colors.faint}/>
+    </Pressable>):<View style={{padding:24}}><P muted>{`No module matches “${query.trim()}”. Try a shorter word or a module number.`}</P></View>}
+  </Card>:null}
+ </Screen>;
+ return <Screen><PageHeading title={b?.title||'Private book'} subtitle="Personal study · Saved only on this device" right={<Button title="All modules" variant="secondary" icon="list-outline" onPress={()=>{void confirmLeave().then(ok=>{if(ok)setListing(true);});}}/>}/><ErrorBanner message={book.error} onRetry={book.reload}/>
+  {book.loading&&!b?<Loading/>:null}
+  {b?.warnings.length?<Notice inline tone="warning" title="About this import" message={b.warnings.join('\n')}/>:null}
+  {b&&s&&library?<Split side={null} main={<ModuleLearning key={`${library.prefix}:${id}:${s.id}`} bookId={id} initialTab={targetTab} onSourceSaved={book.reload} section={s} hasNext={b.sections.findIndex(x=>x.id===s.id)<b.sections.length-1} next={()=>{const n=b.sections.findIndex(x=>x.id===s.id)+1;if(b.sections[n])void confirmLeave().then(ok=>{if(ok)selectSection(b.sections[n].id);});}}/>}/>:null}
  </Screen>;
 }
 function ModuleLearning({bookId,section,next,hasNext,initialTab,onSourceSaved}:{bookId:string;section:Section;next:()=>void;hasNext:boolean;initialTab?:string;onSourceSaved:()=>Promise<unknown>}){
@@ -77,15 +96,31 @@ function ModuleLearning({bookId,section,next,hasNext,initialTab,onSourceSaved}:{
  return <Card><Row><H2>{section.title}</H2><Badge value="All modules open" tone="green"/></Row>
   <PageTabs value={tab} onChange={t=>{if(t!==tab)void confirmLeave().then(ok=>{if(ok)setTab(t);});}} tabs={[{key:'read',label:'Read'},{key:'lesson',label:'Lesson'},{key:'quiz',label:'Practice quiz'},{key:'ask',label:'Ask a doubt'}]}/>
   <ErrorBanner message={task.error||figures.error||lessons.error||quizzes.error||chats.error}/>
-  {task.busy?<Notice title="Working on this device" message={`${task.note} You can leave this page; the job will continue while the app stays open.`} action={<Button title="Cancel" variant="secondary" onPress={task.cancel}/>}/>:null}
-  {section.ocr?<Notice title="Text recognised on this device" message="Compare OCR text with the original image, especially numbers, formulas and tables."/>:null}
-  {!section.source.trim()?<Notice message="This page is available as an image. No usable text was recognised, so local AI cannot explain it."/>:null}
+  {(()=>{
+  // One place to prepare this module: state, progress and Generate / Pause for each kind.
+  const jobOf=(kind:string)=>jobs.slice().reverse().find(j=>j.kind===kind&&['queued','running'].includes(j.state));
+  const row=(kind:'lesson'|'quiz',label:string,has:boolean,start:()=>void)=>{const j=jobOf(kind);
+   const state=j?(j.state==='queued'?'Waiting to start':'Generating'):has?'Ready':'Not generated';
+   return <View key={kind} style={{flexDirection:'row',alignItems:'center',gap:10,flexWrap:'wrap',paddingVertical:8,borderTopWidth:kind==='quiz'?1:0,borderColor:colors.rowLine}}>
+    <View style={{flex:1,minWidth:180}}><P style={{fontWeight:'600',color:colors.ink}}>{label}</P>{j?.note?<P small muted numberOfLines={2}>{j.note}</P>:null}</View>
+    <Badge value={state} tone={j?'blue':has?'green':'neutral'}/>
+    {j?<Button title="Pause" small variant="secondary" icon="pause-outline" accessibilityLabel={`Pause ${label.toLowerCase()} generation`} onPress={()=>{generationJobs.cancel(j.id);showToast({tone:'info',title:`${label} paused`,message:'Finished parts are saved. Generate again to continue from where it stopped.'});}}/>
+     :<Button title={has?`Regenerate`:`Generate`} small icon={has?'refresh':'sparkles-outline'} accessibilityLabel={`${has?'Regenerate':'Generate'} ${label.toLowerCase()}`} onPress={()=>{start();setTab(kind);}}/>}
+   </View>;};
+  return <View style={{borderWidth:1,borderColor:colors.border,borderRadius:10,paddingHorizontal:14,paddingVertical:6,backgroundColor:colors.surface2}} accessibilityLiveRegion="polite">
+   {row('lesson','Lesson',!!lessons.data?.length,generateLesson)}
+   {row('quiz','Practice quiz',!!quizzes.data?.length,generateQuiz)}
+   <P small muted>Runs on this device. You can leave this page while it works; pausing keeps every finished part.</P>
+  </View>;
+ })()}
+  {section.ocr?<Notice inline title="Text recognised on this device" message="Compare OCR text with the original image, especially numbers, formulas and tables."/>:null}
+  {!section.source.trim()?<Notice inline message="This page is available as an image. No usable text was recognised, so local AI cannot explain it."/>:null}
   {tab==='read'?<>{editing?<><Input label="Correct extracted source" value={sourceDraft} onChangeText={setSourceDraft} multiline maxLength={section.readingUnit?MAX_READING_CHARS:MAX_SECTION_CHARS}/><P muted>Compare with the original page. Saving cancels unfinished jobs for this book; existing lessons and quizzes remain as earlier versions. Regenerate them to use the correction.</P><Row><Button title="Save source correction" onPress={()=>{void saveSource();}} busy={savingSource}/><Button title="Cancel correction" variant="secondary" disabled={savingSource} onPress={()=>setEditing(false)}/></Row></>:<><SourceContent text={section.source}/><Button title="Correct extracted text" variant="secondary" onPress={()=>{setSourceDraft(section.source);setEditing(true);}}/></>}<Row><Button title="Generate a lesson" onPress={()=>{void confirmLeave().then(ok=>{if(ok){setTab('lesson');generateLesson();}});}} disabled={active('lesson')}/><Button title={hasNext?"Next module":"Final module"} variant="secondary" disabled={!hasNext} onPress={next}/></Row></>:null}
   {tab==='lesson'?<><Row><Button title={lesson?'Regenerate lesson':'Generate lesson'} icon="sparkles-outline" onPress={generateLesson} disabled={task.busy}/>{lessons.data?.length?<Dropdown label="Saved lesson" value={lesson?.id||''} onChange={setLessonId} options={lessons.data.map((l,i)=>({value:l.id,label:`Version ${lessons.data!.length-i} · ${new Date(l.createdAt).toLocaleString()}`}))}/>:null}</Row>{lesson?<LocalLessonView lesson={lesson.lesson} visuals={figures.data||[]}/>:<P muted>Generate an explanation from this module with your local AI model.</P>}</>:null}
   {tab==='quiz'?<><Row><Dropdown label="Questions" value={count} onChange={v=>{if(!task.busy)setCount(v);}} options={Array.from({length:10},(_,i)=>({value:String(i+1),label:String(i+1)}))}/><Button title={quiz?'Generate another quiz':'Generate quiz'} icon="sparkles-outline" onPress={()=>{void confirmLeave().then(ok=>{if(ok)generateQuiz();});}} disabled={task.busy}/>{quizzes.data?.length?<Dropdown label="Saved quiz" value={quiz?.id||''} onChange={v=>{void confirmLeave().then(ok=>{if(ok)setQuizId(v);});}} options={quizzes.data.map((q,i)=>({value:q.id,label:`Version ${quizzes.data!.length-i} · ${q.questions.length} questions`}))}/>:null}</Row>
-   {quiz?.requestedCount&&quiz.questions.length<quiz.requestedCount?<Notice tone="warning" title="Shorter quiz saved" message={`${quiz.questions.length} of ${quiz.requestedCount} requested questions could be grounded in this module. You can practise these questions or generate another version.`}/>:null}
+   {quiz?.requestedCount&&quiz.questions.length<quiz.requestedCount?<Notice inline tone="warning" title="Shorter quiz saved" message={`${quiz.questions.length} of ${quiz.requestedCount} requested questions could be grounded in this module. You can practise these questions or generate another version.`}/>:null}
    {quiz?<QuizPractice key={quiz.id} quiz={quiz}/>:<P muted>Create a quiz to practise. If the source supports fewer questions than requested, a shorter quiz is saved and labelled with its question count.</P>}</>:null}
-  {tab==='ask'?<>{doubtsBlocked?<Notice title="Doubts temporarily unavailable" message={DOUBTS_PAUSED_MESSAGE}/>:null}<P muted>Your private doubts stay on this device.</P>{(chats.data||[]).map(c=><Chat key={c.id} chat={c}/>)}<Input label="Your question" value={question} onChangeText={changeQuestion} multiline maxLength={1000} placeholder="What would you like to understand?" editable={viewReady&&!task.busy&&!doubtsBlocked}/><Button title="Ask local AI" icon="send-outline" onPress={ask} disabled={!viewReady||task.busy||doubtsBlocked||!question.trim()}/></>:null}
+  {tab==='ask'?<>{doubtsBlocked?<Notice inline title="Doubts temporarily unavailable" message={DOUBTS_PAUSED_MESSAGE}/>:null}<P muted>Your private doubts stay on this device.</P>{(chats.data||[]).map(c=><Chat key={c.id} chat={c}/>)}<Input label="Your question" value={question} onChangeText={changeQuestion} multiline maxLength={1000} placeholder="What would you like to understand?" editable={viewReady&&!task.busy&&!doubtsBlocked}/><Button title="Ask local AI" icon="send-outline" onPress={ask} disabled={!viewReady||task.busy||doubtsBlocked||!question.trim()}/></>:null}
   {(tab==='read'||tab==='lesson')&&<SourceVisuals bookId={bookId} sectionId={section.id} pagesOnly={tab==='lesson'}/>}
   <Row><Button title="Offline AI setup" small variant="secondary" onPress={()=>{void confirmLeave().then(ok=>{if(ok)router.push('/student/offline-ai');});}}/></Row>
  </Card>;
@@ -121,7 +156,7 @@ function QuizPractice({quiz}:{quiz:QuizVersion}){
      generated before the parser removed labels are stored with "A. " inside
      the option, and would otherwise render "A. A. Cloud computing". */}
  {quiz.questions.map((q,n)=><View key={q.id} style={{gap:8,paddingVertical:12,borderBottomWidth:1,borderColor:colors.border}}><H2>{n+1}. {q.question}</H2>{q.options.map((o,i)=><Pressable key={i} accessibilityRole="radio" accessibilityLabel={`${String.fromCharCode(65+i)}. ${stripOptionLabel(o)}`} aria-checked={answers[q.id]===i} aria-disabled={!ready||!!result||task.busy} accessibilityState={{checked:answers[q.id]===i,disabled:!ready||!!result||task.busy}} disabled={!ready||!!result||task.busy} onPress={()=>choose(q.id,i)} style={{flexDirection:'row',alignItems:'flex-start',gap:10,borderWidth:1,borderColor:answers[q.id]===i?colors.primary:colors.border,paddingHorizontal:12,paddingVertical:11,borderRadius:8,backgroundColor:answers[q.id]===i?'#EAF2ED':'white'}}><P style={{fontWeight:'700',minWidth:16}}>{String.fromCharCode(65+i)}</P><P style={{flex:1}}>{stripOptionLabel(o)}</P></Pressable>)}{result?<Notice tone={result.checks[n].correct?'success':'warning'} title={result.checks[n].correct?'Correct':`Correct answer: ${String.fromCharCode(65+q.answer)} — ${stripOptionLabel(q.options[q.answer])}`} message={`${q.explanation}\nFrom the book: ${q.quote}`}/>:null}</View>)}
- {result?<Notice tone="success" title={`${result.correct} of ${result.total} correct`} message="Private practice only. This result is saved here, not sent to faculty and never locks another module."/>:<Button title="Check my answers" onPress={check} busy={task.busy} disabled={!ready||Object.keys(answers).length!==quiz.questions.length}/>}
+ {result?<Notice inline tone="success" title={`${result.correct} of ${result.total} correct`} message="Private practice only. This result is saved here, not sent to faculty and never locks another module."/>:<Button title="Check my answers" onPress={check} busy={task.busy} disabled={!ready||Object.keys(answers).length!==quiz.questions.length}/>}
  <Button title="Start this quiz again" variant="secondary" disabled={!ready||task.busy} onPress={()=>task.run(async()=>{if(await confirmAsync('Start again?','Clear the current answers. Previous checked results remain in your history.','Start again','Keep answers')){await serial.current;await library.saveDraft(quiz.bookId,quiz.id,{});if(alive.current){persisted.current={};answersRef.current={};dirty.current=false;setAnswers({});setResult(null);setSaved(true);}}})}/>
  {!!history.data?.length&&<><H2>Previous practice</H2>{history.data.map(r=><P key={r.id}>{new Date(r.createdAt).toLocaleString()} · {r.correct}/{r.total} correct</P>)}</>}
  </View>;

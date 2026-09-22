@@ -41,15 +41,15 @@ export default function StudentLayout() {
     <OfflineNoticeContext.Provider value>
       <Tabs backBehavior="fullHistory" UNSTABLE_router={portalRouter} screenOptions={shell.screenOptions} tabBar={shell.tabBar}>
         <Tabs.Screen name="index" options={{ title: "Overview", tabBarIcon: icon("home-outline") }} />
+        <Tabs.Screen name="subjects" options={{ title: "My subjects", tabBarIcon: icon("library-outline") }} />
+        <Tabs.Screen name="quizzes" options={{ title: "Quizzes", tabBarIcon: icon("help-circle-outline") }} />
+        <Tabs.Screen name="progress" options={{ title: "My progress", tabBarIcon: icon("stats-chart-outline") }} />
+        <Tabs.Screen name="offline" options={{ title: "Course sync", tabBarIcon: icon("sync-outline") }} />
         <Tabs.Screen name="private-library" options={{ title: "Private library", tabBarIcon: icon("book-outline") }} />
         <Tabs.Screen name="generation-jobs" options={{ title: "Generation jobs", tabBarIcon: icon("time-outline") }} />
         <Tabs.Screen name="offline-ai" options={{ title: "Offline AI", tabBarIcon: icon("hardware-chip-outline") }} />
-        <Tabs.Screen name="private-book/[id]" options={shellScreen({ href: null, title: "Private book" }, { backTo: "/student/private-library", backLabel: "Private library" })} />
-        <Tabs.Screen name="offline" options={{ title: "Course sync", tabBarIcon: icon("sync-outline") }} />
-        <Tabs.Screen name="subjects" options={{ title: "My subjects", tabBarIcon: icon("library-outline") }} />
-      <Tabs.Screen name="quizzes" options={{ title: "Quizzes", tabBarIcon: icon("help-circle-outline") }} />
-        <Tabs.Screen name="progress" options={{ title: "My progress", tabBarIcon: icon("stats-chart-outline") }} />
         <Tabs.Screen name="profile" options={{ title: "My profile", tabBarIcon: icon("person-circle-outline") }} />
+        <Tabs.Screen name="private-book/[id]" options={shellScreen({ href: null, title: "Private book" }, { backTo: "/student/private-library", backLabel: "Private library" })} />
         <Tabs.Screen name="subject/[id]" options={shellScreen({ href: null, title: "Subject" }, { backTo: "/student/subjects", backLabel: "My subjects" })} />
         <Tabs.Screen name="document/[id]" options={shellScreen({ href: null, title: "Book" }, { backTo: "/student/subjects", backLabel: "My subjects" })} />
         <Tabs.Screen name="module/[id]" options={shellScreen({ href: null, title: "Module" }, { backTo: "/student/subjects", backLabel: "My subjects" })} />

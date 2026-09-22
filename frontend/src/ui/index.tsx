@@ -1,4 +1,5 @@
 import { keyboardList } from "./keyboardList";
+import { PageMessagesProvider, showToast, usePageMessages, useTimedMessage } from "./Toast";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import {
@@ -51,10 +52,12 @@ export function Screen({ children, scroll = true, refreshing, onRefresh, padded 
   const gutter = useGutter();
   const bar = toolbar || actions ? <Toolbar right={actions}>{toolbar}</Toolbar> : null;
   const inner = (
+    <PageMessagesProvider>
     <View style={[padded && { paddingHorizontal: gutter, paddingTop: 28, gap: space.lg }, { maxWidth: wide ? 1600 : CONTENT_MAX + gutter * 2, width: "100%", alignSelf: "center" }, !scroll && { flex: 1, minHeight: 0 }]}>
       {bar}
       {children}
     </View>
+    </PageMessagesProvider>
   );
   if (!scroll) return <View style={{ flex: 1, minHeight: 0, backgroundColor: colors.bg }}>{inner}</View>;
   return (
@@ -104,6 +107,7 @@ export function CardGrid({ children, min = 300, gap = 20, max, fill }: { childre
 /** Main column plus a narrower side column; stacks below `min`. */
 export function Split({ main, side, sideWidth = 320, min = 980, gap = 24 }: { main: React.ReactNode; side: React.ReactNode; sideWidth?: number; min?: number; gap?: number }) {
   const wide = useWide(min);
+  if (!side) return <View style={{ gap }}>{main}</View>;
   if (!wide) return <View style={{ gap }}>{main}{side}</View>;
   return (
     <View style={{ flexDirection: "row", gap, alignItems: "flex-start" }}>
@@ -168,6 +172,12 @@ export function TextLink({ title, onPress, icon, iconLeft }: { title: string; on
 /** Page title block: optional eyebrow, the title, one line of lead text, actions on the right. */
 export function PageHeading({ title, subtitle, eyebrow, icon, right }: { title: string; subtitle?: string | null; eyebrow?: string; icon?: IconName; right?: React.ReactNode }) {
   const wide = useWide(760);
+  const page = usePageMessages();
+  const about = page?.list.length ? (
+    <Button title="About this page" small variant="secondary" icon="information-circle-outline"
+      onPress={() => page.list.forEach((m) => showToast(m.input))} />
+  ) : null;
+  const actions = about || right ? <>{about}{right}</> : null;
   return (
     <View>
     <View style={[s.heading, !wide && { flexDirection: "column", alignItems: "stretch" }]}>
@@ -179,7 +189,7 @@ export function PageHeading({ title, subtitle, eyebrow, icon, right }: { title: 
           {subtitle ? <Text style={s.headingSub}>{subtitle}</Text> : null}
         </View>
       </View>
-      {right ? <View style={[s.actions, wide && { paddingTop: 9 }]}>{right}</View> : null}
+      {actions ? <View style={[s.actions, wide && { paddingTop: 9 }]}>{actions}</View> : null}
     </View>
       <OfflineBanner />
     </View>
@@ -295,6 +305,17 @@ export function Pills<T extends string>({ options, value, onChange }: { options:
   return <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>{options.map((o) => <Chip key={o.value} label={o.label} count={o.count} selected={o.value === value} onPress={() => onChange(o.value)} />)}</View>;
 }
 
+/** A small checkbox, used to select rows for a bulk action. */
+export function Checkbox({ on, onPress, label, mixed }: { on: boolean; onPress: () => void; label: string; mixed?: boolean }) {
+  const filled = on || mixed;
+  return (
+    <Pressable onPress={onPress} accessibilityRole="checkbox" accessibilityLabel={label} accessibilityState={{ checked: mixed ? "mixed" : on }} hitSlop={10}
+      style={{ width: 18, height: 18, borderRadius: 4, borderWidth: 1.5, borderColor: filled ? colors.primary : "#9AAA9D", backgroundColor: filled ? colors.primary : "#FFFFFF", alignItems: "center", justifyContent: "center" }}>
+      {filled ? <Ionicons name={mixed ? "remove" : "checkmark"} size={12} color="#FFFFFF" /> : null}
+    </Pressable>
+  );
+}
+
 /** A selectable card with a radio or checkbox mark. */
 export function OptionCard({ title, text, selected, onPress, multi, disabled, right, letter }: { title: string; text?: string | null; selected?: boolean; onPress: () => void; multi?: boolean; disabled?: boolean; right?: React.ReactNode; letter?: string }) {
   return (
@@ -348,7 +369,16 @@ export function ErrorBanner({ message, onRetry }: { message?: string | null; onR
   return <Notice tone="danger" title="Something went wrong" message={message} action={onRetry ? <Button title="Try again" small variant="secondary" icon="refresh" onPress={onRetry} /> : undefined} />;
 }
 
-export function Notice({ message, tone = "info", title, action, icon }: { message: string; tone?: "info" | "warning" | "success" | "danger"; title?: string; action?: React.ReactNode; icon?: IconName }) {
+/**
+ * A message about the page. Information, success and warning messages without
+ * a button appear as timed messages in the corner instead of a banner that
+ * pushes the page down. Errors, messages with an action button, and anything
+ * marked `inline` (a live state the person must keep seeing) stay on the page.
+ */
+export function Notice({ message, tone = "info", title, action, icon, inline }: { message: string; tone?: "info" | "warning" | "success" | "danger"; title?: string; action?: React.ReactNode; icon?: IconName; inline?: boolean }) {
+  const timed = !inline && !action && tone !== "danger";
+  useTimedMessage({ tone, title, message }, timed);
+  if (timed) return null;
   const t = tone === "warning" ? { bg: "#FFFAEC", border: "#EBDFBD", fg: "#866028" } : tone === "success" ? { bg: "#F0F7F1", border: "#DBE9DE", fg: "#336655" } : tone === "danger" ? { bg: "#FFF3F1", border: "#EDD5D0", fg: "#923C35" } : { bg: "#F1F6FC", border: "#DAE5F1", fg: "#3B5E7E" };
   const ic: IconName = icon ?? (tone === "warning" ? "warning-outline" : tone === "success" ? "checkmark-circle-outline" : tone === "danger" ? "alert-circle-outline" : "information-circle-outline");
   return (
@@ -626,7 +656,7 @@ export function IncompleteNote({ rows, noun = "records" }: { rows: unknown; noun
   const info = (rows as { incomplete?: { loaded: number; total: number | null; reason: "offline" | "limit" } } | null)?.incomplete;
   if (!info) return null;
   return (
-    <Notice tone="warning" title={`Showing ${info.loaded}${info.total ? ` of ${info.total}` : ""} ${noun}.`}
+    <Notice inline tone="warning" title={`Showing ${info.loaded}${info.total ? ` of ${info.total}` : ""} ${noun}.`}
       message={info.reason === "offline" ? "Only the records saved on this device are shown while you are offline. The rest appear when the LocalMind server can be reached." : "This list is too long to load at once. Use search or filters to narrow it."} />
   );
 }
@@ -749,6 +779,14 @@ export function TableToolbar({ children, right }: { children?: React.ReactNode; 
 
 export const fmtSeconds = (sec: number | null | undefined) => { const t = Math.max(0, Math.round(sec ?? 0)); const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60); return h ? `${h}h ${m}m` : m ? `${m}m ${t % 60}s` : `${t}s`; };
 export const fmtDate = (iso?: string | null) => (iso ? new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—");
+/** Human file size: B, KB, MB or GB, never "0.0 MB" for small files. */
+export function fmtSize(bytes?: number | null) {
+  if (!bytes || bytes < 0) return "";
+  const units = ["B", "KB", "MB", "GB"];
+  let n = bytes, i = 0;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  return `${n >= 10 || i === 0 ? Math.round(n) : n.toFixed(1)} ${units[i]}`;
+}
 export const fmtDay = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—");
 export const pct = (v: number | null | undefined) => (v === null || v === undefined ? "—" : `${Math.round(v)}%`);
 
@@ -816,3 +854,4 @@ const s = StyleSheet.create({
   bookShape: { width: 104, height: 138, borderTopLeftRadius: 3, borderBottomLeftRadius: 3, borderTopRightRadius: 9, borderBottomRightRadius: 9, backgroundColor: "#37694C", transform: [{ rotate: "-10deg" }], padding: 14, justifyContent: "space-between" },
   hero: { flexDirection: "row", alignItems: "center", gap: 24, paddingHorizontal: 30, paddingVertical: 28, borderRadius: 14, backgroundColor: "#EAF1E5", borderWidth: 1, borderColor: "#D9E6D5", overflow: "hidden" },
 });
+export { ToastHost, showToast, useToast } from "./Toast";

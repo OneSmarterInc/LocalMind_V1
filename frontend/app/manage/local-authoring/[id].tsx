@@ -137,7 +137,7 @@ function Authoring(){
    </Row>}/>
 
   <ErrorBanner message={error||task.error||localFigures.error}/>
-  {!modelReady?<Notice title="Set up AI before generating" message="Download or import a model in Offline AI once on this device. Your books and saved work remain available without it."/>:null}
+  {!modelReady?<Notice inline title="Set up AI before generating" message="Download or import a model in Offline AI once on this device. Your books and saved work remain available without it."/>:null}
   {!draft?<Card><Empty icon="hourglass-outline" title="Preparing this module…" text="The source is being read from your device library."/></Card>:null}
 
   {draft?<>
@@ -151,7 +151,7 @@ function Authoring(){
     main={<>
      <Card>
       <CardHead title="Generate" subtitle="Written by the model on this device. Nothing reaches students until you synchronize it."/>
-      {frontMatter?<Notice title="This module looks like front matter"
+      {frontMatter?<Notice inline title="This module looks like front matter"
         message="Objectives, contents and similar pages are shown to students on the Read tab, but a lesson or quiz written from them mostly restates them, so automatic preparation skips this module instead of reporting it as Failed. If this one really is teaching material, generate it here and it will be kept."/>:null}
       <Row>
        <Button title={draft.lesson?'Regenerate lesson':draft.snapshot.institution?.lesson?'Regenerate anyway':'Generate lesson'} icon="sparkles-outline"
@@ -174,11 +174,11 @@ function Authoring(){
          {j.cancelling?null:<Button title="Cancel" small variant="secondary" onPress={()=>generationJobs.cancel(j.id)}/>}
         </Row>)}
       </View>:null}
-      {jobs.filter(j=>j.state==='failed'&&j.error).map(j=><Notice key={j.id} tone="warning" title="Generation stopped" message={j.error}/>)}
+      {jobs.filter(j=>j.state==='failed'&&j.error).map(j=><Notice inline key={j.id} tone="warning" title="Generation stopped" message={j.error}/>)}
       {/* The book is preparing elsewhere. Said plainly and separately, because
           it is not this module's progress — showing it as "Working" here was
           the reason a finished module looked like it was still generating. */}
-      {bookBusy&&!live.length?<Notice title="This book is preparing in the background"
+      {bookBusy&&!live.length?<Notice inline title="This book is preparing in the background"
         message="Other modules are being generated. This module is not affected; generating here will start when a slot is free."/>:null}
       {draft.run?<P small muted>Saved through part {draft.run.done}. Generating again offers to continue or start over.</P>:null}
      </Card>
@@ -216,7 +216,7 @@ function Authoring(){
        ['Quiz',quizStatus||(draft.questions?.length?'Draft on device':'Not generated')],
        ['Synchronization',draft.state==='synced'?'Received by institution':draft.state==='pending'?'Waiting to synchronize':draft.state==='conflict'?'Needs review':'Nothing pending'],
       ]}/>
-      {draft.state?<Notice tone={draft.state==='conflict'?'warning':'info'}
+      {draft.state?<Notice inline tone={draft.state==='conflict'?'warning':'info'}
        title={draft.state==='synced'?'Received by institution':draft.state==='conflict'?'Review needed':'Waiting to synchronize'}
        message={draft.error||'Reviewed work is retained on this device.'}/>:null}
       {draft.state==='pending'||draft.state==='conflict'?

@@ -73,8 +73,8 @@ export default function SystemReadiness() {
     <Screen refreshing={q.loading} onRefresh={q.reload}>
       <PageHeading eyebrow="PLATFORM HEALTH" title="System readiness" subtitle="See the exact component that needs attention, without guessing." right={refreshButton} />
       <ErrorBanner message={q.error ?? refresh.error} onRetry={q.reload} />
-      {d && !problems.length ? <Notice tone="success" title="All components are ready." message="Every checked component responded normally." /> : null}
-      {d && problems.length ? <Notice tone="warning" title={`${problems.length} component${problems.length === 1 ? " needs" : "s need"} attention.`} message="The details below come from the server and name the exact reason and how to fix it." /> : null}
+      {d && !problems.length ? <Notice inline tone="success" title="All components are ready." message="Every checked component responded normally." /> : null}
+      {d && problems.length ? <Notice inline tone="warning" title={`${problems.length} component${problems.length === 1 ? " needs" : "s need"} attention.`} message="The details below come from the server and name the exact reason and how to fix it." /> : null}
       {q.loading && !d ? <Loading /> : null}
       {d ? (
         <>

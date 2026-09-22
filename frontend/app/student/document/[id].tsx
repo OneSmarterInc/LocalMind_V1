@@ -5,7 +5,7 @@ import { Pressable, Text, View } from "react-native";
 import { student } from "@/api/endpoints";
 import type { Chapter } from "@/api/types";
 import { useAsync } from "@/hooks/useAsync";
-import { Badge, Button, Card, DetailList, ErrorBanner, ListRow, Loading, Notice, PageHeading, ProgressBar, Screen, Split, colors, RequestFailed } from "@/ui";
+import { Badge, Button, Card, DetailList, Empty, ErrorBanner, Input, ListRow, Loading, Notice, PageHeading, ProgressBar, Screen, Split, colors, RequestFailed } from "@/ui";
 
 const statusLabel = (st: string) => (st === "completed" ? "Completed" : st === "in_progress" ? "In progress" : st === "needs_review" ? "Needs review" : "Not started");
 
@@ -23,6 +23,11 @@ export default function StudentBook() {
   const done = all.filter((m) => m.progress?.status === "completed").length;
   const current = open.find((m) => m.progress?.status === "in_progress" || m.progress?.status === "needs_review") ?? open.find((m) => m.progress?.status !== "completed");
   const numberOf = (mid: string) => all.findIndex((m) => m.id === mid) + 1;
+  // Search sits on the module list, where students choose what to read.
+  const [term, setTerm] = useState("");
+  const needle = term.trim().toLowerCase();
+  const shown = needle ? chapters.map((c) => ({ ...c, modules: c.modules.filter((m) => `${m.title} ${c.title} module ${numberOf(m.id)}`.toLowerCase().includes(needle)) })).filter((c) => c.modules.length) : chapters;
+  const matches = shown.reduce((n, c) => n + c.modules.length, 0);
   return (
     <Screen refreshing={q.loading} onRefresh={q.reload}>
       <PageHeading eyebrow={subject ? `${subject.code} · ${subject.name}`.toUpperCase() : undefined} title={q.data?.title ?? "Book"} subtitle="Your book, broken into manageable steps."
@@ -31,7 +36,14 @@ export default function StudentBook() {
       {q.error && !q.data ? <RequestFailed onRetry={q.reload} /> : q.loading && !q.data ? <Loading /> : null}
       {q.data ? (
         <Split
-          main={<View style={{ gap: 14 }}>{chapters.map((ch, i) => <ChapterBlock key={ch.id} chapter={ch} index={i} numberOf={numberOf} onOpen={(mid) => router.push(`/student/module/${mid}`)} />)}</View>}
+          main={<View style={{ gap: 14 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+              <Input icon="search" compact placeholder="Search modules" value={term} onChangeText={setTerm} containerStyle={{ flex: 1, minWidth: 220, maxWidth: 420 }} accessibilityLabel="Search modules in this book" />
+              {needle ? <Text style={{ fontSize: 12, color: colors.muted }}>{matches} of {all.length} modules</Text> : null}
+            </View>
+            {needle && !matches ? <Empty icon="search" title="No module matches" text={`Nothing in this book matches “${term.trim()}”. Try a shorter word or a module number.`} /> : null}
+            {shown.map((ch, i) => <ChapterBlock key={ch.id} chapter={ch} index={chapters.findIndex((c) => c.id === ch.id) >= 0 ? chapters.findIndex((c) => c.id === ch.id) : i} numberOf={numberOf} onOpen={(mid) => router.push(`/student/module/${mid}`)} />)}
+          </View>}
           side={
             <>
               <Card>

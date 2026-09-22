@@ -1,11 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
 import React, { useState } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { admin } from "@/api/endpoints";
 import type { AuditLog } from "@/api/types";
 import { useAsync } from "@/hooks/useAsync";
 import { useDebounced } from "@/hooks/useDebounced";
-import { Badge, Button, Card, CellText, DetailList, Dropdown, Empty, ErrorBanner, Input, Loading, PageHeading, Row, Screen, TableFooter, TextLink, colors, fmtDate, RequestFailed } from "@/ui";
+import { Badge, Button, Card, DetailList, Dropdown, Empty, ErrorBanner, Input, Loading, PageHeading, Row, Screen, TableFooter, TextLink, colors, fmtDate, RequestFailed } from "@/ui";
 import { DateTimeField } from "@/ui/DateTimeField";
 
 const toDay = (iso: string) => { const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
@@ -77,10 +77,14 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 
 
-const stamp = (iso: string) => {
-  const d = new Date(iso);
-  return `${d.toLocaleDateString(undefined, { day: "numeric", month: "short" })}, ${d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
+const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+const dayLabel = (iso: string) => {
+  const d = new Date(iso), now = new Date(), y = new Date(now); y.setDate(now.getDate() - 1);
+  if (sameDay(d, now)) return "Today";
+  if (sameDay(d, y)) return "Yesterday";
+  return d.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: d.getFullYear() === now.getFullYear() ? undefined : "numeric" });
 };
+const timeOnly = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 
 function DetailPairs({ log }: { log: AuditLog }) {
   const pairs = Object.entries(log.summary ?? {})
@@ -119,7 +123,7 @@ export default function Audit() {
   const tones: Record<string, "red" | "green" | "amber" | "blue" | "neutral"> = { danger: "red", success: "green", warning: "amber", accent: "blue", muted: "neutral" };
   return (
     <Screen refreshing={q.loading} onRefresh={q.reload}>
-      <PageHeading eyebrow="PLATFORM ACCOUNTABILITY" title="Audit trail" subtitle="Understand who changed what, and when." />
+      <PageHeading eyebrow="PLATFORM ACCOUNTABILITY" title="Audit log" subtitle="Who changed what, and when. Select an entry to see its details." />
       <ErrorBanner message={q.error} onRetry={q.reload} />
       <Card flush>
         <View style={{ paddingHorizontal: 22, paddingTop: 22, paddingBottom: 14, gap: 10 }}>
@@ -128,44 +132,47 @@ export default function Audit() {
             <Dropdown value={action} onChange={reset(setAction)} accessibilityLabel="Filter by action"
               options={[{ value: "", label: "All actions" }, ...(known.data?.actions ?? []).map((a) => ({ value: a.value, label: `${sentence(a.value)} (${a.count})` }))]} />
           </View>
-          <View style={{ flexDirection: "row" }}><TextLink title={more ? "Fewer filters" : "More filters"} onPress={() => setMore((v) => !v)} /></View>
-          {more ? (
-            <Row style={{ alignItems: "flex-start" }}>
-              <Input label="Target ID" compact value={target} onChangeText={reset(setTarget)} placeholder="Filter by target" containerStyle={{ minWidth: 260 }} />
-              <DateTimeField dateOnly label="From date" value={since ? fromDay(since) : null} onChange={(v) => reset(setSince)(v ? toDay(v) : "")} width={200} />
-              <DateTimeField dateOnly label="To date" value={until ? fromDay(until) : null} onChange={(v) => reset(setUntil)(v ? toDay(v) : "")} width={200} />
-              {(target || since || until) ? <View style={{ paddingTop: 24 }}><Button title="Clear" small variant="ghost" onPress={() => { setTarget(""); setSince(""); setUntil(""); setPage(1); }} /></View> : null}
-            </Row>
-          ) : null}
+          <Row style={{ alignItems: "flex-end", flexWrap: "wrap" }}>
+            <DateTimeField dateOnly label="From date" value={since ? fromDay(since) : null} onChange={(v) => reset(setSince)(v ? toDay(v) : "")} width={190} />
+            <DateTimeField dateOnly label="To date" value={until ? fromDay(until) : null} onChange={(v) => reset(setUntil)(v ? toDay(v) : "")} width={190} />
+            {more ? <Input label="Target ID" compact value={target} onChangeText={reset(setTarget)} placeholder="Paste an ID" containerStyle={{ minWidth: 240 }} /> : null}
+            <TextLink title={more ? "Hide target ID" : "Filter by target ID"} onPress={() => setMore((v) => !v)} />
+            {(target || since || until || action || actor) ? <Button title="Clear filters" small variant="secondary" icon="close" onPress={() => { setTarget(""); setSince(""); setUntil(""); setAction(""); setActor(""); setPage(1); }} /> : null}
+          </Row>
         </View>
         {q.error && !q.data ? <RequestFailed onRetry={q.reload} /> : q.loading && !q.data ? <Loading lines={3} /> : rows.length === 0 ? <Empty icon="receipt-outline" text={action || actor || target || since || until ? "Nothing matches these filters." : "Nothing has been recorded yet."} /> : (
-          <ScrollView horizontal contentContainerStyle={{ flexGrow: 1 }}>
-            <View style={{ minWidth: 900, flex: 1 }}>
-              <View style={{ flexDirection: "row", backgroundColor: "#F7F9F5", borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.border, paddingVertical: 12 }}>
-                {[["Time", 1.1], ["Actor", 1.6], ["Action", 1.5], ["Target", 1.8], ["Status", 0.8], ["", 1.4]].map(([l, f]) => <Text key={String(l) + f} style={{ flex: Number(f), paddingHorizontal: 18, fontSize: 11, fontWeight: "600", letterSpacing: 0.2, color: "#708071" }}>{l}</Text>)}
-              </View>
-              {rows.map((log) => {
-                const { entity, verb } = splitAction(log.action);
-                const tone = toneFor(verb);
-                return (
-                  <View key={log.id}>
-                    <View style={{ flexDirection: "row", alignItems: "center", paddingVertical: 13, borderBottomWidth: open === log.id ? 0 : 1, borderBottomColor: colors.rowLine }}>
-                      <View style={{ flex: 1.1, paddingHorizontal: 18 }}><Text style={{ fontSize: 12, color: colors.text }}>{stamp(log.created_at)}</Text></View>
-                      <View style={{ flex: 1.6, paddingHorizontal: 18 }}><CellText title={log.actor_email || "System"} sub={log.actor_role || null} /></View>
-                      <View style={{ flex: 1.5, paddingHorizontal: 18, flexDirection: "row", alignItems: "center", gap: 8 }}>
-                        <Ionicons name={ICONS[tone]} size={15} color={TONES[tone]} />
-                        <Text style={{ fontSize: 12, color: colors.ink, flexShrink: 1 }}>{sentence(entity)} {verb.replace(/_/g, " ")}</Text>
-                      </View>
-                      <View style={{ flex: 1.8, paddingHorizontal: 18 }}><CellText strong={false} title={log.target_label || sentence(log.target_type)} sub={log.target_label ? sentence(log.target_type) : null} /></View>
-                      <View style={{ flex: 0.8, paddingHorizontal: 18 }}><Badge value="Recorded" tone={tones[tone]} /></View>
-                      <View style={{ flex: 1.4, paddingHorizontal: 18, alignItems: "flex-start" }}><Button title={open === log.id ? "Hide" : "Details"} icon="eye-outline" small variant="secondary" onPress={() => setOpen((o) => (o === log.id ? null : log.id))} /></View>
+          <View>
+            {rows.map((log, i) => {
+              const { entity, verb } = splitAction(log.action);
+              const tone = toneFor(verb);
+              const day = dayLabel(log.created_at);
+              const newDay = i === 0 || dayLabel(rows[i - 1].created_at) !== day;
+              const expanded = open === log.id;
+              const who = log.actor_email || "System";
+              const what = `${verb.replace(/_/g, " ")} ${entity ? entity.replace(/_/g, " ") : ""}`.trim();
+              return (
+                <View key={log.id}>
+                  {newDay ? <Text style={{ paddingHorizontal: 22, paddingTop: 16, paddingBottom: 6, fontSize: 12, fontWeight: "600", color: colors.muted, backgroundColor: "#F7F9F5", borderTopWidth: 1, borderColor: colors.border }}>{day}</Text> : null}
+                  <Pressable onPress={() => setOpen((o) => (o === log.id ? null : log.id))} accessibilityRole="button" accessibilityState={{ expanded }}
+                    accessibilityLabel={`${who} ${what}${log.target_label ? ` ${log.target_label}` : ""}. ${expanded ? "Hide" : "Show"} details`}
+                    style={(st: any) => ({ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 22, paddingVertical: 12, borderTopWidth: newDay ? 0 : 1, borderColor: colors.rowLine, backgroundColor: st.hovered || expanded ? "#FAFBF8" : colors.surface })}>
+                    <View style={{ width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: `${TONES[tone]}18` }}>
+                      <Ionicons name={ICONS[tone]} size={15} color={TONES[tone]} />
                     </View>
-                    {open === log.id ? <DetailPairs log={log} /> : null}
-                  </View>
-                );
-              })}
-            </View>
-          </ScrollView>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={{ fontSize: 13, color: colors.ink }} numberOfLines={2}>
+                        <Text style={{ fontWeight: "600" }}>{who}</Text>{log.actor_role ? <Text style={{ color: colors.muted }}> ({log.actor_role})</Text> : null} {what}{log.target_label ? <Text style={{ fontWeight: "600" }}> “{log.target_label}”</Text> : null}
+                      </Text>
+                    </View>
+                    {entity ? <Badge value={sentence(entity)} tone={tones[tone]} /> : null}
+                    <Text style={{ fontSize: 12, color: colors.muted, width: 70, textAlign: "right" }}>{timeOnly(log.created_at)}</Text>
+                    <Ionicons name={expanded ? "chevron-up" : "chevron-down"} size={16} color={colors.faint} />
+                  </Pressable>
+                  {expanded ? <DetailPairs log={log} /> : null}
+                </View>
+              );
+            })}
+          </View>
         )}
         {q.data && q.data.count > 0 ? (
           <TableFooter>

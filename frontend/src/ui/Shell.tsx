@@ -1,8 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import type { BottomTabBarProps, BottomTabHeaderProps, BottomTabNavigationOptions } from "@react-navigation/bottom-tabs";
 import { useRouter } from "expo-router";
-import React, { useEffect, useMemo, useState } from "react";
-import { Modal, Platform, Pressable, PressableStateCallbackType, ScrollView, StyleSheet, Text, TextInput, TouchableWithoutFeedback, View, useWindowDimensions } from "react-native";
+import React, { useEffect, useState } from "react";
+import { Modal, Platform, Pressable, PressableStateCallbackType, ScrollView, StyleSheet, Text, TouchableWithoutFeedback, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/auth/AuthContext";
 import { useBackTo } from "@/hooks/useBackTo";
@@ -224,35 +224,6 @@ function HelpDialog({ visible, steps, onClose, onGo }: { visible: boolean; steps
   );
 }
 
-function FinderDialog({ visible, entries, onClose, onGo }: { visible: boolean; entries: FinderEntry[]; onClose: () => void; onGo: (path: string) => void }) {
-  const [q, setQ] = useState("");
-  useEffect(() => { if (visible) setQ(""); }, [visible]);
-  const list = useMemo(() => entries.filter((e) => `${e.title} ${e.section}`.toLowerCase().includes(q.trim().toLowerCase())), [entries, q]);
-  return (
-    <Sheet visible={visible} title="Find a page" onClose={onClose}>
-      <View>
-        <Ionicons name="search" size={17} color={colors.muted} style={{ position: "absolute", left: 12, top: 12, zIndex: 1 }} />
-        <TextInput autoFocus value={q} onChangeText={setQ} placeholder="Try books, results, people, or quiz…" placeholderTextColor={colors.faint}
-          accessibilityLabel="Search pages" style={s.finderInput} onSubmitEditing={() => list[0] && onGo(list[0].path)} />
-      </View>
-      <ScrollView style={{ maxHeight: 360, marginTop: 12 }}>
-        {list.length === 0 ? <Text style={{ fontSize: 12, color: colors.muted, padding: 20 }}>No page matches that search. Try a simpler word.</Text> : list.map((e) => (
-          <Pressable key={e.path + e.title} onPress={() => onGo(e.path)} accessibilityRole="link">
-            {(st: PressState) => (
-              <View style={[s.finderRow, st.hovered && { backgroundColor: colors.pale }]}>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 13, fontWeight: "600", color: colors.ink }}>{e.title}</Text>
-                  <Text style={{ fontSize: 11, color: colors.muted }}>{e.section}</Text>
-                </View>
-                <Ionicons name="arrow-forward" size={15} color={colors.muted} />
-              </View>
-            )}
-          </Pressable>
-        ))}
-      </ScrollView>
-    </Sheet>
-  );
-}
 
 /* ------------------------------------------------------------------ */
 /* Top bar                                                             */
@@ -266,18 +237,9 @@ export function ShellHeader({ route, options, meta }: BottomTabHeaderProps & { m
   const back = useBackTo();
   const desktop = width >= bp.desktop;
   const narrow = width < bp.tablet;
-  const [finder, setFinder] = useState(false);
   const help = useHelpOpen();
   const extras = options as ShellExtras;
 
-  useEffect(() => {
-    if (Platform.OS !== "web" || typeof window === "undefined") return;
-    const onKey = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setFinder(true); } };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
-  const go = async (path: string) => { setFinder(false); if (!(await confirmLeave())) return; router.push(path as never); };
   return (
     <View style={[s.topbar, { paddingTop: insets.top, height: 76 + insets.top, paddingHorizontal: narrow ? 14 : 28 }]}>
       {!desktop ? (
@@ -298,17 +260,6 @@ export function ShellHeader({ route, options, meta }: BottomTabHeaderProps & { m
         )}
       </View>
       <View style={{ flex: 1 }} />
-      <Pressable onPress={() => setFinder(true)} accessibilityRole="button" accessibilityLabel="Find a page">
-        {(st: PressState) => narrow ? (
-          <View style={s.iconBtn}><Ionicons name="search" size={17} color={colors.ink} /></View>
-        ) : (
-          <View style={[s.search, st.hovered && { borderColor: "#BDCDBF" }]}>
-            <Ionicons name="search" size={16} color={colors.muted} />
-            <Text style={{ color: colors.muted, fontSize: 12, flex: 1 }}>Find a page…</Text>
-            {Platform.OS === "web" ? <Text style={s.kbd}>Ctrl K</Text> : null}
-          </View>
-        )}
-      </Pressable>
       {!narrow ? (
         <View style={s.status} accessibilityLiveRegion="polite">
           <View style={[s.statusDot, !online && { backgroundColor: colors.warning }]} />
@@ -316,7 +267,6 @@ export function ShellHeader({ route, options, meta }: BottomTabHeaderProps & { m
         </View>
       ) : null}
       <UserMenu compact={narrow} profilePath={meta.profilePath} />
-      <FinderDialog visible={finder} entries={meta.finder} onClose={() => setFinder(false)} onGo={go} />
       <HelpDialog visible={help} steps={meta.help} onClose={closeHelp} onGo={(p) => { closeHelp(); void confirmLeave().then((ok) => { if (ok) router.push(p as never); }); }} />
     </View>
   );
@@ -404,14 +354,10 @@ const s = StyleSheet.create({
   sheetWrap: { flex: 1, alignItems: "center", justifyContent: "center", padding: 16 },
   sheet: { width: "100%", backgroundColor: "#FFFFFF", borderRadius: 14, padding: 24, borderWidth: 1, borderColor: colors.border },
   stepNum: { width: 28, height: 28, borderRadius: 14, backgroundColor: colors.pale, alignItems: "center", justifyContent: "center" },
-  finderInput: { borderWidth: 1, borderColor: "#D8E0D7", borderRadius: 7, paddingLeft: 38, paddingRight: 12, paddingVertical: 10, fontSize: 13, color: colors.ink },
-  finderRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 12, paddingVertical: 11, borderRadius: 8 },
   topbar: { flexDirection: "row", alignItems: "center", gap: 14, backgroundColor: "#FFFFFFED", borderBottomWidth: 1, borderBottomColor: colors.border },
   iconBtn: { width: 38, height: 38, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
   crumb: { flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 1, minWidth: 0 },
   crumbText: { fontSize: 12, color: colors.text, flexShrink: 1 },
-  search: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderColor: colors.border, backgroundColor: "#F8FAF7", borderRadius: 8, minHeight: 37, paddingHorizontal: 12, width: 270 },
-  kbd: { fontSize: 10, color: "#859087", backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: colors.border, paddingHorizontal: 4, borderRadius: 3 },
   status: { flexDirection: "row", alignItems: "center", gap: 6 },
   statusDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#41835A" },
   menuLink: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 9, borderWidth: 1, borderColor: colors.border },
