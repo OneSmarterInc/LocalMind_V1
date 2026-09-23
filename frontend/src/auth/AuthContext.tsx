@@ -117,7 +117,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await clear();
   }, [clear]);
 
-  const refreshUser = useCallback(async () => { const me = await authApi.me(); setUser(me); setMustChange(me.must_change_password); }, []);
+  // Write the fresh account to the device store too: that saved copy is what a
+  // person sees while offline, so an edit made here must not leave it stale.
+  const refreshUser = useCallback(async () => {
+    const me = await authApi.me();
+    await writeEntry(META.me, me).catch(() => {});
+    setUser(me); setMustChange(me.must_change_password);
+  }, []);
 
   const value = useMemo(() => ({ ready, user, mustChangePassword: mustChange, sessionId, login, completePasswordChange, logout, refreshUser }),
     [ready, user, mustChange, sessionId, login, completePasswordChange, logout, refreshUser]);

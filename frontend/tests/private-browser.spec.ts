@@ -38,7 +38,7 @@ async function countOne(page:Page){await page.getByRole('button',{name:'Question
 test('admin shares a plain book; legacy publishing route no longer shows the block editor',async({page})=>{
  await signIn(page,'admin','/manage/study/00000000-0000-0000-0000-000000000001');
  await expect(page).toHaveURL(/\/manage\/private-library/);
- await expect(page.getByText('Books for private study',{exact:true}).first()).toBeVisible();
+ await expect(page.getByText('Shared study books',{exact:true}).first()).toBeVisible();
  await expect(page.getByText('Choose a block',{exact:true})).toHaveCount(0);
  await expect(page.getByText('Author the available teaching aids',{exact:true})).toHaveCount(0);
  await page.getByLabel('Book title',{exact:true}).fill('Shared test notes');
@@ -686,7 +686,7 @@ test('module authoring returns to the selected book outline',async({page})=>{
  await page.getByRole('button',{name:'Back to outline',exact:true}).click();
  await expect(page).toHaveURL(new RegExp(`/manage/document/${fixture().document}\\?tab=outline&module=${fixture().module}`));
  await expect(page.getByLabel('Module title',{exact:true})).toHaveValue('Leaf science');
- await expect(page.getByRole('button',{name:'Books for private study',exact:true})).toHaveCount(0);
+ await expect(page.getByRole('button',{name:'Shared study books',exact:true})).toHaveCount(0);
  await expect(page.getByRole('button',{name:/^Next:/})).toHaveCount(0);
  await page.getByRole('tab',{name:'Lessons & quizzes',exact:true}).click();
  await expect(page.getByRole('tab',{name:'Lessons & quizzes',exact:true})).toHaveAttribute('aria-selected','true');

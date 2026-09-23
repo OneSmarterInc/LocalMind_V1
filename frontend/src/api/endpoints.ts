@@ -42,6 +42,10 @@ export const auth = {
   login: (role: T.Role, email: string, password: string) =>
     api<T.LoginResponse>(`/auth/login/${role}/`, { method: "POST", body: { email, password }, auth: false }),
   me: () => api<T.User>("/auth/me/"),
+  /** A person editing their own account. The server decides which profile
+   *  fields a role may change; the rest stay with the administrator. */
+  updateMe: (body: { full_name?: string; profile?: Record<string, string> }) =>
+    api<T.User>("/auth/me/", { method: "PATCH", body }),
   changePassword: (current_password: string, new_password: string) =>
     api<T.LoginResponse>("/auth/password/change/", { method: "POST", body: { current_password, new_password } }),
   heartbeat: (session_id: string | null) => api<{ session_id: string }>("/auth/heartbeat/", { method: "POST", body: { session_id } }),

@@ -57,7 +57,7 @@ export default function ManageAccount() {
   });
   const remove = useAction(async () => {
     if (!u) return;
-    const ok = await confirmDeleteAsync(`Delete this ${faculty ? "faculty account" : "student account"}?`, "This permanently removes the account and everything tied to it: enrolments or subject assignments, quiz attempts and learning progress. Use Discontinue when you only want to stop access.", { detail: `${u.full_name} · ${u.email}`, okLabel: "Delete account" });
+    const ok = await confirmDeleteAsync(`Delete this ${faculty ? "faculty account" : "student account"}?`, "This permanently removes the account and everything tied to it: enrollments or subject assignments, quiz attempts and learning progress. Use Discontinue when you only want to stop access.", { detail: `${u.full_name} · ${u.email}`, okLabel: "Delete account" });
     if (!ok) return;
     await admin.deleteUser(kind, id, "");
     router.replace({ pathname: "/admin/users", params: { kind, notice: `${u.full_name} was deleted.` } });

@@ -43,6 +43,14 @@ class RefreshSerializer(serializers.Serializer):
     refresh = serializers.CharField()
 
 
+class UpdateOwnProfileSerializer(serializers.Serializer):
+    """A person editing their own account. ``profile`` carries the role's own
+    editable fields; which ones those are is decided in
+    ``services.own_profile.SELF_EDITABLE``, not here."""
+    full_name = serializers.CharField(required=False, max_length=255, allow_blank=True)
+    profile = serializers.DictField(required=False, child=serializers.CharField(allow_blank=True, max_length=255))
+
+
 class ChangePasswordSerializer(serializers.Serializer):
     current_password = serializers.CharField(write_only=True, trim_whitespace=False)
     new_password = serializers.CharField(write_only=True, trim_whitespace=False, min_length=1)

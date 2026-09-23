@@ -73,7 +73,7 @@ export default function SharedLibrary() {
   );
 
   return <Screen refreshing={q.loading} onRefresh={q.reload}>
-    <PageHeading eyebrow="PRIVATE STUDY BOOKS" title="Books for private study" subtitle="Share a book. Students create their own lessons, quizzes and doubt sessions on their devices." />
+    <PageHeading eyebrow="SHARED STUDY BOOKS" title="Shared study books" subtitle="Share a book with your students. They create their own lessons, quizzes and doubt sessions on their devices, and their private study is not reported to you." />
     <ErrorBanner message={error || q.error || subjects.error} onRetry={q.reload} />
     {!!notice && <Notice tone="success" message={notice} />}
     <Split

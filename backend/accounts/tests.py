@@ -583,3 +583,58 @@ class ResetOnboardingPasswordsCommandTests(TestCase):
         self.assertEqual(login(client_for(), "student", chosen.email, STRONG).status_code, 200)
         self.assertEqual(login(client_for(), "student", on_shared.email, INITIAL).status_code, 200)
         self.assertTrue(AuditLog.objects.filter(action="user.password_reset_to_shared", target_id=str(stuck.id)).exists())
+
+
+class EditOwnProfileTests(TestCase):
+    """A person may correct their own name and phone number. Everything the
+    institution issues stays with the administrator."""
+
+    def test_a_student_changes_their_own_name_and_phone(self):
+        student = make_student()
+        client = client_for(student)
+        res = client.patch("/api/auth/me/", {"full_name": "  Sanika Deshmukh  ", "profile": {"phone": "+91 98765 43210"}}, format="json")
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.data["full_name"], "Sanika Deshmukh")
+        self.assertEqual(res.data["profile"]["phone"], "+91 98765 43210")
+        student.refresh_from_db()
+        self.assertEqual(student.full_name, "Sanika Deshmukh")
+        self.assertEqual(student.student_profile.phone, "+91 98765 43210")
+        self.assertTrue(AuditLog.objects.filter(action="user.profile_updated", target_id=str(student.id)).exists())
+
+    def test_a_faculty_member_changes_their_own_phone(self):
+        faculty = make_faculty()
+        res = client_for(faculty).patch("/api/auth/me/", {"profile": {"phone": "0123456789"}}, format="json")
+        self.assertEqual(res.status_code, 200, res.content)
+        faculty.refresh_from_db()
+        self.assertEqual(faculty.faculty_profile.phone, "0123456789")
+
+    def test_institutional_identity_is_refused(self):
+        """A student editing their own roll number would break enrollment and
+        result reporting, so the server refuses rather than ignoring it."""
+        student = make_student()
+        before = student.student_profile.roll_number
+        res = client_for(student).patch("/api/auth/me/", {"profile": {"roll_number": "99999"}}, format="json")
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertEqual(res.data["error"]["code"], "NOT_SELF_EDITABLE")
+        student.refresh_from_db()
+        self.assertEqual(student.student_profile.roll_number, before)
+
+    def test_an_empty_name_is_refused(self):
+        student = make_student()
+        res = client_for(student).patch("/api/auth/me/", {"full_name": "   "}, format="json")
+        self.assertEqual(res.status_code, 400, res.content)
+        student.refresh_from_db()
+        self.assertNotEqual(student.full_name, "")
+
+    def test_an_admin_changes_their_name_and_has_no_profile_fields(self):
+        admin = make_admin()
+        res = client_for(admin).patch("/api/auth/me/", {"full_name": "Anshuman R"}, format="json")
+        self.assertEqual(res.status_code, 200, res.content)
+        admin.refresh_from_db()
+        self.assertEqual(admin.full_name, "Anshuman R")
+        refused = client_for(admin).patch("/api/auth/me/", {"profile": {"phone": "1"}}, format="json")
+        self.assertEqual(refused.status_code, 400, refused.content)
+
+    def test_signed_out_callers_cannot_edit(self):
+        res = client_for().patch("/api/auth/me/", {"full_name": "Nobody"}, format="json")
+        self.assertIn(res.status_code, (401, 403))

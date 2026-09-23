@@ -1,15 +1,26 @@
 import React from "react";
 import { Redirect, usePathname } from "expo-router";
+import { View } from "react-native";
 import { useAuth } from "@/auth/AuthContext";
-import { Screen, Notice } from "@/ui";
+import { Loading, colors } from "@/ui";
+
+/** Anything typed into the address bar that is not a route.
+ *
+ * A dead end is never the useful answer here: the person is already signed in
+ * and has somewhere to be. Send them to their own workspace overview, the same
+ * destination the root route uses, so a mistyped or stale link behaves like
+ * opening the app. Signed out, that destination is the sign-in page.
+ */
 export default function NotFound() {
   const path = usePathname();
   const { ready, user, mustChangePassword } = useAuth();
-  const legacy = /^\/(student|manage)\/(assignments|assignment|submission)(\/|$)/.test(path);
-  if (legacy && ready) {
-    if (!user) return <Redirect href="/login" />;
-    if (mustChangePassword) return <Redirect href="/change-password" />;
+  if (!ready) return <View style={{ flex: 1, backgroundColor: colors.bg, justifyContent: "center" }}><Loading /></View>;
+  if (!user) return <Redirect href="/login" />;
+  if (mustChangePassword) return <Redirect href="/change-password" />;
+  // Links from before assignments became quizzes have a better destination
+  // than the overview, so they keep it.
+  if (/^\/(student|manage)\/(assignments|assignment|submission)(\/|$)/.test(path)) {
     return <Redirect href={user.role === "student" ? "/student/quizzes" : "/manage/quizzes"} />;
   }
-  return <Screen><Notice inline title="Page not found" message="This page is unavailable. Use your workspace navigation to continue." /></Screen>;
+  return <Redirect href={user.role === "student" ? "/student" : user.role === "faculty" ? "/manage" : "/admin"} />;
 }

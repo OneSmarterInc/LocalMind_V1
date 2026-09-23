@@ -8,11 +8,11 @@ import { Button, Card, Empty, ErrorBanner, H2, Input, Loading, P, Row, colors, s
 export interface Enrollable { id: string; email: string; full_name: string; roll_number: string }
 
 /**
- * Pick students to enrol on a subject.
+ * Pick students to enroll on a subject.
  *
  * The action bar — the search box, the running count of who is selected, the
- * select-all control and the Enrol button — stays pinned above the list, so a
- * person never scrolls to the bottom of a long roll to enrol. The list scrolls
+ * select-all control and the Enroll button — stays pinned above the list, so a
+ * person never scrolls to the bottom of a long roll to enroll. The list scrolls
  * inside its own bounded area rather than stretching the page, which is what
  * makes a class of five thousand behave the same as a class of forty. Several
  * people are selected and enrolled in one action; the server leaves out anyone
@@ -21,12 +21,12 @@ export interface Enrollable { id: string; email: string; full_name: string; roll
 export function StudentPicker({
   subjectId,
   search,
-  enrol,
+  enroll,
   onDone,
 }: {
   subjectId: string;
   search: (q: string, subject: string) => Promise<Enrollable[]>;
-  enrol: (ids: string[]) => Promise<unknown>;
+  enroll: (ids: string[]) => Promise<unknown>;
   onDone: () => void | Promise<void>;
 }) {
   const [q, setQ] = useState("");
@@ -72,7 +72,7 @@ export function StudentPicker({
     setBusy(true);
     setError(null);
     try {
-      await enrol(picked);
+      await enroll(picked);
       setPicked([]);
       await onDone();
       await run(q.trim());
@@ -88,9 +88,9 @@ export function StudentPicker({
       {/* Action bar — always in view, whatever the list length. */}
       <View style={{ gap: space.sm }}>
         <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-          <H2 icon="person-add-outline">Enrol students</H2>
+          <H2 icon="person-add-outline">Enroll students</H2>
           <Button
-            title={picked.length ? `Enrol ${picked.length} student${picked.length === 1 ? "" : "s"}` : "Enrol"}
+            title={picked.length ? `Enroll ${picked.length} student${picked.length === 1 ? "" : "s"}` : "Enroll"}
             icon="checkmark-circle-outline"
             small
             onPress={confirm}

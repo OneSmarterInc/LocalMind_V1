@@ -172,7 +172,7 @@ function StudentsTab({ subjectId }: { subjectId: string }) {
       {picking ? (
         <Card>
           <CardHead title="Enroll students" subtitle="Search existing student accounts. Create new accounts from People." action={<Button title="Done" small variant="secondary" onPress={() => setPicking(false)} />} />
-          <StudentPicker subjectId={subjectId} search={admin.searchStudents} enrol={(ids) => admin.enroll(subjectId, ids)} onDone={rows.reload} />
+          <StudentPicker subjectId={subjectId} search={admin.searchStudents} enroll={(ids) => admin.enroll(subjectId, ids)} onDone={rows.reload} />
         </Card>
       ) : null}
       <ErrorBanner message={rows.error ?? drop.error} onRetry={rows.reload} />

@@ -402,9 +402,16 @@ export function QuizDetailPage({ id, note }: { id: string; note?: string }) {
                 </Grid>
                 <Grid min={200} gap={16}>
                   <Input label="Time limit (minutes)" value={d.time_limit_minutes ? String(d.time_limit_minutes) : ""} placeholder="No limit" keyboardType="number-pad" onChangeText={(v) => edit((z) => ({ ...z, time_limit_minutes: Number(v) || null }))} editable={editable} />
-                  <DateTimeField label="Available from" value={d.available_from} onChange={(v) => edit((z) => ({ ...z, available_from: v }))} disabled={!editable} hint="Empty means available as soon as it is published." />
                 </Grid>
-                <DateTimeField label="Due date" value={d.due_at} onChange={(v) => edit((z) => ({ ...z, due_at: v }))} disabled={!editable} width={360} />
+                {/* The window a quiz is open for, read as one thing. These used to
+                    sit apart and at different widths — "Available from" squeezed
+                    into a 200px grid cell beside the time limit, "Due date" alone
+                    on its own row at 360px — which made a pair of related fields
+                    look unrelated and clipped the browser's date control. */}
+                <Grid min={280} gap={16}>
+                  <DateTimeField label="Available from" value={d.available_from} onChange={(v) => edit((z) => ({ ...z, available_from: v }))} disabled={!editable} hint="Empty means available as soon as it is published." />
+                  <DateTimeField label="Due date" value={d.due_at} onChange={(v) => edit((z) => ({ ...z, due_at: v }))} disabled={!editable} hint="Empty means no due date." />
+                </Grid>
                 <Text style={{ fontSize: 15, fontWeight: "600", color: colors.ink, marginTop: 6 }}>When can students see results?</Text>
                 <ResultsRelease value={(d.results_release ?? "immediate") as ReleaseMode} at={d.results_release_at ?? null} disabled={!editable} onChange={(m, at) => edit((z) => ({ ...z, results_release: m, results_release_at: at }))} />
                 <FormFooter note="Evaluation and result visibility are separate.">

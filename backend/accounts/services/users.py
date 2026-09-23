@@ -161,7 +161,7 @@ def discontinue_user(actor, user, reason="", request=None):
 def delete_user(actor, user, reason="", request=None):
     """Permanently remove a student or faculty account.
 
-    Everything owned by the account (profile, enrolments, subject links,
+    Everything owned by the account (profile, enrollments, subject links,
     attempts, submissions, conversations, progress, sessions) cascades away.
     Audit rows survive because their actor link is nulled rather than deleted,
     so the trail of what the account did before removal stays readable.

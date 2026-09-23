@@ -98,7 +98,7 @@ class SubjectTests(TestCase):
         self.assertIn(str(student.id), [s["id"] for s in on_physics])
 
     def test_student_search_can_exclude_those_already_enrolled(self):
-        """The enrol picker asks for candidates for one subject, so anyone
+        """The enroll picker asks for candidates for one subject, so anyone
         already on it must not come back."""
         subject = make_subject()
         already = make_student(name="Already Enrolled")

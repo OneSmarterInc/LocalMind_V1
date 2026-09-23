@@ -151,7 +151,7 @@ class SubjectStudentDiscontinueView(APIView):
 
 
 class StudentSearchView(ListAPIView):
-    """Faculty need to find students to enrol; only minimal identity is exposed."""
+    """Faculty need to find students to enroll; only minimal identity is exposed."""
 
     permission_classes = [IsAdminOrFaculty]
 

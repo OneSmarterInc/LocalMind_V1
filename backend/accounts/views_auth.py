@@ -16,7 +16,8 @@ from audit import services as audit
 from core.exceptions import APIError
 
 from .models import AccountStatus, Role
-from .serializers import ChangePasswordSerializer, LoginSerializer, RefreshSerializer, UserSerializer
+from .serializers import ChangePasswordSerializer, LoginSerializer, RefreshSerializer, UpdateOwnProfileSerializer, UserSerializer
+from .services.own_profile import update_own_profile
 from .services.passwords import change_password
 
 logger = logging.getLogger("localmind.auth")
@@ -134,6 +135,14 @@ class MeView(APIView):
 
     def get(self, request):
         return Response(UserSerializer(request.user).data)
+
+    def patch(self, request):
+        """A person editing their own name or phone number. Institutional
+        identity stays with the administrator; see services.own_profile."""
+        serializer = UpdateOwnProfileSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = update_own_profile(request.user, request=request, **serializer.validated_data)
+        return Response(UserSerializer(user).data)
 
 
 class ChangePasswordView(APIView):

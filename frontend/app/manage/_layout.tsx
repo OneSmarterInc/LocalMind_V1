@@ -12,7 +12,7 @@ const icon = (name: keyof typeof Ionicons.glyphMap) => {
 };
 
 const finder = [
-  { title: "Books for private study", section: "Upload and share books", path: "/manage/private-library" },
+  { title: "Shared study books", section: "Upload and share books", path: "/manage/private-library" },
   { title: "Overview", section: "Teaching at a glance", path: "/manage" },
   { title: "Teaching subjects", section: "Subjects, students and modules", path: "/manage/subjects" },
   { title: "Books & modules", section: "Uploads, outlines and publishing", path: "/manage/books" },
@@ -45,7 +45,7 @@ export default function ManageLayout() {
       <Tabs.Screen name="subjects" options={{ title: "Subjects", tabBarIcon: icon("library-outline") }} />
       <Tabs.Screen name="books" options={{ title: "Books & modules", tabBarIcon: icon("book-outline") }} />
       <Tabs.Screen name="quizzes" options={{ title: "Quizzes", tabBarIcon: icon("help-circle-outline") }} />
-      <Tabs.Screen name="private-library" options={{ title: "Private study books", tabBarIcon: icon("library-outline") }} />
+      <Tabs.Screen name="private-library" options={{ title: "Shared study books", tabBarIcon: icon("share-social-outline") }} />
       <Tabs.Screen name="offline-ai" options={{ title: "Offline AI", tabBarIcon: icon("hardware-chip-outline") }} />
       <Tabs.Screen name="profile" options={{ href: admin ? null : undefined, title: "My profile", tabBarIcon: icon("person-circle-outline") }} />
       <Tabs.Screen name="subject/[id]" options={shellScreen({ href: null, title: "Subject" }, { backTo: "/manage/subjects", backLabel: "Subjects" })} />

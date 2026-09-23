@@ -5,7 +5,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 import * as Picker from 'expo-document-picker';
 import { useRouter } from 'expo-router';
-import { Screen, Card, PageHeading, H2, P, Row, Button, ErrorBanner, Notice, ProgressBar, Badge, confirmAsync } from '@/ui';
+import { Screen, Card, PageHeading, H2, P, Row, Button, ErrorBanner, Notice, ProgressBar, Badge, choiceAsync, confirmAsync } from '@/ui';
 import { device } from '../device';
 import { deviceFit } from '../deviceFit';
 import { useAuth } from '@/auth/AuthContext';
@@ -36,9 +36,36 @@ export default function OfflineAI() {
   };
   const report = (p: number) => { if (alive.current) setProgress(Math.round(p * 100)); };
   const download = () => run(async signal => {
-    if (!(await confirmAsync('Download local AI?', `${MODEL.title}: approximately ${MODEL.downloadSize}. Internet is used only to download the model. It will run on this device; your books and questions are not sent to the model publisher.`, 'Download', 'Cancel'))) return;
+    const d = await device();
+    const where = await d.storage?.().catch(() => null);
+    // A model this size belongs somewhere the person can find it, back it up and
+    // reuse. Ask for a folder before the download starts, rather than dropping
+    // several gigabytes into the browser's private storage by default. Browser
+    // storage is still offered, because choosing a folder needs Chrome or Edge
+    // on a computer and is not available everywhere.
+    // canChooseFolder is the runtime's own answer: a folder needs the File System
+    // Access API, a secure context and a computer. Only offer it when the model is
+    // not already living in a folder the person picked earlier.
+    const canChoose = !!d.chooseModelFolder && !!where?.canChooseFolder && where.location === 'browser';
+    if (canChoose) {
+      const picked = await choiceAsync(
+        'Where should the model be saved?',
+        `${MODEL.title}: approximately ${MODEL.downloadSize}. Saving to a folder on this computer lets you see the .gguf file in File Explorer or Finder, copy it to another machine and keep it when browser data is cleared. Internet is used only for the download; your books and questions are never sent to the model publisher.`,
+        { confirm: 'Choose a folder…', extra: 'Use browser storage', cancel: 'Cancel' });
+      if (picked === 'cancel') return;
+      if (picked === 'confirm') {
+        const chosen = await d.chooseModelFolder!(report, signal);
+        if (alive.current) setNotice(`Saving to your folder “${chosen.folderName ?? 'the folder you chose'}”.`);
+        setProgress(0);
+      }
+    } else if (!(await confirmAsync('Download local AI?', `${MODEL.title}: approximately ${MODEL.downloadSize}. Internet is used only to download the model. It will run on this device; your books and questions are not sent to the model publisher.`, 'Download', 'Cancel'))) {
+      return;
+    }
     await (await device()).download(report, signal);
-    if (alive.current) setNotice('Model saved and verified. Private study and offline course doubts use this same model.');
+    const saved = await (await device()).storage?.().catch(() => null);
+    if (alive.current) setNotice(saved?.location === 'folder'
+      ? `Model saved and verified in your folder “${saved.folderName ?? 'you chose'}”. Private study and offline course doubts use this same model.`
+      : 'Model saved and verified. Private study and offline course doubts use this same model.');
   });
   const importModel = () => run(async (signal) => {
     const selected = await Picker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });

@@ -88,7 +88,7 @@ def delete_subject(actor, subject, request=None):
 
     Documents, quizzes and assignments point at Subject with PROTECT, so the
     dependants are cleared in dependency order before the subject row goes.
-    Chapters, modules, lessons, conversations, progress and enrolments all
+    Chapters, modules, lessons, conversations, progress and enrollments all
     cascade on their own once their parent is gone.
     """
     from assessments.models import Assessment, AssessmentAttempt
