@@ -398,12 +398,16 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
     return auto||(modelInstalled?'Waiting to prepare':'Model setup required');
   };
   const columns: Column<ModuleRow>[] = [
-    { key: "m", label: "Module", flex: 2.2, render: (m) => <CellText title={m.title} sub={`Module ${m.number}`} /> },
+    { key: "m", label: "Module", flex: 1.9, render: (m) => <CellText title={m.title} sub={`Module ${m.number}`} /> },
     { key: "l", label: "Lesson", flex: 0.8, render: (m) => <Badge value={status(m,"lesson")} tone={/^(Ready|Synchronized)/.test(status(m,"lesson"))?"green":"neutral"} /> },
-    { key: "q", label: "Quiz", flex: 1, render: (m) => <Badge value={status(m,"quiz")} tone={/^(Ready|Synchronized)/.test(status(m,"quiz"))?"green":m.quiz_status==="failed_final"?"red":"neutral"} /> },
+    { key: "q", label: "Quiz", flex: 0.9, render: (m) => <Badge value={status(m,"quiz")} tone={/^(Ready|Synchronized)/.test(status(m,"quiz"))?"green":m.quiz_status==="failed_final"?"red":"neutral"} /> },
     { key: "draft", label: "Saved work", flex: 1.1, render: (m) => {const d=local(m.id!);return <CellText title={d?.lesson?"Lesson draft saved":"No lesson draft"} sub={automatic[m.id!]?.error||(d?.questions?`${d.questions.length} quiz questions saved`:"No quiz draft")}/>;} },
-    { key: "x", label: "", flex: 1.7, render: (m) => (
-      <View style={{ flexDirection: "row", gap: 6 }}>
+    // A row can carry up to five buttons (Generate now, Pause, Open module,
+    // Preview lesson, Review or Retry quiz). Without flexWrap they sat on one
+    // line, made the row wider than the card and put the whole table behind a
+    // horizontal scrollbar. Wrapping keeps every control reachable in place.
+    { key: "x", label: "", flex: 1.5, render: (m) => (
+      <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
         {(()=>{const st=rowState(m);if(!modelInstalled||!st)return null;
           if(st==='running')return <Button title="Pause" small variant="secondary" icon="pause-outline" accessibilityLabel={`Pause ${m.title}`} onPress={()=>pauseModule(ctlKey,m.id!)} />;
           if(st==='paused')return <Button title="Resume" small icon="play-outline" busy={genNow.busy} accessibilityLabel={`Resume ${m.title}`} onPress={()=>genNow.run(m.id!)} />;
@@ -411,7 +415,7 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
           return <><Button title="Generate now" small icon="play-outline" busy={genNow.busy} accessibilityLabel={`Generate ${m.title} now`} onPress={()=>genNow.run(m.id!)} /><Button title="Pause" small variant="secondary" icon="pause-outline" accessibilityLabel={`Pause ${m.title}`} onPress={()=>pauseModule(ctlKey,m.id!)} /></>;
         })()}
         <Button title="Open module" small variant="secondary" onPress={()=>router.push(`/manage/local-authoring/${local(m.id!)?.snapshot.module_id||m.id}`)}/>
-        <Button title="Preview lesson" small variant="secondary" disabled={m.lesson_status === "none"} onPress={() => onPreview({ id: m.id!, title: m.title, quizStatus: m.quiz_status ?? "off", quizId: m.auto_quiz_id ?? null })} />
+        <Button title="Preview" small variant="secondary" disabled={m.lesson_status === "none"} accessibilityLabel={`Preview the lesson for ${m.title}`} onPress={() => onPreview({ id: m.id!, title: m.title, quizStatus: m.quiz_status ?? "off", quizId: m.auto_quiz_id ?? null })} />
         {m.quiz_status === "held" && m.auto_quiz_id
           ? <Button title="Review quiz" small variant="secondary" onPress={() => router.push(`/manage/quiz/${m.auto_quiz_id}`)} />
           : null}
