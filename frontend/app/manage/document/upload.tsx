@@ -5,6 +5,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import { Text, View } from "react-native";
 import {useAuth} from "@/auth/AuthContext";
+import { useOnline } from "@/offline/connectivity";
 import {BookUploads} from "@/authoring/uploads";
 import { manage } from "@/api/endpoints";
 import { useAction, useAsync } from "@/hooks/useAsync";
@@ -14,6 +15,7 @@ export default function UploadBook() {
   const router = useRouter();
   const back = useBackTo();
   const {user}=useAuth();
+  const online = useOnline();
   const uploads=useMemo(()=>user?new BookUploads(user.id):null,[user]);
   const params = useLocalSearchParams<{ subject?: string }>();
   const subjects = useAsync(() => manage.subjects(), []);
@@ -40,6 +42,15 @@ export default function UploadBook() {
       <PageHeading eyebrow="BOOKS & MODULES" title="Let’s add a book." subtitle="We’ll walk you from source material to student-ready modules."
         right={<Button title="Back to books" variant="secondary" icon="arrow-back" onPress={() => back("/manage/books")} />} />
       {user?<UploadStatus owner={user.id}/>:null}
+      {/* Offline, the server cannot outline the book, so nothing can be generated from
+          an upload that is still queued. The device importer does the whole job without
+          a server — outline, lessons and quizzes — so offer it here instead of leaving
+          the page looking broken. The chosen subject travels with the link. */}
+      {!online ? (
+        <Notice tone="warning" title="The server is unavailable."
+          message="An upload waits here until the server is back, and it cannot be split into modules before then. Prepare the book on this device instead: it is outlined here, you can generate lessons and quizzes with the offline model, and everything synchronizes when the server returns."
+          action={<Button title="Prepare on this device" icon="arrow-forward" onPress={() => router.push({ pathname: "/manage/local-books", params: subjectId ? { subject: subjectId } : {} })} />} />
+      ) : null}
       <Stepper steps={["Upload a book", "Review the outline", "Publish to students"]} active={0} />
       <Split
         main={
