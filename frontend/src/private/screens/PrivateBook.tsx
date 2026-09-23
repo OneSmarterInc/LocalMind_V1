@@ -74,7 +74,6 @@ function ModuleLearning({bookId,section,next,hasNext,initialTab,onSourceSaved}:{
  useEffect(()=>{if(!quizId&&quizzes.data?.length)setQuizId(quizzes.data[0].id);},[quizId,quizzes.data]);
  const currentKind=tab==='ask'?'doubt':tab;
  const current=jobs.slice().reverse().find(j=>j.kind===currentKind);
- const active=(kind:string)=>jobs.some(j=>j.kind===kind&&['queued','running'].includes(j.state));
  const [localError,setLocalError]=useState('');
  const [editing,setEditing]=useState(false),[sourceDraft,setSourceDraft]=useState(section.source),[savingSource,setSavingSource]=useState(false);
  const sourceRef=useRef(sourceDraft);sourceRef.current=sourceDraft;
@@ -96,28 +95,37 @@ function ModuleLearning({bookId,section,next,hasNext,initialTab,onSourceSaved}:{
  return <Card><Row><H2>{section.title}</H2><Badge value="All modules open" tone="green"/></Row>
   <PageTabs value={tab} onChange={t=>{if(t!==tab)void confirmLeave().then(ok=>{if(ok)setTab(t);});}} tabs={[{key:'read',label:'Read'},{key:'lesson',label:'Lesson'},{key:'quiz',label:'Practice quiz'},{key:'ask',label:'Ask a doubt'}]}/>
   <ErrorBanner message={task.error||figures.error||lessons.error||quizzes.error||chats.error}/>
-  {(()=>{
-  // One place to prepare this module: state, progress and Generate / Pause for each kind.
-  const jobOf=(kind:string)=>jobs.slice().reverse().find(j=>j.kind===kind&&['queued','running'].includes(j.state));
-  const row=(kind:'lesson'|'quiz',label:string,has:boolean,start:()=>void)=>{const j=jobOf(kind);
-   const state=j?(j.state==='queued'?'Waiting to start':'Generating'):has?'Ready':'Not generated';
-   return <View key={kind} style={{flexDirection:'row',alignItems:'center',gap:10,flexWrap:'wrap',paddingVertical:8,borderTopWidth:kind==='quiz'?1:0,borderColor:colors.rowLine}}>
-    <View style={{flex:1,minWidth:180}}><P style={{fontWeight:'600',color:colors.ink}}>{label}</P>{j?.note?<P small muted numberOfLines={2}>{j.note}</P>:null}</View>
+  {/* Preparation belongs to the section it prepares.
+      The Lesson and Practice quiz rows used to sit above every tab, so the
+      reading page carried two Generate buttons for content it does not show,
+      and the quiz tab carried the same control twice. Each tab now shows one
+      row: its own state and its own button, with the quiz's question count
+      beside the button it belongs to. */}
+  {tab==='lesson'||tab==='quiz'?(()=>{
+  const kind=tab as 'lesson'|'quiz';
+  const label=kind==='lesson'?'Lesson':'Practice quiz';
+  const has=kind==='lesson'?!!lessons.data?.length:!!quizzes.data?.length;
+  const start=kind==='lesson'?generateLesson:generateQuiz;
+  const j=jobs.slice().reverse().find(x=>x.kind===kind&&['queued','running'].includes(x.state));
+  const state=j?(j.state==='queued'?'Waiting to start':'Generating'):has?'Ready':'Not generated';
+  return <View style={{borderWidth:1,borderColor:colors.border,borderRadius:10,paddingHorizontal:14,paddingVertical:12,backgroundColor:colors.surface2,gap:8}} accessibilityLiveRegion="polite">
+   <View style={{flexDirection:'row',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+    <View style={{flex:1,minWidth:150}}><P style={{fontWeight:'600',color:colors.ink}}>{label}</P>{j?.note?<P small muted numberOfLines={2}>{j.note}</P>:null}</View>
     <Badge value={state} tone={j?'blue':has?'green':'neutral'}/>
-    {j?<Button title="Pause" small variant="secondary" icon="pause-outline" accessibilityLabel={`Pause ${label.toLowerCase()} generation`} onPress={()=>{generationJobs.cancel(j.id);showToast({tone:'info',title:`${label} paused`,message:'Finished parts are saved. Generate again to continue from where it stopped.'});}}/>
-     :<Button title={has?`Regenerate`:`Generate`} small icon={has?'refresh':'sparkles-outline'} accessibilityLabel={`${has?'Regenerate':'Generate'} ${label.toLowerCase()}`} onPress={()=>{start();setTab(kind);}}/>}
-   </View>;};
-  return <View style={{borderWidth:1,borderColor:colors.border,borderRadius:10,paddingHorizontal:14,paddingVertical:6,backgroundColor:colors.surface2}} accessibilityLiveRegion="polite">
-   {row('lesson','Lesson',!!lessons.data?.length,generateLesson)}
-   {row('quiz','Practice quiz',!!quizzes.data?.length,generateQuiz)}
+   </View>
+   <View style={{flexDirection:'row',alignItems:'flex-end',gap:12,flexWrap:'wrap'}}>
+    {kind==='quiz'&&!j?<View style={{width:132,marginRight:14}}><Dropdown label="Questions" width="100%" value={count} onChange={v=>{if(!task.busy)setCount(v);}} options={Array.from({length:10},(_,i)=>({value:String(i+1),label:String(i+1)}))}/></View>:null}
+    {j?<Button title="Pause" variant="secondary" icon="pause-outline" accessibilityLabel={`Pause ${label.toLowerCase()} generation`} onPress={()=>{generationJobs.cancel(j.id);showToast({tone:'info',title:`${label} paused`,message:'Finished parts are saved.'});}}/>
+     :<Button title={has?`Regenerate ${kind==='lesson'?'lesson':'quiz'}`:`Generate ${kind==='lesson'?'lesson':'quiz'}`} icon={has?'refresh':'sparkles-outline'} disabled={task.busy} onPress={()=>{void confirmLeave().then(ok=>{if(ok)start();});}}/>}
+   </View>
    <P small muted>Runs on this device. You can leave this page while it works; pausing keeps every finished part.</P>
   </View>;
- })()}
+ })():null}
   {section.ocr?<Notice inline title="Text recognised on this device" message="Compare OCR text with the original image, especially numbers, formulas and tables."/>:null}
   {!section.source.trim()?<Notice inline message="This page is available as an image. No usable text was recognised, so local AI cannot explain it."/>:null}
-  {tab==='read'?<>{editing?<><Input label="Correct extracted source" value={sourceDraft} onChangeText={setSourceDraft} multiline maxLength={section.readingUnit?MAX_READING_CHARS:MAX_SECTION_CHARS}/><P muted>Compare with the original page. Saving cancels unfinished jobs for this book; existing lessons and quizzes remain as earlier versions. Regenerate them to use the correction.</P><Row><Button title="Save source correction" onPress={()=>{void saveSource();}} busy={savingSource}/><Button title="Cancel correction" variant="secondary" disabled={savingSource} onPress={()=>setEditing(false)}/></Row></>:<><SourceContent text={section.source}/><Button title="Correct extracted text" variant="secondary" onPress={()=>{setSourceDraft(section.source);setEditing(true);}}/></>}<Row><Button title="Generate a lesson" onPress={()=>{void confirmLeave().then(ok=>{if(ok){setTab('lesson');generateLesson();}});}} disabled={active('lesson')}/><Button title={hasNext?"Next module":"Final module"} variant="secondary" disabled={!hasNext} onPress={next}/></Row></>:null}
-  {tab==='lesson'?<><Row><Button title={lesson?'Regenerate lesson':'Generate lesson'} icon="sparkles-outline" onPress={generateLesson} disabled={task.busy}/>{lessons.data?.length?<Dropdown label="Saved lesson" value={lesson?.id||''} onChange={setLessonId} options={lessons.data.map((l,i)=>({value:l.id,label:`Version ${lessons.data!.length-i} · ${new Date(l.createdAt).toLocaleString()}`}))}/>:null}</Row>{lesson?<LocalLessonView lesson={lesson.lesson} visuals={figures.data||[]}/>:<P muted>Generate an explanation from this module with your local AI model.</P>}</>:null}
-  {tab==='quiz'?<><Row><Dropdown label="Questions" value={count} onChange={v=>{if(!task.busy)setCount(v);}} options={Array.from({length:10},(_,i)=>({value:String(i+1),label:String(i+1)}))}/><Button title={quiz?'Generate another quiz':'Generate quiz'} icon="sparkles-outline" onPress={()=>{void confirmLeave().then(ok=>{if(ok)generateQuiz();});}} disabled={task.busy}/>{quizzes.data?.length?<Dropdown label="Saved quiz" value={quiz?.id||''} onChange={v=>{void confirmLeave().then(ok=>{if(ok)setQuizId(v);});}} options={quizzes.data.map((q,i)=>({value:q.id,label:`Version ${quizzes.data!.length-i} · ${q.questions.length} questions`}))}/>:null}</Row>
+  {tab==='read'?<>{editing?<><Input label="Correct extracted source" value={sourceDraft} onChangeText={setSourceDraft} multiline maxLength={section.readingUnit?MAX_READING_CHARS:MAX_SECTION_CHARS}/><P muted>Compare with the original page. Saving cancels unfinished jobs for this book; existing lessons and quizzes remain as earlier versions. Regenerate them to use the correction.</P><Row><Button title="Save source correction" onPress={()=>{void saveSource();}} busy={savingSource}/><Button title="Cancel correction" variant="secondary" disabled={savingSource} onPress={()=>setEditing(false)}/></Row></>:<><SourceContent text={section.source}/><Button title="Correct extracted text" variant="secondary" onPress={()=>{setSourceDraft(section.source);setEditing(true);}}/></>}<Row><Button title={hasNext?"Next module":"Final module"} variant="secondary" disabled={!hasNext} onPress={next}/></Row></>:null}
+  {tab==='lesson'?<>{lessons.data?.length?<Row><Dropdown label="Saved lesson" value={lesson?.id||''} onChange={setLessonId} options={lessons.data.map((l,i)=>({value:l.id,label:`Version ${lessons.data!.length-i} · ${new Date(l.createdAt).toLocaleString()}`}))}/></Row>:null}{lesson?<LocalLessonView lesson={lesson.lesson} visuals={figures.data||[]}/>:<P muted>Generate an explanation from this module with your local AI model.</P>}</>:null}
+  {tab==='quiz'?<>{quizzes.data?.length?<Row><Dropdown label="Saved quiz" value={quiz?.id||''} onChange={v=>{void confirmLeave().then(ok=>{if(ok)setQuizId(v);});}} options={quizzes.data.map((q,i)=>({value:q.id,label:`Version ${quizzes.data!.length-i} · ${q.questions.length} questions`}))}/></Row>:null}
    {quiz?.requestedCount&&quiz.questions.length<quiz.requestedCount?<Notice inline tone="warning" title="Shorter quiz saved" message={`${quiz.questions.length} of ${quiz.requestedCount} requested questions could be grounded in this module. You can practise these questions or generate another version.`}/>:null}
    {quiz?<QuizPractice key={quiz.id} quiz={quiz}/>:<P muted>Create a quiz to practise. If the source supports fewer questions than requested, a shorter quiz is saved and labelled with its question count.</P>}</>:null}
   {tab==='ask'?<>{doubtsBlocked?<Notice inline title="Doubts temporarily unavailable" message={DOUBTS_PAUSED_MESSAGE}/>:null}<P muted>Your private doubts stay on this device.</P>{(chats.data||[]).map(c=><Chat key={c.id} chat={c}/>)}<Input label="Your question" value={question} onChangeText={changeQuestion} multiline maxLength={1000} placeholder="What would you like to understand?" editable={viewReady&&!task.busy&&!doubtsBlocked} onEnter={()=>{if(viewReady&&!task.busy&&!doubtsBlocked&&question.trim())ask();}}/><Button title="Ask local AI" icon="send-outline" onPress={ask} disabled={!viewReady||task.busy||doubtsBlocked||!question.trim()}/></>:null}
