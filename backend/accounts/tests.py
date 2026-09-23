@@ -528,9 +528,31 @@ class ClientAddressTests(TestCase):
             self.assertEqual(client_ip(self._request("6.6.6.6, 198.51.100.7")), "198.51.100.7")
             self.assertEqual(client_ip(self._request("garbage")), "192.0.2.10")
 
-    def test_default_setting_does_not_trust_forwarded_for(self):
-        from django.conf import settings
-        self.assertEqual(settings.REST_FRAMEWORK["NUM_PROXIES"], 0)
+    def test_nothing_is_trusted_when_the_environment_says_nothing(self):
+        """The safe default is to ignore X-Forwarded-For entirely.
+
+        This used to read the resolved setting, so it failed on any machine
+        whose .env set TRUSTED_PROXY_COUNT - which is the correct value to set
+        when something like a Tailscale or nginx front end really is in front.
+        Test the default the code falls back to, not the developer's
+        environment.
+        """
+        import os
+        from unittest.mock import patch as patch_env
+        from config.env import env_int
+        with patch_env.dict(os.environ, {}, clear=False):
+            os.environ.pop("TRUSTED_PROXY_COUNT", None)
+            self.assertEqual(env_int("TRUSTED_PROXY_COUNT", 0), 0)
+
+    def test_a_configured_proxy_count_is_honoured(self):
+        """One proxy in front is a real deployment, not a misconfiguration."""
+        import os
+        from unittest.mock import patch as patch_env
+        from config.env import env_int
+        with patch_env.dict(os.environ, {"TRUSTED_PROXY_COUNT": "1"}):
+            self.assertEqual(env_int("TRUSTED_PROXY_COUNT", 0), 1)
+        with patch_env.dict(os.environ, {"TRUSTED_PROXY_COUNT": "not-a-number"}):
+            self.assertEqual(env_int("TRUSTED_PROXY_COUNT", 0), 0)
 
 
 class PasswordChangeRevokesOtherSessionsTests(TestCase):
