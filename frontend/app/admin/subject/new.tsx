@@ -25,7 +25,7 @@ export default function CreateSubject() {
             <CardHead title="Subject details" />
             <Input label="Subject name" required value={name} onChangeText={setName} placeholder="For example, Introduction to Cybersecurity" />
             <Input label="Subject code" required value={code} onChangeText={setCode} autoCapitalize="characters" placeholder="For example, CS101" hint="A unique code, such as CS101. The backend normalizes it to uppercase." />
-            <Input label="Description" multiline value={description} onChangeText={setDescription} hint="Give faculty and students a brief description of the subject." style={{ minHeight: 90 }} />
+            <Input label="Description" multiline value={description} onChangeText={setDescription} placeholder="A short description for faculty and students." hint="Give faculty and students a brief description of the subject." style={{ minHeight: 90 }} />
             <ErrorBanner message={create.error} />
             <FormFooter note="Assign faculty and enroll students after the subject exists.">
               <Button title="Cancel" variant="secondary" onPress={() => back("/admin/subjects")} />

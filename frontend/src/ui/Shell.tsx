@@ -9,6 +9,7 @@ import { useBackTo } from "@/hooks/useBackTo";
 import { confirmLeave } from "@/hooks/unsavedGuard";
 import { useOnline } from "@/offline/connectivity";
 import { Avatar, SIDEBAR_WIDTH } from "./index";
+import { forgetSection, recallSection, rememberSection } from "./sectionMemory";
 import { bp, colors } from "./theme";
 
 export type IconName = keyof typeof Ionicons.glyphMap;
@@ -123,9 +124,15 @@ function Sidebar({ state, descriptors, navigation, meta, onNavigate }: BottomTab
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const routes = visibleRoutes({ state, descriptors, navigation } as BottomTabBarProps);
-  const current = state.routes[state.index]?.name;
+  const active = state.routes[state.index];
+  const current = active?.name;
   // A detail page (a quiz, a book, an account) keeps its section highlighted in the sidebar.
-  const section = (descriptors[state.routes[state.index]?.key]?.options as { section?: string } | undefined)?.section;
+  const section = (descriptors[active?.key]?.options as { section?: string } | undefined)?.section;
+  const activeParams = active?.params as object | undefined;
+  // Remember where the person was, so pressing this section again comes back here.
+  useEffect(() => {
+    if (section && current) rememberSection(meta.homePath, section, current, activeParams);
+  }, [meta.homePath, section, current, activeParams]);
   const main = routes.filter((r) => r.name !== "profile");
   const go = async (path: string) => { if (!(await confirmLeave())) return; onNavigate?.(); router.push(path as never); };
   return (
@@ -140,8 +147,17 @@ function Sidebar({ state, descriptors, navigation, meta, onNavigate }: BottomTab
           const onPress = () => {
             const e = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
             if (e.defaultPrevented) return;
+            // Already inside this section: pressing it again means "back to the
+            // list", the same as pressing an active tab anywhere else. Coming
+            // from another section reopens the page that was left behind.
+            const saved = focused ? undefined : recallSection(meta.homePath, route.name);
+            if (focused) forgetSection(meta.homePath, route.name);
             // Unsaved work asks Save / Discard / Stay before the sidebar leaves the page.
-            void confirmLeave().then((ok) => { if (ok) navigation.navigate(route.name, route.params); });
+            void confirmLeave().then((ok) => {
+              if (!ok) return;
+              if (saved) navigation.navigate(saved.name, saved.params);
+              else navigation.navigate(route.name, route.params);
+            });
             onNavigate?.();
           };
           return <NavItem key={route.key} label={routeTitle(o, route.name)} icon={o.tabBarIcon} focused={focused} onPress={onPress} />;

@@ -84,7 +84,7 @@ export default function MonitorPolicies() {
                       </View>
                       {d.enabled ? (
                         <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 10, flexWrap: "wrap" }}>
-                          <Input label="Confidence (%)" compact keyboardType="numeric" value={d.conf} onChangeText={(v) => set(p.issue_type, { conf: v })} containerStyle={{ width: 120 }} error={invalid(d) ? "0 to 100" : null} accessibilityLabel={`Minimum confidence for ${name}, in percent`} />
+                          <Input label="Confidence (%)" compact keyboardType="numeric" placeholder="70" value={d.conf} onChangeText={(v) => set(p.issue_type, { conf: v })} containerStyle={{ width: 120 }} error={invalid(d) ? "0 to 100" : null} accessibilityLabel={`Minimum confidence for ${name}, in percent`} />
                           <View style={{ gap: 7 }}>
                             <Text style={{ fontSize: 12, fontWeight: "600", color: colors.ink }}>Severity at least</Text>
                             <Dropdown value={d.sev} onChange={(v) => set(p.issue_type, { sev: v })} accessibilityLabel={`Minimum severity for ${name}`} options={SEVERITIES} />

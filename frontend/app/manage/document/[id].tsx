@@ -936,7 +936,7 @@ function ModulePane({ number, module: m, index, count, onChange, onMove, onRemov
         <View style={{ flex: 1 }} />
         <Badge value={!m.id ? "New module" : m.source_missing || empty ? "No source text" : "Source available"} tone={!m.id ? "blue" : m.source_missing || empty ? "red" : "green"} />
       </Row>
-      <Input label="Module title" required value={m.title} onChangeText={(v) => onChange({ ...m, title: v })} />
+      <Input label="Module title" required placeholder="The heading students will see, for example, Threat actors" value={m.title} onChangeText={(v) => onChange({ ...m, title: v })} />
       <Input label="Source text" required multiline value={m.source_text ?? ""}
         // Editing detaches the module from its mapped heading, so what is typed is what is saved.
         onChangeText={(v) => onChange({ ...m, source_text: v, source_heading_index: null })}
@@ -1115,7 +1115,7 @@ function ChapterPane({ chapter, index, count, onChange, onMove, onRemove, onAddM
         {onBack ? <Button title="Outline" icon="chevron-back" small variant="ghost" onPress={onBack} /> : null}
         <Text style={ws.crumbNow}>Chapter {index + 1} of {count}</Text>
       </Row>
-      <Input label="Chapter title" value={chapter.title} onChangeText={onChange} />
+      <Input label="Chapter title" placeholder="For example, The threat landscape" value={chapter.title} onChangeText={onChange} />
       <Row>
         <Button title="↑" small variant="secondary" onPress={() => onMove(-1)} disabled={index === 0} />
         <Button title="↓" small variant="secondary" onPress={() => onMove(1)} disabled={index >= count - 1} />

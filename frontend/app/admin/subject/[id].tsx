@@ -68,8 +68,8 @@ function DetailsTab({ subject: s, onChanged }: { subject: any; onChanged: () => 
       main={
         <Card>
           <CardHead title="Subject information" />
-          <Input label="Subject name" required value={name} onChangeText={(v) => { setSaved(false); setName(v); }} />
-          <Input label="Subject code" required value={code} onChangeText={(v) => { setSaved(false); setCode(v); }} autoCapitalize="characters" hint="Existing identifier; changing a subject code should follow your institution’s naming rules." />
+          <Input label="Subject name" required placeholder="For example, Introduction to Cybersecurity" value={name} onChangeText={(v) => { setSaved(false); setName(v); }} />
+          <Input label="Subject code" required placeholder="For example, CS101" value={code} onChangeText={(v) => { setSaved(false); setCode(v); }} autoCapitalize="characters" hint="Existing identifier; changing a subject code should follow your institution’s naming rules." />
           <Input label="Description" multiline value={description} onChangeText={(v) => { setSaved(false); setDescription(v); }} placeholder="A short description for faculty and students." />
           <ErrorBanner message={save.error} />
           {saved && !dirty ? <Notice tone="success" message="Subject saved." /> : null}

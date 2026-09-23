@@ -160,7 +160,7 @@ function Authoring(){
         disabled={busy||task.busy||!modelReady||!countValid} onPress={()=>{void generate('quiz');}}/>
       </Row>
       <View style={{maxWidth:220}}>
-       <Input label="Quiz questions" value={quizCount} onChangeText={setQuizCount} keyboardType="number-pad"
+       <Input label="Quiz questions" placeholder="5" value={quizCount} onChangeText={setQuizCount} keyboardType="number-pad"
         hint={countValid?'1–6 questions. An existing quiz keeps its own count.':'Enter a whole number from 1 to 6.'}/>
       </View>
 

@@ -9,8 +9,10 @@ import { useAction, useAsync } from "@/hooks/useAsync";
 import { Avatar, Badge, Button, Card, CardHead, DangerZone, ErrorBanner, Grid, Input, ListRow, Loading, Notice, PageHeading, Screen, Split, colors, confirmAsync, confirmDeleteAsync } from "@/ui";
 import { IssuedCredential, OneTimeCredentials } from "@/ui/OneTimeCredentials";
 
-const STUDENT_FIELDS: [string, string][] = [["roll_number", "Roll number"], ["program", "Program"], ["batch", "Batch"], ["phone", "Phone number"]];
-const FACULTY_FIELDS: [string, string][] = [["employee_id", "Employee ID"], ["department", "Department"], ["designation", "Designation"], ["phone", "Phone number"]];
+// Key, label and the example shown in the empty field. The example is what
+// tells someone the shape the institution expects, which a label cannot.
+const STUDENT_FIELDS: [string, string, string][] = [["roll_number", "Roll number", "For example, 21CS047"], ["program", "Program", "For example, B.Tech Computer Science"], ["batch", "Batch", "For example, 2026"], ["phone", "Phone number", "Optional"]];
+const FACULTY_FIELDS: [string, string, string][] = [["employee_id", "Employee ID", "For example, EMP1043"], ["department", "Department", "For example, Computer Science"], ["designation", "Designation", "For example, Assistant Professor"], ["phone", "Phone number", "Optional"]];
 type Detail = User & { enrollments?: any[]; subjects?: any[] };
 
 export default function ManageAccount() {
@@ -85,10 +87,10 @@ export default function ManageAccount() {
             main={
               <Card>
                 <CardHead title="Profile details" />
-                <Input label="Full name" required value={f.full_name ?? ""} onChangeText={(v) => { setSaved(false); setF((x) => ({ ...x, full_name: v })); }} />
+                <Input label="Full name" required placeholder="First and last name" value={f.full_name ?? ""} onChangeText={(v) => { setSaved(false); setF((x) => ({ ...x, full_name: v })); }} />
                 <Input label="Email address" value={u.email} editable={false} hint="Email is the sign-in name and cannot be changed here." />
                 <Grid min={240} gap={16}>
-                  {(faculty ? FACULTY_FIELDS : STUDENT_FIELDS).map(([key, label]) => <Input key={key} label={label} value={f[key] ?? ""} onChangeText={(v) => { setSaved(false); setF((x) => ({ ...x, [key]: v })); }} />)}
+                  {(faculty ? FACULTY_FIELDS : STUDENT_FIELDS).map(([key, label, example]) => <Input key={key} label={label} placeholder={example} value={f[key] ?? ""} onChangeText={(v) => { setSaved(false); setF((x) => ({ ...x, [key]: v })); }} />)}
                 </Grid>
                 <ErrorBanner message={save.error} />
                 {saved && !dirty ? <Notice tone="success" message="Profile saved." /> : null}

@@ -33,6 +33,41 @@ REMEDIATION_SCHEMA = {"type": "object", "properties": {
         "required": ["question", "misconception", "explanation", "source_reference"]}}},
     "required": ["overview", "items"]}
 
+# A quotation shorter than this carries no evidence ("the", "villi"), and one
+# window of this many words has to occur verbatim in the section the prompt was
+# built from. Six words tolerates a trimmed start or end without letting an
+# invented sentence through.
+MIN_REFERENCE_WORDS = 3
+REFERENCE_WINDOW_WORDS = 6
+
+
+def _normalized(text):
+    """Lowercase words only, single-spaced, so punctuation and spacing differences
+    between the model's quotation and the stored text do not matter."""
+    return " ".join(re.sub(r"[^0-9a-z]+", " ", (text or "").lower()).split())
+
+
+def _reference_supported(reference, source):
+    """Whether the model's quotation actually occurs in the text it was given.
+
+    The offline tutor constrains the quotation at decode time and validates it
+    afterwards (``frontend/src/private/courseDoubt.ts``). The server had no
+    equivalent: ``grounded`` was whatever the model said it was, so a small
+    model could answer a question this module does not cover, from its own
+    training data, and be believed.
+    """
+    ref, body = _normalized(reference), _normalized(source)
+    if not ref or not body:
+        return False
+    words = ref.split()
+    if len(words) < MIN_REFERENCE_WORDS:
+        return False
+    if ref in body:
+        return True
+    window = min(len(words), REFERENCE_WINDOW_WORDS)
+    return any(" ".join(words[i:i + window]) in body for i in range(len(words) - window + 1))
+
+
 GROUNDING = (
     "You are a friendly teacher helping a student with one module of their textbook. Follow every rule.\n"
     "1. Use only facts from the TEXTBOOK SECTION. Do not add facts, dates, names or examples that are not in it.\n"
@@ -213,6 +248,13 @@ def ask(student, module_id, question, conversation_id=None, request=None):
         raise AIUnavailable(details={"conversation_id": str(conv.id), "reason": result.error_code,
                                      "fallback": "The module text is available for reading while the tutor is offline."})
     grounded = bool(result.data["grounded"])
+    reference = result.data.get("source_reference", "")
+    if grounded and not _reference_supported(reference, source):
+        # The model claimed the section supports this, but the phrase it quoted
+        # is not in the section. Answering anyway would put content from outside
+        # this module in front of the student.
+        logger.info("tutor.ask quotation not found in module %s; answer treated as ungrounded", module.id)
+        grounded = False
     answer = _clean_answer(result.data.get("answer", ""))
     if not grounded:
         # The model's own wording for an off-topic question is unhelpful to a
@@ -223,7 +265,7 @@ def ask(student, module_id, question, conversation_id=None, request=None):
                   "Ask about something in this module, or open the Read tab to see what it covers. "
                   "For anything else, your faculty is the right place to go.")
     msg = Message.objects.create(conversation=conv, role="assistant", content=answer, grounded=grounded,
-                                 source_reference=result.data.get("source_reference", "") if grounded else "",
+                                 source_reference=reference if grounded else "",
                                  model_name=result.model, latency_ms=latency)
     audit.record(student, "tutor.ask", module, {"conversation": str(conv.id), "grounded": msg.grounded,
                                                 "latency_ms": latency, "chunks": len(hits)}, request)

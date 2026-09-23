@@ -5,6 +5,7 @@ import {onConnectivityChange} from "@/offline/connectivity";
 import { AppState } from "react-native";
 import { ApiError, tokenStore } from "@/api/client";
 import { META, clearAll, readEntry, setOfflineScope, writeEntry } from "@/offline/store";
+import { clearSectionMemory } from "@/ui/sectionMemory";
 import { clearSessionExpired, markSessionExpired } from "./sessionNotice";
 import { startOfflineSync, stopOfflineSync, syncNow } from "@/offline/sync";
 import { auth as authApi } from "@/api/endpoints";
@@ -31,7 +32,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // person on this device must not see another student's lessons or scores.
   const clear = useCallback(async () => {
     // Drop the scope first: a download or request still in flight can no longer write.
-    clearDraftStash(); setOfflineScope(null); stopOfflineSync(); await clearAll();
+    clearDraftStash(); clearSectionMemory(); setOfflineScope(null); stopOfflineSync(); await clearAll();
     await tokenStore.set(null); setUser(null); setMustChange(false); setSessionId(null);
   }, []);
 

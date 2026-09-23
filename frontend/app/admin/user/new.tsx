@@ -59,11 +59,11 @@ export default function AddPerson() {
             {faculty ? (
               <>
                 <Grid min={240} gap={16}>
-                  <Input label="Employee ID" value={f.employee_id ?? ""} onChangeText={set("employee_id")} />
-                  <Input label="Department" value={f.department ?? ""} onChangeText={set("department")} />
+                  <Input label="Employee ID" placeholder="For example, EMP1043" value={f.employee_id ?? ""} onChangeText={set("employee_id")} />
+                  <Input label="Department" placeholder="For example, Computer Science" value={f.department ?? ""} onChangeText={set("department")} />
                 </Grid>
                 <Grid min={240} gap={16}>
-                  <Input label="Designation" value={f.designation ?? ""} onChangeText={set("designation")} />
+                  <Input label="Designation" placeholder="For example, Assistant Professor" value={f.designation ?? ""} onChangeText={set("designation")} />
                   <Input label="Phone number" value={f.phone ?? ""} onChangeText={set("phone")} keyboardType="phone-pad" placeholder="Optional" />
                 </Grid>
                 <CardHead title="Teaching subjects" subtitle="Optional now; you can assign subjects later from the subject page." />
@@ -75,8 +75,8 @@ export default function AddPerson() {
               <>
                 <Input label="Phone number" value={f.phone ?? ""} onChangeText={set("phone")} keyboardType="phone-pad" placeholder="Optional" containerStyle={{ maxWidth: 320 }} />
                 <Grid min={240} gap={16}>
-                  <Input label="Roll number" value={f.roll_number ?? ""} onChangeText={set("roll_number")} />
-                  <Input label="Program" value={f.program ?? ""} onChangeText={set("program")} />
+                  <Input label="Roll number" placeholder="For example, 21CS047" value={f.roll_number ?? ""} onChangeText={set("roll_number")} />
+                  <Input label="Program" placeholder="For example, B.Tech Computer Science" value={f.program ?? ""} onChangeText={set("program")} />
                 </Grid>
                 <Input label="Batch" value={f.batch ?? ""} onChangeText={set("batch")} placeholder={String(new Date().getFullYear())} containerStyle={{ maxWidth: 320 }} />
               </>
