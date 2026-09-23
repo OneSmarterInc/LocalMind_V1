@@ -47,7 +47,7 @@ export default function PrivateBook(){
     </Pressable>):<View style={{padding:24}}><P muted>{`No module matches “${query.trim()}”. Try a shorter word or a module number.`}</P></View>}
   </Card>:null}
  </Screen>;
- return <Screen><PageHeading title={b?.title||'Private book'} subtitle="Personal study · Saved only on this device" right={<Button title="All modules" variant="secondary" icon="list-outline" onPress={()=>{void confirmLeave().then(ok=>{if(ok)setListing(true);});}}/>}/><ErrorBanner message={book.error} onRetry={book.reload}/>
+ return <Screen scrollTopOn={sectionId}><PageHeading title={b?.title||'Private book'} subtitle="Personal study · Saved only on this device" right={<Button title="All modules" variant="secondary" icon="list-outline" onPress={()=>{void confirmLeave().then(ok=>{if(ok)setListing(true);});}}/>}/><ErrorBanner message={book.error} onRetry={book.reload}/>
   {book.loading&&!b?<Loading/>:null}
   {b?.warnings.length?<Notice inline tone="warning" title="About this import" message={b.warnings.join('\n')}/>:null}
   {b&&s&&library?<Split side={null} main={<ModuleLearning key={`${library.prefix}:${id}:${s.id}`} bookId={id} initialTab={targetTab} onSourceSaved={book.reload} section={s} hasNext={b.sections.findIndex(x=>x.id===s.id)<b.sections.length-1} next={()=>{const n=b.sections.findIndex(x=>x.id===s.id)+1;if(b.sections[n])void confirmLeave().then(ok=>{if(ok)selectSection(b.sections[n].id);});}}/>}/>:null}

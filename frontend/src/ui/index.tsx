@@ -46,11 +46,25 @@ export function useWide(min = 900) {
 /* Layout                                                              */
 /* ------------------------------------------------------------------ */
 
-export function Screen({ children, scroll = true, refreshing, onRefresh, padded = true, wide, toolbar, actions }: {
+export function Screen({ children, scroll = true, refreshing, onRefresh, padded = true, wide, toolbar, actions, scrollTopOn }: {
   children: React.ReactNode; scroll?: boolean; refreshing?: boolean; onRefresh?: () => void; padded?: boolean; wide?: boolean;
   toolbar?: React.ReactNode; actions?: React.ReactNode;
+  /** Return to the top of the page whenever this value changes.
+   *
+   * Moving to the next module kept the previous scroll position, so a reader
+   * who pressed Next at the foot of a long module arrived halfway down the
+   * next one, below its title and tabs. The screen stays mounted across that
+   * navigation, so the reset has to be explicit. */
+  scrollTopOn?: string | number | null;
 }) {
   const gutter = useGutter();
+  const scroller = React.useRef<ScrollView>(null);
+  React.useEffect(() => {
+    if (scrollTopOn === undefined) return;
+    scroller.current?.scrollTo({ y: 0, animated: false });
+    // The web build scrolls the document, not the view, when the page is short.
+    if (Platform.OS === "web") (globalThis as unknown as { scrollTo?: (x: number, y: number) => void }).scrollTo?.(0, 0);
+  }, [scrollTopOn]);
   const bar = toolbar || actions ? <Toolbar right={actions}>{toolbar}</Toolbar> : null;
   const inner = (
     <PageMessagesProvider>
@@ -62,7 +76,7 @@ export function Screen({ children, scroll = true, refreshing, onRefresh, padded 
   );
   if (!scroll) return <View style={{ flex: 1, minHeight: 0, backgroundColor: colors.bg }}>{inner}</View>;
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={{ paddingBottom: 48 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={Platform.OS === "web"}
+    <ScrollView ref={scroller} style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={{ paddingBottom: 48 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={Platform.OS === "web"}
       refreshControl={onRefresh ? <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} /> : undefined}>
       {inner}
     </ScrollView>

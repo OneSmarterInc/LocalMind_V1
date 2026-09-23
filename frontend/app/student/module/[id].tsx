@@ -91,7 +91,7 @@ export default function StudentModule() {
   ) : null;
   const lessonState = teach.data?.status;
   return (
-    <Screen refreshing={mod.loading} onRefresh={() => { mod.reload(); teach.reload(); }}>
+    <Screen scrollTopOn={id} refreshing={mod.loading} onRefresh={() => { mod.reload(); teach.reload(); }}>
       {m?.progress?.sync_pending?<Notice inline message="This progress is saved on your device and awaits institution synchronization."/>:null}
       <ErrorBanner message={mod.error} onRetry={mod.reload} />
       {mod.loading && !m ? <Loading /> : null}

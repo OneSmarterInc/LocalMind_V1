@@ -128,7 +128,7 @@ function Authoring(){
  const quizStatus=draft?draftStatus(draft,'quiz'):'';
  const lessonStatus=draft?draftStatus(draft,'lesson'):'';
 
- return <Screen>
+ return <Screen scrollTopOn={id}>
   <PageHeading eyebrow="LOCAL AUTHORING" title={draft?.snapshot.title||'Local authoring'}
    subtitle="Generated on this device. Review it, then synchronize it to the institution."
    right={<Row>
