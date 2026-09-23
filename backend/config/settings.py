@@ -352,7 +352,9 @@ LESSONS = {
     # Queue a lesson for every module when a book is processed and whenever a
     # module's text changes. false: lessons are generated only when faculty
     # press Generate lessons (students see a plain lesson from the text until then).
-    "AUTO_GENERATE": env_bool("LESSON_AUTO_GENERATE", True),
+    # Pinned on under the test runner: a developer's .env must not decide which
+    # path the suite exercises. Tests that want it off use override_settings.
+    "AUTO_GENERATE": True if TESTING else env_bool("LESSON_AUTO_GENERATE", True),
     # A reply the model cannot shape into a lesson is retried this many times,
     # with growing gaps, before the module waits for faculty to ask again.
     "MAX_ATTEMPTS": env_int("LESSON_MAX_ATTEMPTS", 3),
@@ -447,7 +449,9 @@ LOGGING = {
 }
 
 # Private study publishing is separate from classroom grades and authentication.
-DURABLE_JOBS = env_bool("DURABLE_JOBS", not TESTING)
+# Jobs run inline under the test runner whatever the environment says, so the
+# suite never waits on a worker that is not running.
+DURABLE_JOBS = not TESTING and env_bool("DURABLE_JOBS", True)
 JOB_LEASE_SECONDS = max(30, env_int("JOB_LEASE_SECONDS", 300))
 STUDY_SIGNING_KEY_PATH = env_str("STUDY_SIGNING_KEY_PATH", "")
 STUDY_SIGNING_KEY_ID = env_str("STUDY_SIGNING_KEY_ID", "")
