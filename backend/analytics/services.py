@@ -302,6 +302,10 @@ def subject_modules(actor, subject):
         started = sum(p.values())
         rows.append({
             "module_id": str(m.id), "title": m.title, "chapter": m.chapter.title, "document": m.chapter.document.title,
+            # The portal needs the owning book and chapter to open the outline editor
+            # on this module and to renumber the book after a module is deleted.
+            "document_id": str(m.chapter.document_id), "chapter_id": str(m.chapter_id),
+            "order": m.order,
             "availability": m.availability, "source_missing": m.source_missing,
             "students_started": started, "students_completed": p.get("completed", 0), "students_needs_review": p.get("needs_review", 0),
             "students_not_started": max(0, n_students - started),

@@ -146,11 +146,30 @@ function ModulesTab({ subjectId }: { subjectId: string }) {
     if (done) toast.show({ tone: "success", title: `${done} module${done === 1 ? "" : "s"} ${availability === "open" ? "opened" : "locked"}`, message: availability === "open" ? "Students can read them now." : "Students no longer see them. Their progress is kept." });
     if (failed.length) toast.show({ tone: "danger", title: `${failed.length} could not be changed`, message: failed.join("\n") });
   });
+  // Row-level Lock/Open shares the same single busy flag as the bulk action, so a
+  // click on one row used to grey every row's button. Remember which row is running.
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+  const toggleOne = async (m: any) => {
+    if (togglingId) return;
+    setTogglingId(m.module_id);
+    try { await setMany.run(m.availability === "open" ? "locked" : "open", [m]); } finally { setTogglingId(null); }
+  };
+  // Which row is being deleted. `useAction` keeps one shared busy flag, so using it
+  // directly made every Delete button in the table spin — including while the
+  // confirmation dialog was still open, before anything had been sent.
+  const [removingId, setRemovingId] = useState<string | null>(null);
   const remove = useAction(async (m: any) => {
-    if (!(await confirmDeleteAsync("Delete this module?", "Its lesson and quiz are deleted too. The modules after it move up one number. This cannot be undone.", { detail: m.title, okLabel: "Delete module" }))) return;
     try {
       const outline = await manage.outline(m.document_id);
-      const chapters = outline.chapters.map((c) => ({ ...c, modules: c.modules.filter((x) => x.id !== m.module_id).map((x, i) => ({ ...x, order: i + 1 })) }));
+      // Same minimal shape the outline editor saves. Sending source_text back
+      // unchanged would mark every module as reviewer-supplied and drop its
+      // heading mapping, so only identity, title and position are sent. The
+      // backend renumbers modules from their position in this array, which is
+      // what closes the gap left by the deleted module.
+      const chapters = outline.chapters.map((c, ci) => ({
+        id: c.id, title: c.title, order: ci + 1, source_heading_index: c.source_heading_index ?? null,
+        modules: c.modules.filter((x) => x.id !== m.module_id).map((x, mi) => ({ id: x.id, title: x.title, order: mi + 1, source_heading_index: x.source_heading_index ?? null })),
+      }));
       await manage.saveOutline(m.document_id, chapters, undefined, outline.content_version);
       setPicked((prev) => { const next = new Set(prev); next.delete(m.module_id); return next; });
       await rows.reload();
@@ -164,7 +183,19 @@ function ModulesTab({ subjectId }: { subjectId: string }) {
       throw e;
     }
   });
-  const edit = (m: any) => router.push({ pathname: "/manage/document/[id]", params: { id: m.document_id, tab: "outline", module: m.module_id } } as never);
+  const askRemove = async (m: any) => {
+    if (removingId) return;
+    if (!m.document_id) { toast.show({ tone: "danger", title: "This module cannot be deleted here", message: "Its book could not be identified. Open the book from Books & modules and edit its outline." }); return; }
+    if (!(await confirmDeleteAsync("Delete this module?", "Its lesson and quiz are deleted too. The modules after it move up one number. This cannot be undone.", { detail: m.title, okLabel: "Delete module" }))) return;
+    setRemovingId(m.module_id);
+    try { await remove.run(m); } finally { setRemovingId(null); }
+  };
+  const edit = (m: any) => {
+    // Without the book id expo-router drops the [id] segment and lands on
+    // /manage/document?tab=outline&module=… , which is not a route at all.
+    if (!m.document_id) { toast.show({ tone: "danger", title: "Cannot open the outline", message: "This module is not linked to a book. Open it from Books & modules instead." }); return; }
+    router.push({ pathname: "/manage/document/[id]", params: { id: String(m.document_id), tab: "outline", module: String(m.module_id) } } as never);
+  };
   const enrolled = rows.data?.students_enrolled ?? 0;
   const columns: Column<any>[] = [
     { key: "sel", label: "", width: 44, render: (m) => m.source_missing ? null : <Checkbox on={picked.has(m.module_id)} onPress={() => flip(m.module_id)} label={`Select ${m.title}`} /> },
@@ -174,9 +205,9 @@ function ModulesTab({ subjectId }: { subjectId: string }) {
     { key: "s", label: "Students", flex: 1, render: (m) => `${m.students_started} started, ${m.students_completed} done of ${enrolled}` },
     { key: "x", label: "Actions", flex: 2.2, render: (m) => (
       <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
-        <Button title={m.availability === "open" ? "Lock" : "Open"} small variant="secondary" icon={m.availability === "open" ? "lock-closed-outline" : "lock-open-outline"} disabled={m.source_missing || setMany.busy} onPress={() => setMany.run(m.availability === "open" ? "locked" : "open", [m])} accessibilityLabel={`${m.availability === "open" ? "Lock" : "Open"} ${m.title}`} />
+        <Button title={m.availability === "open" ? "Lock" : "Open"} small variant="secondary" icon={m.availability === "open" ? "lock-closed-outline" : "lock-open-outline"} busy={togglingId === m.module_id} disabled={m.source_missing || (setMany.busy && togglingId !== m.module_id)} onPress={() => void toggleOne(m)} accessibilityLabel={`${m.availability === "open" ? "Lock" : "Open"} ${m.title}`} />
         <Button title="Edit" small variant="secondary" icon="create-outline" onPress={() => edit(m)} accessibilityLabel={`Edit ${m.title} in the outline`} />
-        <Button title="Delete" small variant="secondary" icon="trash-outline" busy={remove.busy} onPress={() => remove.run(m)} accessibilityLabel={`Delete ${m.title}`} />
+        <Button title="Delete" small variant="secondary" icon="trash-outline" busy={removingId === m.module_id} disabled={removingId != null && removingId !== m.module_id} onPress={() => void askRemove(m)} accessibilityLabel={`Delete ${m.title}`} />
       </View>) },
   ];
   const chosen = all.filter((m) => picked.has(m.module_id));
