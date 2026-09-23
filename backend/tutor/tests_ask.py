@@ -152,3 +152,61 @@ class NoDeadEndsTests(AskBase):
         self.assertEqual(gw.return_value.generate.call_count, 1)
         self.assertEqual(res.data["message"]["content"], "Villi absorb nutrients.")
         self.assertEqual(Message.objects.filter(role="assistant").count(), 2)
+
+
+class OnlyThisModuleTests(AskBase):
+    """The tutor answers from the module or it does not answer.
+
+    The model's own ``grounded`` flag is a claim. A small model will recognise
+    a question from its training data, lift a real phrase out of the section to
+    satisfy the quotation requirement, and answer around it. These are the
+    checks that stop that, so each is tested against a model that lies.
+    """
+
+    @patch("tutor.services.gateway")
+    def test_a_question_with_no_word_in_the_module_never_reaches_the_model(self, gw):
+        gw.return_value.generate.return_value = answer("Narendra Modi is the prime minister.", ref="")
+        res = self.ask("Who is the prime minister of India?")
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertFalse(res.data["message"]["grounded"])
+        self.assertIn("does not cover that", res.data["message"]["content"])
+        gw.return_value.generate.assert_not_called()
+
+    @patch("tutor.services.gateway")
+    def test_honest_paraphrase_is_kept(self, gw):
+        """The check must not punish the model for using its own words. This
+        answers a book that says villi absorb nutrients and shares almost none
+        of its vocabulary, which an overlap rule refused."""
+        gw.return_value.generate.return_value = answer("Villi soak up digested food.")
+        res = self.ask("What do villi do?")
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertTrue(res.data["message"]["grounded"], res.data["message"]["content"])
+
+    @patch("tutor.services.gateway")
+    def test_a_real_quotation_does_not_rescue_an_invented_answer(self, gw):
+        """The hole the quotation check alone left open: quote the section, then
+        state facts the module never mentions."""
+        gw.return_value.generate.return_value = answer(
+            "Villi were first described by Marcello Malpighi in Bologna during the seventeenth century.",
+            ref="absorbs nutrients through villi")
+        res = self.ask("Who discovered villi?")
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertFalse(res.data["message"]["grounded"])
+        self.assertEqual(res.data["message"]["source_reference"], "")
+
+    @patch("tutor.services.gateway")
+    def test_an_answer_built_from_the_section_is_kept(self, gw):
+        gw.return_value.generate.return_value = answer(
+            "The small intestine absorbs nutrients through villi, and villi increase the surface area.")
+        res = self.ask("What do villi do?")
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertTrue(res.data["message"]["grounded"], res.data["message"]["content"])
+
+    @patch("tutor.services.gateway")
+    def test_a_follow_up_with_no_content_words_still_reaches_the_model(self, gw):
+        gw.return_value.generate.return_value = answer(
+            "Villi increase the surface area so the small intestine absorbs nutrients faster.")
+        first = self.ask("What do villi do?")
+        res = self.ask("Why?", first.data["conversation_id"])
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertTrue(res.data["message"]["grounded"])

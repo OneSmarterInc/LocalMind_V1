@@ -74,7 +74,7 @@ export default function Books() {
       <ErrorBanner message={remove.error || restore.error} />
       <Card flush>
         <TableToolbar right={<>
-          <Dropdown value={subject} onChange={setSubject} accessibilityLabel="Filter by subject" options={[{ value: "", label: isAdmin ? "All subjects" : "All my subjects" }, ...(subjects.data ?? []).filter((s) => includeArchived || s.status !== "archived").map((s) => ({ value: s.id, label: s.code }))]} />
+          <Dropdown value={subject} onChange={setSubject} accessibilityLabel="Filter by subject" options={[{ value: "", label: isAdmin ? "All subjects" : "All my subjects" }, ...(subjects.data ?? []).filter((s) => includeArchived || s.status !== "archived").map((s) => ({ value: s.id, label: `${s.code} · ${s.name}` }))]} />
           {isAdmin ? <Dropdown value={facultyFilter} onChange={setFacultyFilter} accessibilityLabel="Filter by faculty" options={[{ value: "", label: "All faculty" }, ...facultyNames.map((n) => ({ value: n, label: n }))]} /> : null}
           {isAdmin ? <Dropdown value={includeArchived} onChange={setIncludeArchived} accessibilityLabel="Archived subjects" options={[{ value: "", label: "Active subjects" }, { value: "yes", label: "Include archived subjects" }]} /> : null}
           <Dropdown value={status} onChange={setStatus} accessibilityLabel="Filter by status" options={statuses.map((s) => ({ value: s.value, label: s.value === "" ? "Active books" : s.label }))} />

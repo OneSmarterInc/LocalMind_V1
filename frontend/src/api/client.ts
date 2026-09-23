@@ -202,10 +202,28 @@ export async function api<T = unknown>(path: string, opts: Options = {}): Promis
   return data as T;
 }
 
+/** Every sentence inside a validation-error payload, in order.
+ *
+ * A nested serializer reports one object per item — ``{"questions": [{"options":
+ * ["..."]}, {}, {}]}`` — and joining that list gave the reader
+ * "questions: [object Object], [object Object]". Walk it instead, keeping the
+ * field name of the innermost object that actually carries a message, and drop
+ * the empty entries that stand for the items which were fine.
+ */
+function messagesIn(value: unknown, field = ""): string[] {
+  if (value === null || value === undefined) return [];
+  if (typeof value === "string") return [field ? `${field}: ${value}` : value];
+  if (Array.isArray(value)) return value.flatMap((v) => messagesIn(v, field));
+  if (typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>).flatMap(([k, v]) => messagesIn(v, /^\d+$/.test(k) ? field : k));
+  }
+  return [field ? `${field}: ${String(value)}` : String(value)];
+}
+
 export function errorMessage(e: unknown): string {
   if (e instanceof ApiError) {
     if (e.code === "VALIDATION_ERROR" && e.details) {
-      const parts = Object.entries(e.details).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : String(v)}`);
+      const parts = [...new Set(messagesIn(e.details))];
       if (parts.length) return parts.join("\n");
     }
     return e.message;

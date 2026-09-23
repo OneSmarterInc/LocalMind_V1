@@ -6,7 +6,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { View } from "react-native";
 import { admin } from "@/api/endpoints";
 import { useAction, useAsync } from "@/hooks/useAsync";
-import { Button, Card, CardHead, Dropdown, Empty, ErrorBanner, FormFooter, Grid, Input, Notice, OptionCard, PageHeading, Screen, Split, StepList } from "@/ui";
+import { Button, Card, CardHead, Dropdown, Empty, ErrorBanner, FormFooter, Grid, Input, Notice, OptionCard, PageHeading, Screen, Split, StepList, phoneProblem } from "@/ui";
 import { IssuedCredential, OneTimeCredentials } from "@/ui/OneTimeCredentials";
 
 type Kind = "students" | "faculty";
@@ -64,7 +64,7 @@ export default function AddPerson() {
                 </Grid>
                 <Grid min={240} gap={16}>
                   <Input label="Designation" placeholder="For example, Assistant Professor" value={f.designation ?? ""} onChangeText={set("designation")} />
-                  <Input label="Phone number" value={f.phone ?? ""} onChangeText={set("phone")} keyboardType="phone-pad" placeholder="Optional" />
+                  <Input label="Phone number" error={phoneProblem(f.phone)} value={f.phone ?? ""} onChangeText={set("phone")} keyboardType="phone-pad" placeholder="Optional" />
                 </Grid>
                 <CardHead title="Teaching subjects" subtitle="Optional now; you can assign subjects later from the subject page." />
                 {subjects.data?.length ? <View style={{ gap: 8 }}>{subjects.data.map((s) => (
@@ -73,7 +73,7 @@ export default function AddPerson() {
               </>
             ) : (
               <>
-                <Input label="Phone number" value={f.phone ?? ""} onChangeText={set("phone")} keyboardType="phone-pad" placeholder="Optional" containerStyle={{ maxWidth: 320 }} />
+                <Input label="Phone number" error={phoneProblem(f.phone)} value={f.phone ?? ""} onChangeText={set("phone")} keyboardType="phone-pad" placeholder="Optional" containerStyle={{ maxWidth: 320 }} />
                 <Grid min={240} gap={16}>
                   <Input label="Roll number" placeholder="For example, 21CS047" value={f.roll_number ?? ""} onChangeText={set("roll_number")} />
                   <Input label="Program" placeholder="For example, B.Tech Computer Science" value={f.program ?? ""} onChangeText={set("program")} />
@@ -85,7 +85,7 @@ export default function AddPerson() {
             <ErrorBanner message={create.error} />
             <FormFooter note="The initial password is shown once after the account is created.">
               <Button title="Cancel" variant="secondary" onPress={() => back({ pathname: "/admin/users", params: { kind } })} />
-              <Button title="Create account" icon="add" onPress={() => create.run()} busy={create.busy} disabled={!!issued || !emailOk || !f.full_name?.trim()} />
+              <Button title="Create account" icon="add" onPress={() => create.run()} busy={create.busy} disabled={!!issued || !emailOk || !f.full_name?.trim() || !!phoneProblem(f.phone)} />
             </FormFooter>
           </Card>
         }

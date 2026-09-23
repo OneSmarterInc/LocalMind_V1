@@ -15,6 +15,7 @@ from audit import services as audit
 from core.exceptions import APIError, Conflict, ValidationFailed
 
 from ..models import Role
+from ..validators import phone_problem
 from .users import NewUser, create_user, normalize_email
 
 REQUIRED_HEADERS = {"name", "email"}
@@ -171,6 +172,12 @@ def parse_workbook(file_obj, role) -> list[ParsedRow]:
             row.errors.append("Invalid or missing email.")
         if not record.get("name"):
             row.errors.append("Missing name.")
+        # A spreadsheet is where a phone number most often arrives mangled: a
+        # cell formatted as a number, a stray note in the column. Report it on
+        # the row, where the person can see which one to fix.
+        phone_issue = phone_problem(record.get("phone"))
+        if phone_issue:
+            row.errors.append(f"Phone: {phone_issue}")
         if email and email in seen_emails:
             row.errors.append(f"Duplicate of row {seen_emails[email]} in this file.")
         elif email:

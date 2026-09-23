@@ -73,7 +73,7 @@ export function QuizListPage() {
       <ErrorBanner message={list.error} onRetry={list.reload} />
       <Card flush>
         <TableToolbar right={<>
-          <Dropdown value={subject} onChange={v=>{setSubject(v);setBook('');}} accessibilityLabel="Filter by subject" options={[{ value: "", label: "All subjects" }, ...(subjects.data ?? []).map((s) => ({ value: s.id, label: s.code }))]} />
+          <Dropdown value={subject} onChange={v=>{setSubject(v);setBook('');}} accessibilityLabel="Filter by subject" options={[{ value: "", label: "All subjects" }, ...(subjects.data ?? []).map((s) => ({ value: s.id, label: `${s.code} · ${s.name}` }))]} />
           <Dropdown value={book} onChange={setBook} accessibilityLabel="Filter by book" options={[{value:"",label:"All books"},...(books.data??[]).map(b=>({value:b.id,label:b.title}))]} />
           <Dropdown value={status} onChange={setStatus} accessibilityLabel="Filter by status" options={[{ value: "", label: "All statuses" }, { value: "published", label: "Published" }, { value: "draft", label: "Draft" }, { value: "held", label: "Held for review" }, { value: "closed", label: "Closed" }]} />
         </>}>
@@ -131,6 +131,13 @@ function CheckRow({ label, meta, checked, onPress }: { label: string; meta?: str
   );
 }
 
+/** The one placeholder a hand-written quiz opens with, so the editor is not
+ *  empty. Defined once because the save path has to recognise it again. */
+const STARTER_QUESTION = () => ({ type: "mcq" as const, question: "Replace this question", options: ["A", "B", "C", "D"].map((k) => ({ key: k, text: `Option ${k}` })), correct_answer: "A", explanation: "" });
+const isStarterQuestion = (x: { question?: string; options?: { text?: string }[] }) =>
+  (x.question ?? "").trim().toLowerCase() === "replace this question"
+  || (x.options ?? []).filter((o) => /^option [a-d]$/i.test((o.text ?? "").trim())).length >= 4;
+
 function OptionCardLike({ checked, onPress, children, label }: { checked: boolean; onPress: () => void; children: React.ReactNode; label?: string }) {
   return (
     <Pressable onPress={onPress} accessibilityRole="checkbox" accessibilityLabel={label} accessibilityState={{ checked }} aria-checked={checked} style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 6, paddingVertical: 7, borderRadius: 6 }}>
@@ -166,7 +173,7 @@ export function QuizNewPage() {
     } else {
       const quiz = await manage.createQuiz({
         module_ids: modules, title: title.trim() || "Untitled quiz",
-        questions: [{ type: "mcq", question: "Replace this question", options: ["A", "B", "C", "D"].map((k) => ({ key: k, text: `Option ${k}` })), correct_answer: "A", explanation: "" }],
+        questions: [STARTER_QUESTION()],
       });
       created(quiz.id);
     }
@@ -248,6 +255,16 @@ export function QuizDetailPage({ id, note }: { id: string; note?: string }) {
 
   const save = useAction(async () => {
     if (!draft) return false;
+    // The starter question the server refused with an unreadable nested error.
+    // Caught here so the reader is told which question and what to do with it.
+    const starter = (draft.questions ?? []).findIndex(isStarterQuestion);
+    if (starter >= 0) {
+      await alertAsync(`Question ${starter + 1} is still the starter question`,
+        "A new quiz opens with one placeholder so there is something to edit. Write the question and its four options in your own words, then save.",
+        "Back to the question");
+      return false;
+    }
+    if (!(await confirmAsync("Save these changes?", "Students see saved changes once the quiz is published.", "Save changes", "Keep editing"))) return false;
     // The draft saves to its own quiz, never to whichever quiz the route shows now.
     const sent = JSON.parse(JSON.stringify(draft)) as Quiz;
     const base = q.data?.id === sent.id ? q.data : null;
@@ -352,6 +369,7 @@ export function QuizDetailPage({ id, note }: { id: string; note?: string }) {
       {note ? <Notice inline tone="warning" title="Generated with notes" message={`${note}. Review the questions, add any that are missing by hand, or generate again.`} /> : null}
       {d.generator === "fallback" ? <Notice inline tone="warning" title="Placeholder questions" message="This older draft was produced without the AI. Rewrite the marked options before publishing." /> : null}
 
+      {tab === "questions" ? <Notice title="You are responsible for every question here." message="Generation does not make a quiz correct. Read each question, confirm its answer against the source, and replace anything that reads like filler before publishing." /> : null}
       {tab === "questions" && held && !fixing ? (
         <HeldReview quiz={d} source={first} busy={review.busy} onFix={() => setFixing(true)} onDecide={(a, n) => review.run(a, n)} canDecide={!!d.hold_incident_id} />
       ) : null}
@@ -442,6 +460,7 @@ export function QuizDetailPage({ id, note }: { id: string; note?: string }) {
         </>
       ) : null}
 
+      {tab === "attempts" ? <Notice title="Every attempt, with the answers behind the score." message="Open an attempt to see what a student chose, question by question. Releasing results is on the Settings & release tab." /> : null}
       {tab === "attempts" ? <AttemptsTab quiz={d} pending={q.data?.pending_release_count ?? 0} onRelease={(a) => release.run(a)} releasing={release.busy} /> : null}
     </Screen>
   );

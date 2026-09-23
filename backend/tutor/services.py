@@ -39,12 +39,72 @@ REMEDIATION_SCHEMA = {"type": "object", "properties": {
 # invented sentence through.
 MIN_REFERENCE_WORDS = 3
 REFERENCE_WINDOW_WORDS = 6
+# Tuning for the two checks below. Raise them to refuse more questions, lower
+# them to allow more through. A small model will claim an answer is grounded
+# and then answer from its own training data, so these are the only real gate;
+# the system prompt is a request, not an enforcement.
+MIN_QUESTION_TERMS = 2
 
 
 def _normalized(text):
     """Lowercase words only, single-spaced, so punctuation and spacing differences
     between the model's quotation and the stored text do not matter."""
     return " ".join(re.sub(r"[^0-9a-z]+", " ", (text or "").lower()).split())
+
+
+def _off_topic(module):
+    """One wording for every refusal, wherever it was decided."""
+    return (f'This module is about "{module.title}", and its text does not cover that. '
+            "Ask about something in this module, or open the Read tab to see what it covers. "
+            "For anything else, your faculty is the right place to go.")
+
+
+def _content_terms(text):
+    """Distinct meaningful words, stemmed the same way the search index stems
+    them, so the question, the answer and the book meet on the same word."""
+    from documents.services.chunking import tokenize
+    return {retrieval.stem(t) for t in tokenize(text or "")}
+
+
+def _question_is_about(question, module_text):
+    """Whether the question is even about this module.
+
+    Checked against the whole module, not the retrieved passages, so a question
+    about a part that did not score well is not refused. A question with almost
+    no content words of its own ("why?", "explain more") is a follow-up and is
+    left to the conversation.
+    """
+    asked = _content_terms(question)
+    if len(asked) < MIN_QUESTION_TERMS:
+        return True
+    return bool(asked & _content_terms(module_text))
+
+
+def _invented_specifics(answer, module_text):
+    """Names, places and numbers in the answer that the module never mentions.
+
+    An earlier version measured how much of the answer's vocabulary came from
+    the section and refused below a share of it. That refused honest
+    paraphrase: "Villi soak up digested food" is a correct answer to a book
+    that says villi absorb nutrients, and shares almost no words with it.
+
+    What outside knowledge actually brings in is specifics — a person, a place,
+    a year, a product — and those are exactly what a student cannot check and
+    must not be told. A capital letter inside a sentence, or a digit, marks
+    one; the first word of a sentence is capitalised for its position, so it is
+    skipped.
+    """
+    known = _content_terms(module_text)
+    found = []
+    for sentence in re.split(r"(?<=[.!?])\s+", answer or ""):
+        for word in sentence.split()[1:]:
+            bare = word.strip(" \t\"'()[],;:.!?-")
+            if len(bare) < 2 or not (bare[0].isupper() or any(c.isdigit() for c in bare)):
+                continue
+            if retrieval.stem(bare.lower()) in known:
+                continue
+            found.append(bare)
+    return found
 
 
 def _reference_supported(reference, source):
@@ -220,6 +280,19 @@ def ask(student, module_id, question, conversation_id=None, request=None):
             audit.record(student, "tutor.ask", module, {"conversation": str(conv.id), "cached": True}, request)
             return conv, msg, cached.get("follow_up_suggestions", [])
 
+    if not _question_is_about(question, module.source_text):
+        # Not a question about this module at all. Refusing here, before the
+        # model is asked, is both cheaper and safer than asking a small model
+        # to refuse on our behalf and hoping it does.
+        logger.info("tutor.ask question outside module %s; refused without generating", module.id)
+        msg = Message.objects.create(conversation=conv, role="assistant", content=_off_topic(module),
+                                     grounded=False, source_reference="", model_name="", latency_ms=0)
+        conv.last_message_at = timezone.now()
+        conv.save(update_fields=["last_message_at", "updated_at"])
+        audit.record(student, "tutor.ask", module, {"conversation": str(conv.id), "grounded": False,
+                                                    "refused": "off_topic"}, request)
+        return conv, msg, []
+
     started = time.monotonic()
     user_prompt = (f"MODULE: {module.title}\n\nTEXTBOOK SECTION:\n\"\"\"{source}\"\"\"\n\n"
                    f"RECENT CONVERSATION:\n{history_text}\n\nSTUDENT QUESTION:\n{question}")
@@ -256,14 +329,20 @@ def ask(student, module_id, question, conversation_id=None, request=None):
         logger.info("tutor.ask quotation not found in module %s; answer treated as ungrounded", module.id)
         grounded = False
     answer = _clean_answer(result.data.get("answer", ""))
+    invented = _invented_specifics(answer, module.source_text)
+    if grounded and invented:
+        # A real phrase quoted from the section, with facts around it that the
+        # module never mentions. This is what a small model does with a question
+        # it recognises from its own training data.
+        logger.info("tutor.ask answer names %s, absent from module %s; treated as ungrounded",
+                    ", ".join(invented[:3]), module.id)
+        grounded = False
     if not grounded:
         # The model's own wording for an off-topic question is unhelpful to a
         # student ("The source text does not cover physics"), and a small model
         # tends to spill the schema field into it as well. Replace it with a
         # sentence that says what to do next.
-        answer = (f'This module is about "{module.title}", and its text does not cover that. '
-                  "Ask about something in this module, or open the Read tab to see what it covers. "
-                  "For anything else, your faculty is the right place to go.")
+        answer = _off_topic(module)
     msg = Message.objects.create(conversation=conv, role="assistant", content=answer, grounded=grounded,
                                  source_reference=reference if grounded else "",
                                  model_name=result.model, latency_ms=latency)

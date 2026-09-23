@@ -6,7 +6,7 @@ import { Text, View } from "react-native";
 import { admin } from "@/api/endpoints";
 import type { User } from "@/api/types";
 import { useAction, useAsync } from "@/hooks/useAsync";
-import { Avatar, Badge, Button, Card, CardHead, DangerZone, ErrorBanner, Grid, Input, ListRow, Loading, Notice, PageHeading, Screen, Split, colors, confirmAsync, confirmDeleteAsync } from "@/ui";
+import { Avatar, Badge, Button, Card, CardHead, DangerZone, ErrorBanner, Grid, Input, ListRow, Loading, Notice, PageHeading, Screen, Split, colors, confirmAsync, confirmDeleteAsync, phoneProblem } from "@/ui";
 import { IssuedCredential, OneTimeCredentials } from "@/ui/OneTimeCredentials";
 
 // Key, label and the example shown in the empty field. The example is what
@@ -90,13 +90,13 @@ export default function ManageAccount() {
                 <Input label="Full name" required placeholder="First and last name" value={f.full_name ?? ""} onChangeText={(v) => { setSaved(false); setF((x) => ({ ...x, full_name: v })); }} />
                 <Input label="Email address" value={u.email} editable={false} hint="Email is the sign-in name and cannot be changed here." />
                 <Grid min={240} gap={16}>
-                  {(faculty ? FACULTY_FIELDS : STUDENT_FIELDS).map(([key, label, example]) => <Input key={key} label={label} placeholder={example} value={f[key] ?? ""} onChangeText={(v) => { setSaved(false); setF((x) => ({ ...x, [key]: v })); }} />)}
+                  {(faculty ? FACULTY_FIELDS : STUDENT_FIELDS).map(([key, label, example]) => <Input key={key} label={label} placeholder={example} error={key === "phone" ? phoneProblem(f[key]) : null} value={f[key] ?? ""} onChangeText={(v) => { setSaved(false); setF((x) => ({ ...x, [key]: v })); }} />)}
                 </Grid>
                 <ErrorBanner message={save.error} />
                 {saved && !dirty ? <Notice tone="success" message="Profile saved." /> : null}
                 <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 9, paddingTop: 18, borderTopWidth: 1, borderTopColor: colors.border }}>
                   <Button title="Cancel" variant="secondary" disabled={!dirty} onPress={discard} />
-                  <Button title="Save profile" icon="checkmark" onPress={() => save.run()} busy={save.busy} disabled={!dirty || !f.full_name?.trim()} />
+                  <Button title="Save profile" icon="checkmark" onPress={() => save.run()} busy={save.busy} disabled={!dirty || !f.full_name?.trim() || !!phoneProblem(f.phone)} />
                 </View>
               </Card>
             }

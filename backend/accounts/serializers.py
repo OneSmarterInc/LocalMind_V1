@@ -1,15 +1,27 @@
 from rest_framework import serializers
 
 from .models import FacultyProfile, Role, StudentProfile, User
+from .validators import phone_problem
 
 
-class FacultyProfileSerializer(serializers.ModelSerializer):
+class _PhoneChecked(serializers.ModelSerializer):
+    """Whoever is typing, a phone number has to be dialable. The browser check
+    is a courtesy; this is the one that holds."""
+
+    def validate_phone(self, value):
+        problem = phone_problem(value)
+        if problem:
+            raise serializers.ValidationError(problem)
+        return (value or "").strip()
+
+
+class FacultyProfileSerializer(_PhoneChecked):
     class Meta:
         model = FacultyProfile
         fields = ["employee_id", "department", "designation", "phone"]
 
 
-class StudentProfileSerializer(serializers.ModelSerializer):
+class StudentProfileSerializer(_PhoneChecked):
     class Meta:
         model = StudentProfile
         fields = ["roll_number", "program", "batch", "phone"]
@@ -56,14 +68,28 @@ class ChangePasswordSerializer(serializers.Serializer):
     new_password = serializers.CharField(write_only=True, trim_whitespace=False, min_length=1)
 
 
-class CreateUserSerializer(serializers.Serializer):
+class _ProfilePhoneChecked(serializers.Serializer):
+    """The administrator forms send ``profile`` as a plain dictionary, so the
+    model serializer's own phone check never sees it. Check it here as well:
+    whoever is typing, a stored number has to be dialable."""
+
+    def validate_profile(self, value):
+        problem = phone_problem(value.get("phone")) if "phone" in value else None
+        if problem:
+            raise serializers.ValidationError({"phone": [problem]})
+        if "phone" in value:
+            value = {**value, "phone": (value["phone"] or "").strip()}
+        return value
+
+
+class CreateUserSerializer(_ProfilePhoneChecked):
     email = serializers.EmailField()
     full_name = serializers.CharField(max_length=200)
     profile = serializers.DictField(child=serializers.CharField(allow_blank=True), required=False)
     subject_ids = serializers.ListField(child=serializers.UUIDField(), required=False)
 
 
-class UpdateUserSerializer(serializers.Serializer):
+class UpdateUserSerializer(_ProfilePhoneChecked):
     full_name = serializers.CharField(max_length=200, required=False)
     profile = serializers.DictField(child=serializers.CharField(allow_blank=True), required=False)
 

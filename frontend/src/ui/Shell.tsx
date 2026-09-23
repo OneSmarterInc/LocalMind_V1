@@ -6,7 +6,7 @@ import { Modal, Platform, Pressable, PressableStateCallbackType, ScrollView, Sty
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/auth/AuthContext";
 import { useBackTo } from "@/hooks/useBackTo";
-import { confirmLeave } from "@/hooks/unsavedGuard";
+import { confirmLeave, confirmSignOut } from "@/hooks/unsavedGuard";
 import { useOnline } from "@/offline/connectivity";
 import { Avatar, SIDEBAR_WIDTH } from "./index";
 import { forgetSection, recallSection, rememberSection } from "./sectionMemory";
@@ -313,7 +313,7 @@ export function UserMenu({ compact, profilePath }: { compact?: boolean; profileP
         <View style={{ gap: 8 }}>
           <MenuLink icon="person-outline" label="My profile" onPress={() => go(profilePath)} />
           <MenuLink icon="key-outline" label="Change password" onPress={() => go("/change-password")} />
-          <MenuLink icon="log-out-outline" label="Sign out" danger onPress={() => { setOpen(false); void confirmLeave("signOut").then((ok) => { if (ok) void logout(); }); }} />
+          <MenuLink icon="log-out-outline" label="Sign out" danger onPress={() => { setOpen(false); void confirmSignOut().then((ok) => { if (ok) void logout(); }); }} />
         </View>
       </Sheet>
     </>

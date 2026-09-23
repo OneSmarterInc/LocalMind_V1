@@ -151,10 +151,66 @@ export function validateMCQ(raw: unknown, source: string, sectionId: string, id:
   requireThat(Number.isInteger(r.answer) && Number(r.answer)>=0 && Number(r.answer)<4,'The correct answer is invalid');
   return {id,sectionId,question:text(r.question,600,'question'),options,answer:Number(r.answer),explanation:prose(r.explanation,1000,'explanation'),quote:quoteIn(r.quote,source)};
 }
-export function validateAnswer(raw: unknown, source: string) {
+// Question words that carry no meaning of their own, shared by retrieval and
+// by the grounding checks so both sides judge on the same vocabulary.
+const QUESTION_NOISE=new Set(['what','which','where','when','who','why','how','does','did','the','this','that','these','those','with','from','have','has','are','is','was','were','and','for','into','about','please','tell','give','some','can','could','would','should','explain','describe','list','name','mean','means']);
+
+/** Names, places and numbers in the answer that the module never mentions.
+ *
+ *  An earlier version measured how much of the answer's vocabulary came from
+ *  the reference and refused below a share of it. That refused honest
+ *  paraphrase: "Villi soak up digested food" answers a book that says villi
+ *  absorb nutrients, and shares almost none of its words. What outside
+ *  knowledge actually brings in is specifics — a person, a place, a year — and
+ *  those are what a student cannot check and must not be told. A capital
+ *  inside a sentence, or a digit, marks one; the first word of a sentence is
+ *  capitalised for its position, so it is skipped. Mirrors
+ *  _invented_specifics in backend/tutor/services.py. */
+export function inventedSpecifics(answer: string, moduleText: string): string[] {
+  const known = contentTerms(moduleText);
+  const found: string[] = [];
+  for (const sentence of (answer || "").split(/(?<=[.!?])\s+/)) {
+    for (const word of sentence.split(/\s+/).slice(1)) {
+      const bare = word.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+      if (bare.length < 2) continue;
+      if (!(bare[0] !== bare[0].toLowerCase() || /\d/.test(bare))) continue;
+      if (known.has(stemWord(bare.toLowerCase()))) continue;
+      found.push(bare);
+    }
+  }
+  return found;
+}
+
+const NOT_IN_MODULE = 'I could not find the answer in this module. Try another module or a question about the text shown here.';
+const MIN_QUESTION_TERMS = 2;
+
+/** One wording for every refusal, wherever it was decided. */
+export function notInModule(): string { return NOT_IN_MODULE; }
+
+/** Whether the question is even about this module. Judged against the whole
+ *  module, not the retrieved passage, so a question about a part that scored
+ *  poorly is not refused. A question with almost no content words of its own
+ *  ("why?", "explain more") is a follow-up and is left to the conversation. */
+export function questionIsAbout(question: string, moduleText: string): boolean {
+  const asked = contentTerms(question);
+  if (asked.size < MIN_QUESTION_TERMS) return true;
+  const have = contentTerms(moduleText);
+  let shared = 0;
+  asked.forEach((w) => { if (have.has(w)) shared += 1; });
+  return shared > 0;
+}
+
+/** ``moduleText`` defaults to the reference. Pass the whole module where the
+ *  caller has it: a name is only invented if the module never mentions it, and
+ *  the retrieved passage is a slice of the module, not all of it. */
+export function validateAnswer(raw: unknown, source: string, moduleText?: string) {
   const r=obj(raw); requireThat(typeof r.supported==='boolean','The AI did not indicate whether the book supports its answer');
-  if(!r.supported) return {answer:'I could not find the answer in this module. Try another module or a question about the text shown here.',quote:'',supported:false};
-  return { answer:prose(r.answer,3500,'answer'), quote:quoteIn(r.quote,source), supported:true };
+  if(!r.supported) return {answer:NOT_IN_MODULE,quote:'',supported:false};
+  const answer = prose(r.answer,3500,'answer');
+  // Checked before the quotation, because a quotation can be real while the
+  // facts around it came from the model's own knowledge.
+  if (inventedSpecifics(answer, moduleText ?? source).length) return {answer:NOT_IN_MODULE,quote:'',supported:false};
+  return { answer, quote:quoteIn(r.quote,source), supported:true };
 }
 export function markQuiz(questions: MCQ[], answers: Record<string,number>) {
   requireThat(questions.length>0,'An empty quiz cannot be completed');
@@ -229,7 +285,6 @@ export function pageSource(sections: Section[], id: string): string {
  * chunks are returned in source order (never reordered, so a quotation
  * spanning the join still reads correctly).
  */
-const QUESTION_NOISE=new Set(['what','which','where','when','who','why','how','does','did','the','this','that','these','those','with','from','have','has','are','is','was','were','and','for','into','about','please','tell','give','some','can','could','would','should','explain','describe','list','name','mean','means']);
 export function retrieve(source: string, question: string, limit=MAX_SECTION_CHARS) {
   if(source.length<=limit) return source;
   const terms=[...new Set((question.toLowerCase().match(/[\p{L}\p{N}]{2,}/gu)||[]).filter(t=>!QUESTION_NOISE.has(t)))];

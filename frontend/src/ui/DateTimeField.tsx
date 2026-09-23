@@ -35,7 +35,7 @@ export function DateTimeField({ label, value, onChange, hint, dateOnly = false, 
                 setText(e.target.value);
                 if (!e.target.value) onChange(null); else { const iso = parseLocalText(e.target.value, dateOnly); if (iso) onChange(iso); }
               },
-              style: { ...box, flex: 1, fontFamily: "inherit", outline: "none", minWidth: webFloor, width: "100%", boxSizing: "border-box", paddingRight: 6 },
+              style: { ...box, borderStyle: "solid", flex: 1, fontFamily: "inherit", outline: "none", minWidth: webFloor, width: "100%", boxSizing: "border-box", paddingRight: 6 },
             })
           : (
             <Pressable disabled={disabled} accessibilityRole="button" accessibilityLabel={`${label}: ${value ? formatLocal(value, dateOnly) : "not set"}`}

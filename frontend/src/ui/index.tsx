@@ -17,6 +17,7 @@ export type { Tone };
 // Every popup in the product goes through this one centred dialog, so nothing
 // falls back to the browser's own confirm box.
 export { DialogHost, alertAsync, choiceAsync, confirmAsync, confirmDeleteAsync } from "./Confirm";
+export { phoneProblem } from "./phone";
 export type { DialogOptions, DialogTone } from "./Confirm";
 
 type IconName = keyof typeof Ionicons.glyphMap;
@@ -61,9 +62,17 @@ export function Screen({ children, scroll = true, refreshing, onRefresh, padded 
   const scroller = React.useRef<ScrollView>(null);
   React.useEffect(() => {
     if (scrollTopOn === undefined) return;
-    scroller.current?.scrollTo({ y: 0, animated: false });
-    // The web build scrolls the document, not the view, when the page is short.
-    if (Platform.OS === "web") (globalThis as unknown as { scrollTo?: (x: number, y: number) => void }).scrollTo?.(0, 0);
+    const top = () => {
+      scroller.current?.scrollTo({ y: 0, animated: false });
+      // The web build scrolls the document, not the view, when the page is short.
+      if (Platform.OS === "web") (globalThis as unknown as { scrollTo?: (x: number, y: number) => void }).scrollTo?.(0, 0);
+    };
+    top();
+    // Once more after layout. Navigation restores the previous offset of a
+    // screen that stays mounted, and it does so after this effect, so a single
+    // reset left the reader where they had been on the module before.
+    const again = requestAnimationFrame(top);
+    return () => cancelAnimationFrame(again);
   }, [scrollTopOn]);
   const bar = toolbar || actions ? <Toolbar right={actions}>{toolbar}</Toolbar> : null;
   const inner = (

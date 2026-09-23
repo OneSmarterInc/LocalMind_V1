@@ -6,7 +6,8 @@ import {useRouter} from 'expo-router';
 import {useAuth} from '@/auth/AuthContext';
 import {student} from '@/api/endpoints';
 import type {Message} from '@/api/types';
-import {Card,H2,P,Input,Button,Row,Notice,ErrorBanner,colors} from '@/ui';
+import {Card,H2,P,Input,Button,Row,Notice,ErrorBanner} from '@/ui';
+import ChatThread from './ChatThread';
 import {answerCourse,localCourseHistory} from './courseDoubt';
 import {useTask} from './useTask';
 export default function CourseAsk({moduleId}:{moduleId:string}){ const {user}=useAuth(); return user?<CourseAskInner key={`${user.id}:${moduleId}`} moduleId={moduleId}/>:null; }
@@ -15,6 +16,9 @@ function CourseAskInner({moduleId}:{moduleId:string}){
  const doubtsBlocked=useDoubtsBlocked();
  const userId=user?.id,{setError,cancel}=task;
  const [question,setQuestion]=useState(''),[messages,setMessages]=useState<(Message&{local?:boolean})[]>([]),[conversation,setConversation]=useState<string>(),[restoring,setRestoring]=useState(true);
+ // The question is shown the moment it is asked, the way a chat does, rather
+ // than appearing only once the answer comes back seconds later.
+ const [pending,setPending]=useState('');
  const active=useRef(true);
  useEffect(()=>{
   let current=true;active.current=true;setRestoring(true);setMessages([]);setConversation(undefined);
@@ -37,15 +41,33 @@ function CourseAskInner({moduleId}:{moduleId:string}){
    if(current){setMessages(rows.sort((a,b)=>a.created_at.localeCompare(b.created_at)));setRestoring(false);}
   })();return()=>{current=false;active.current=false;cancel();};
  },[moduleId,userId,setError,cancel]);
- const send=()=>task.run(async signal=>{
-  if(!user||restoring||doubtsBlocked)return;const q=question.trim();const result=await answerCourse(user.id,moduleId,q,conversation,signal);if(signal.aborted||!active.current)return;
-  const now=new Date().toISOString();const local=!!result.local;
-  const message:Message&{local?:boolean}=result.online?result.online.message:{id:result.local!.id,role:'assistant',content:result.local!.answer,grounded:result.local!.supported,source_reference:result.local!.quote,created_at:result.local!.createdAt,local:true};
-  if(result.online)setConversation(result.online.conversation_id);
-  setMessages(v=>[...v,{id:'q-'+now,role:'user',content:q,grounded:true,source_reference:'',created_at:now,local},message]);setQuestion('');
- });
+ const send=()=>{
+  if(!user||restoring||doubtsBlocked||task.busy)return;const q=question.trim();if(!q)return;
+  setPending(q);setQuestion('');
+  void task.run(async signal=>{
+   try{
+    const result=await answerCourse(user.id,moduleId,q,conversation,signal);if(signal.aborted||!active.current)return;
+    const now=new Date().toISOString();const local=!!result.local;
+    const message:Message&{local?:boolean}=result.online?result.online.message:{id:result.local!.id,role:'assistant',content:result.local!.answer,grounded:result.local!.supported,source_reference:result.local!.quote,created_at:result.local!.createdAt,local:true};
+    if(result.online)setConversation(result.online.conversation_id);
+    setMessages(v=>[...v,{id:'q-'+now,role:'user',content:q,grounded:true,source_reference:'',created_at:now,local},message]);
+    setPending('');
+   }catch(e){
+    // Put the question back in the box rather than making them retype it.
+    if(active.current){setPending('');setQuestion(q);}
+    throw e;
+   }
+  });
+ };
+ const bubble=(key:string,who:string,content:string,mine:boolean,quote?:string)=>
+  <View key={key} style={{padding:14,borderRadius:10,backgroundColor:mine?'#EAF2ED':'#FFFFFF',borderWidth:mine?0:1,borderColor:'#E4EAE2',gap:6,alignSelf:mine?'flex-end':'stretch',maxWidth:mine?'88%':undefined}}>
+   <P small muted>{who}</P><P>{content}</P>{quote?<P small muted>From the module: {quote}</P>:null}</View>;
  return <Card><H2>Ask a doubt</H2><Notice title="AI on this device" message="Questions are answered locally from your course source. Course conversations save on this device and synchronize with your institution when connected."/>
-  {messages.map(m=><View key={m.id} style={{padding:14,borderRadius:8,backgroundColor:m.role==='user'?'#EAF2ED':colors.bg,gap:6}}><P small muted>{m.role==='user'?'You':m.local?'Local AI · this device':'Course tutor'}</P><P>{m.content}</P>{m.source_reference?<P small muted>From the module: {m.source_reference}</P>:null}</View>)}
+  <ChatThread empty={restoring?null:<P muted>No questions yet. Ask anything about this module.</P>}>
+   {[...messages.map(m=>bubble(m.id,m.role==='user'?'You':m.local?'Local AI · this device':'Course tutor',m.content,m.role==='user',m.source_reference)),
+     ...(pending?[bubble('pending','You',pending,true)]:[]),
+     ...(task.busy?[<View key="thinking" style={{padding:14}}><P small muted>Reading the module…</P></View>]:[])]}
+  </ChatThread>
   {doubtsBlocked?<Notice inline title="Doubts temporarily unavailable" message={DOUBTS_PAUSED_MESSAGE}/>:null}
   {restoring?<P muted>Restoring your conversation…</P>:null}<ErrorBanner message={task.error}/>
   <Input label="Your question" value={question} onChangeText={setQuestion} multiline maxLength={1000} editable={!task.busy&&!restoring&&!doubtsBlocked} placeholder="What would you like to understand?" onEnter={()=>{if(question.trim()&&!task.busy&&!restoring&&!doubtsBlocked)send();}}/>

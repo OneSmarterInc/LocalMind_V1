@@ -7,7 +7,7 @@ import {isOnline} from '@/offline/connectivity';
 import {randomUUID} from 'expo-crypto';
 import {Library,fingerprint,type PrivateChat} from './library';
 import {device} from './device';
-import {ANSWER_SCHEMA,GROUNDING,groundedSchema,retrieve,text,requireThat,validateAnswer} from './core';
+import {ANSWER_SCHEMA,GROUNDING,groundedSchema,notInModule,questionIsAbout,retrieve,text,requireThat,validateAnswer} from './core';
 import {cancelled} from './busy';
 import {offlineFallbackAllowed} from './offlinePolicy';
 export function canUseLocal(error:unknown){return error instanceof ApiError && offlineFallbackAllowed(error.status,error.code);}
@@ -34,6 +34,12 @@ export async function answerCourse(owner:string,moduleId:string,question:string,
  // Always resolve source from the account-scoped downloaded record, never a caller's source_text.
  const m=await readEntry<ModuleFull>(`/student/modules/${moduleId}/`);guard();
  requireThat(m && m.id===moduleId && m.availability==='open' && m.source_text?.trim(),'Save this authorized module while connected before asking offline.');
+ // Refuse a question that is not about this module at all before the model is
+ // asked. Cheaper, and safer than asking a small model to refuse on our behalf.
+ if(!questionIsAbout(question,m.source_text)) {
+  const row:PrivateChat={id:randomUUID(),question,answer:notInModule(),quote:'',supported:false,createdAt:new Date().toISOString()};
+  await saveCourseDoubt({id:row.id,kind:'doubt',module_id:moduleId,occurred_at:row.createdAt,question:row.question,answer:row.answer,quote:row.quote,supported:row.supported,source_hash:fingerprint(m.source_text.trim())});guard();return {local:row};
+ }
  const ref=retrieve(m.source_text,question), history=(await localCourseHistory(owner,moduleId)).slice(-2);
  // The quotation is constrained to sentences that actually occur in ``ref``.
  //
@@ -46,7 +52,7 @@ export async function answerCourse(owner:string,moduleId:string,question:string,
  // fatal.
  generationJobs.requireDoubtsAvailable();
  const reply=await d.complete({system:GROUNDING,prompt:`Answer only from this stored course reference. If it does not support the answer, set supported=false.\nREFERENCE:\n${ref}\nEARLIER QUESTIONS:\n${history.map(h=>h.question.slice(0,250)).join('\n')}\nQUESTION:\n${question}`,schema:groundedSchema(ANSWER_SCHEMA,ref,question),maxTokens:650,temperature:0.1,signal});
- guard();const answer=validateAnswer(reply,ref);
+ guard();const answer=validateAnswer(reply,ref,m.source_text);
  // A source edit/download revocation while inference runs invalidates the result.
  const latest=await readEntry<ModuleFull>(`/student/modules/${moduleId}/`);guard();
  requireThat(latest?.availability==='open' && fingerprint(latest.source_text)===fingerprint(m.source_text),'The downloaded module changed. Ask again with the new version.');

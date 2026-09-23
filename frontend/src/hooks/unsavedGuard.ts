@@ -1,5 +1,5 @@
 import { errorMessage } from "@/api/client";
-import { alertAsync, choiceAsync } from "@/ui/Confirm";
+import { alertAsync, choiceAsync, confirmAsync } from "@/ui/Confirm";
 
 /**
  * Unsaved work that in-app navigation must not silently leave behind. An editor registers itself while it
@@ -30,6 +30,20 @@ export const hasUnsavedWork = () => [...guards.values()].some(g => !g.isDirty ||
  * Resolves true when navigation may go ahead.
  * `leaving: "signOut"` words the choices for signing out, where saving afterwards is not possible.
  */
+/** Ask before signing out, then deal with any unsaved work.
+ *
+ * Signing out is not an undoable click: it clears everything downloaded for
+ * offline use on this device, which on a student's laptop is their lessons and
+ * their saved answers. The unsaved-work question only appeared when an editor
+ * happened to be open, so most of the time there was no question at all. */
+export async function confirmSignOut(): Promise<boolean> {
+  const sure = await confirmAsync("Sign out of LocalMind?",
+    "You will need your password to sign back in, and anything downloaded for offline use is removed from this device.",
+    "Sign out", "Stay signed in");
+  if (!sure) return false;
+  return confirmLeave("signOut");
+}
+
 export async function confirmLeave(leaving: "navigate" | "signOut" = "navigate"): Promise<boolean> {
   const all = [...guards.values()].filter(g => !g.isDirty || g.isDirty());
   if (!all.length) return true;

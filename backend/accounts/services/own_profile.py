@@ -16,6 +16,7 @@ from audit import services as audit
 from core.exceptions import ValidationFailed
 
 from ..models import FacultyProfile, Role, StudentProfile
+from ..validators import clean_phone
 
 SELF_EDITABLE = {Role.FACULTY: ("phone",), Role.STUDENT: ("phone",), Role.ADMIN: ()}
 PROFILE_MODEL = {Role.FACULTY: (FacultyProfile, "faculty_profile"), Role.STUDENT: (StudentProfile, "student_profile")}
@@ -48,9 +49,10 @@ def update_own_profile(user, full_name=None, profile=None, request=None):
     if fields and user.role in PROFILE_MODEL:
         model, related = PROFILE_MODEL[user.role]
         row, _ = model.objects.get_or_create(user=user)
-        touched = [f for f in allowed if f in fields and getattr(row, f) != (fields[f] or "").strip()]
+        cleaned = {f: clean_phone(fields[f], f) if f == "phone" else (fields[f] or "").strip() for f in allowed if f in fields}
+        touched = [f for f, v in cleaned.items() if getattr(row, f) != v]
         for f in touched:
-            setattr(row, f, (fields[f] or "").strip())
+            setattr(row, f, cleaned[f])
         if touched:
             row.save(update_fields=touched)
             changed.extend(touched)

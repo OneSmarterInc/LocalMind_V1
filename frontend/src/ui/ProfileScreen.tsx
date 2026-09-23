@@ -4,8 +4,8 @@ import { Text, View } from "react-native";
 import { auth as authApi } from "@/api/endpoints";
 import { useAuth } from "@/auth/AuthContext";
 import { useAction } from "@/hooks/useAsync";
-import { confirmLeave } from "@/hooks/unsavedGuard";
-import { Avatar, Badge, Button, Card, CardHead, DetailList, ErrorBanner, FormFooter, Grid, Input, ListRow, Notice, PageHeading, Screen, colors, useToast } from "@/ui";
+import { confirmSignOut } from "@/hooks/unsavedGuard";
+import { Avatar, Badge, Button, Card, CardHead, DetailList, ErrorBanner, FormFooter, Grid, Input, ListRow, Notice, PageHeading, Screen, colors, phoneProblem, useToast } from "@/ui";
 import { openHelp } from "./Shell";
 
 const pretty = (k: string) => k.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
@@ -67,11 +67,12 @@ export function ProfileScreen() {
               <Input label="Full name" required placeholder="First and last name" value={fullName} onChangeText={setFullName} />
               {editable.map((f) => (
                 <Input key={f.key} label={f.label} placeholder={f.placeholder} value={fields[f.key] ?? ""}
+                       error={f.key === "phone" ? phoneProblem(fields[f.key]) : null}
                        onChangeText={(v) => setFields((z) => ({ ...z, [f.key]: v }))} />
               ))}
               <FormFooter note="Your email address, role and the details your institution issues are managed by your administrator.">
                 <Button title="Cancel" variant="secondary" onPress={() => setEditing(false)} disabled={save.busy} />
-                <Button title="Save changes" icon="checkmark" onPress={() => save.run()} busy={save.busy} disabled={!fullName.trim()} />
+                <Button title="Save changes" icon="checkmark" onPress={() => save.run()} busy={save.busy} disabled={!fullName.trim() || !!phoneProblem(fields.phone)} />
               </FormFooter>
             </View>
           ) : (
@@ -93,7 +94,7 @@ export function ProfileScreen() {
           <CardHead title="Security & help" />
           <ListRow plain icon="key-outline" title="Change password" subtitle="Update your sign-in password." onPress={() => router.push("/change-password")} />
           <ListRow plain icon="compass-outline" title="Getting started" subtitle="Understand the main areas of your workspace." right={<Button title="Open guide" small variant="secondary" onPress={openHelp} />} />
-          <View style={{ flexDirection: "row", marginTop: 8 }}><Button title="Sign out" small variant="secondary" icon="log-out-outline" onPress={() => { void confirmLeave("signOut").then((ok) => { if (ok) void logout(); }); }} /></View>
+          <View style={{ flexDirection: "row", marginTop: 8 }}><Button title="Sign out" small variant="secondary" icon="log-out-outline" onPress={() => { void confirmSignOut().then((ok) => { if (ok) void logout(); }); }} /></View>
         </Card>
       </Grid>
       {user.role === "student" ? <Notice title="Using a shared device?" message="Signing out removes downloaded offline reading and your saved profile from this device." /> : null}

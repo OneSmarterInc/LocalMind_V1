@@ -660,3 +660,31 @@ class EditOwnProfileTests(TestCase):
     def test_signed_out_callers_cannot_edit(self):
         res = client_for().patch("/api/auth/me/", {"full_name": "Nobody"}, format="json")
         self.assertIn(res.status_code, (401, 403))
+
+
+class PhoneNumberTests(TestCase):
+    """Loose on purpose. A strict national format would refuse correct numbers
+    from wherever the institution is; what this catches is a typo or the wrong
+    field pasted in."""
+
+    def test_usable_numbers_are_accepted_in_several_shapes(self):
+        student = client_for(make_student())
+        for number in ["+91 98765 43210", "9876543210", "(937) 555-0142", "+1-937-555-0142", ""]:
+            res = student.patch("/api/auth/me/", {"profile": {"phone": number}}, format="json")
+            self.assertEqual(res.status_code, 200, f"{number!r}: {res.content}")
+
+    def test_typos_are_refused_with_a_reason(self):
+        student = client_for(make_student())
+        for number, expected in [("call me", "digits"), ("12345", "at least"), ("1234567890123456", "at most"),
+                                 ("98765+43210", "country code")]:
+            res = student.patch("/api/auth/me/", {"profile": {"phone": number}}, format="json")
+            self.assertEqual(res.status_code, 400, f"{number!r} should be refused")
+            self.assertIn(expected, str(res.data).lower() if expected == "digits" else str(res.data))
+
+    def test_an_administrator_cannot_save_a_broken_number_either(self):
+        admin = client_for(make_admin())
+        student = make_student()
+        res = admin.patch(f"/api/admin/students/{student.id}/", {"profile": {"phone": "not a number"}}, format="json")
+        self.assertEqual(res.status_code, 400, res.content)
+        student.refresh_from_db()
+        self.assertEqual(student.student_profile.phone, "")

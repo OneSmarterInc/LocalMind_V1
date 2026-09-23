@@ -7,6 +7,7 @@ import React,{useEffect,useRef,useState} from 'react';
 import {Pressable,View} from 'react-native';
 import {useLocalSearchParams,useRouter} from 'expo-router';
 import {Screen,PageHeading,Card,Row,H2,P,Button,Badge,Notice,ErrorBanner,Loading,PageTabs,Input,Split,Dropdown,confirmAsync,colors,showToast} from '@/ui';
+import ChatThread from '../ChatThread';
 import {SourceVisuals} from '../SourceVisuals';
 import {SourceContent} from '@/ui/SourceContent';
 import {useAsync} from '@/hooks/useAsync';
@@ -128,7 +129,11 @@ function ModuleLearning({bookId,section,next,hasNext,initialTab,onSourceSaved}:{
   {tab==='quiz'?<>{quizzes.data?.length?<Row><Dropdown label="Saved quiz" value={quiz?.id||''} onChange={v=>{void confirmLeave().then(ok=>{if(ok)setQuizId(v);});}} options={quizzes.data.map((q,i)=>({value:q.id,label:`Version ${quizzes.data!.length-i} · ${q.questions.length} questions`}))}/></Row>:null}
    {quiz?.requestedCount&&quiz.questions.length<quiz.requestedCount?<Notice inline tone="warning" title="Shorter quiz saved" message={`${quiz.questions.length} of ${quiz.requestedCount} requested questions could be grounded in this module. You can practise these questions or generate another version.`}/>:null}
    {quiz?<QuizPractice key={quiz.id} quiz={quiz}/>:<P muted>Create a quiz to practise. If the source supports fewer questions than requested, a shorter quiz is saved and labelled with its question count.</P>}</>:null}
-  {tab==='ask'?<>{doubtsBlocked?<Notice inline title="Doubts temporarily unavailable" message={DOUBTS_PAUSED_MESSAGE}/>:null}<P muted>Your private doubts stay on this device.</P>{(chats.data||[]).map(c=><Chat key={c.id} chat={c}/>)}<Input label="Your question" value={question} onChangeText={changeQuestion} multiline maxLength={1000} placeholder="What would you like to understand?" editable={viewReady&&!task.busy&&!doubtsBlocked} onEnter={()=>{if(viewReady&&!task.busy&&!doubtsBlocked&&question.trim())ask();}}/><Button title="Ask local AI" icon="send-outline" onPress={ask} disabled={!viewReady||task.busy||doubtsBlocked||!question.trim()}/></>:null}
+  {tab==='ask'?<>{doubtsBlocked?<Notice inline title="Doubts temporarily unavailable" message={DOUBTS_PAUSED_MESSAGE}/>:null}<P muted>Your private doubts stay on this device.</P>
+   {/* The thread scrolls in its own pane so the question box stays put instead
+       of being pushed further down the page by every answer. */}
+   <ChatThread empty={<P muted>No questions yet. Ask anything about this section.</P>}>{(chats.data||[]).map(c=><Chat key={c.id} chat={c}/>)}</ChatThread>
+   <Input label="Your question" value={question} onChangeText={changeQuestion} multiline maxLength={1000} placeholder="What would you like to understand?" editable={viewReady&&!task.busy&&!doubtsBlocked} onEnter={()=>{if(viewReady&&!task.busy&&!doubtsBlocked&&question.trim())ask();}}/><Button title="Ask local AI" icon="send-outline" onPress={ask} disabled={!viewReady||task.busy||doubtsBlocked||!question.trim()}/></>:null}
   {(tab==='read'||tab==='lesson')&&<SourceVisuals bookId={bookId} sectionId={section.id} pagesOnly={tab==='lesson'}/>}
   <Row><Button title="Offline AI setup" small variant="secondary" onPress={()=>{void confirmLeave().then(ok=>{if(ok)router.push('/student/offline-ai');});}}/></Row>
  </Card>;

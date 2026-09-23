@@ -11,6 +11,10 @@ import { manage } from "@/api/endpoints";
 import { useAction, useAsync } from "@/hooks/useAsync";
 import { Button, Card, CardHead, Dropdown, ErrorBanner, FormFooter, Input, Notice, PageHeading, Screen, Split, StepList, Stepper, TileIcon, colors, fmtSize } from "@/ui";
 
+// What the server's parser can actually read, and the limit the page states.
+const ACCEPTED = ["pdf", "docx", "doc"];
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+
 export default function UploadBook() {
   const router = useRouter();
   const back = useBackTo();
@@ -25,9 +29,27 @@ export default function UploadBook() {
   const active = (subjects.data ?? []).filter((s) => s.status === "active");
   const onlyOne = active.length === 1 ? active[0].id : null;
   useEffect(() => { if (!subjectId && onlyOne) setSubjectId(onlyOne); }, [subjectId, onlyOne]);
+  const [rejected, setRejected] = useState<string | null>(null);
   const pick = async () => {
     const res = await DocumentPicker.getDocumentAsync({ type: ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/msword"], copyToCacheDirectory: true });
-    if (!res.canceled && res.assets[0]) { setFile(res.assets[0]); if (!title) setTitle(res.assets[0].name.replace(/\.[^.]+$/, "")); }
+    if (res.canceled || !res.assets[0]) return;
+    const chosen = res.assets[0];
+    const extension = (chosen.name.match(/\.([^.]+)$/)?.[1] ?? "").toLowerCase();
+    if (!ACCEPTED.includes(extension)) {
+      // Say so now. The OS dialog lets a person switch to "All files", and the
+      // filter above is only a suggestion to it.
+      setRejected(`${chosen.name} is a .${extension || "file"}. LocalMind reads PDF and Word (.docx) books.`);
+      setFile(null);
+      return;
+    }
+    if (chosen.size && chosen.size > MAX_UPLOAD_BYTES) {
+      setRejected(`${chosen.name} is ${fmtSize(chosen.size)}. The limit is 100 MB. Split the book into chapters and add them one at a time.`);
+      setFile(null);
+      return;
+    }
+    setRejected(null);
+    setFile(chosen);
+    if (!title) setTitle(chosen.name.replace(/\.[^.]+$/, ""));
   };
   const upload = useAction(async () => {
     if (!file||!uploads) return;
@@ -57,6 +79,7 @@ export default function UploadBook() {
           <Card>
             <CardHead title="Book details" />
             <ErrorBanner message={subjects.error} />
+            {rejected ? <Notice inline tone="warning" title="That file cannot be used" message={rejected} /> : null}
             {subjects.data && active.length === 0 ? <Notice inline tone="warning" message={user?.role === "admin" ? "There is no active subject yet. Create one under Subjects first." : "You have no active subject. Ask your administrator to assign one."} /> : null}
             <Dropdown label="Subject *" value={subjectId} onChange={setSubjectId} placeholder="Choose a subject" width="100%" options={active.map((s) => ({ value: s.id, label: `${s.code} · ${s.name}` }))} />
             <Notice message="Chapters and modules follow the book’s own headings and content. Review the extracted outline before publishing. Lesson and quiz generation continues on your device." />
