@@ -8,8 +8,23 @@
  * ways to write one and are accepted.
  */
 const ALLOWED = /^[0-9+()\-. \u00a0]+$/;
-export const PHONE_MIN_DIGITS = 7;
-export const PHONE_MAX_DIGITS = 15;
+/** The national number, with any country code taken off the front. Ten digits
+ *  is what India and the US use and what the institution asks for; a number
+ *  written with +91 or +1 in front still has to have ten after it. */
+export const PHONE_DIGITS = 10;
+const MAX_COUNTRY_CODE_DIGITS = 3;
+
+/** The digits of the number itself, after removing a leading country code.
+ *  Only a number written with a leading + has one to remove: bare digits are
+ *  read as a national number, so 9876543210 keeps all ten. */
+function nationalDigits(raw: string): string {
+  const digits = raw.replace(/\D/g, "");
+  if (!raw.trim().startsWith("+")) return digits;
+  for (let code = 1; code <= MAX_COUNTRY_CODE_DIGITS; code += 1) {
+    if (digits.length - code === PHONE_DIGITS) return digits.slice(code);
+  }
+  return digits;
+}
 
 /** The complaint to show, or null when the number looks usable. Blank is fine:
  *  a phone number is optional everywhere it is asked for. */
@@ -18,8 +33,8 @@ export function phoneProblem(value: string | null | undefined): string | null {
   if (!raw) return null;
   if (!ALLOWED.test(raw)) return "Use digits, spaces, brackets, hyphens and an optional leading +.";
   if (raw.includes("+") && !raw.startsWith("+")) return "A country code goes at the start, as +91.";
-  const digits = raw.replace(/\D/g, "");
-  if (digits.length < PHONE_MIN_DIGITS) return `That is ${digits.length} digit${digits.length === 1 ? "" : "s"}. A phone number needs at least ${PHONE_MIN_DIGITS}.`;
-  if (digits.length > PHONE_MAX_DIGITS) return `That is ${digits.length} digits. A phone number has at most ${PHONE_MAX_DIGITS}, including the country code.`;
-  return null;
+  const national = nationalDigits(raw);
+  if (national.length === PHONE_DIGITS) return null;
+  if (national.length < PHONE_DIGITS) return `That is ${national.length} digit${national.length === 1 ? "" : "s"}. A phone number needs ${PHONE_DIGITS}, not counting the country code.`;
+  return `That is ${national.length} digits. A phone number is ${PHONE_DIGITS}, not counting the country code.`;
 }

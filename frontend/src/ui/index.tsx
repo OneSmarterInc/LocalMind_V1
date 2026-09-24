@@ -510,17 +510,28 @@ export function Table<T>({ columns, rows, keyOf, onRowPress, empty, minWidth = 6
   /** false hides the footer; a node replaces it. Default: "Showing N records". */
   footer?: React.ReactNode | false; noun?: string;
 }) {
+  // How wide the table is allowed to insist on being. A fixed minWidth made a
+  // 980-wide table scroll sideways on a tablet even when the content would have
+  // fitted; the floor now follows the window, so the columns tighten first and
+  // only scroll once they genuinely cannot fit.
+  const { width: windowWidth } = useWindowDimensions();
+  const room = Math.max(320, windowWidth - (windowWidth >= bp.desktop ? SIDEBAR_WIDTH : 0) - 96);
+  const floor = Math.min(minWidth, Math.max(560, room));
+  const gutter = room < 900 ? 10 : room < 1200 ? 14 : 18;
   // A column without a heading holds the row's buttons. As in the design it sits
   // right after the data, left-aligned, instead of being pushed to the far edge.
   const cell = (c: Column<T>): ViewStyle => {
     const action = !c.label;
     // Wider than its buttons, so the buttons start right after the data, as an HTML table would place them.
-    return { flex: c.width ? undefined : action ? (c.flex ?? 1.1) * 1.7 : c.flex ?? 1, width: c.width, paddingHorizontal: 18, minWidth: 0,
+    // The horizontal padding narrows with the table: at 18 a side, eight columns
+    // spend nearly 300px on gutters alone, which is what pushed neighbouring
+    // cells into each other on a tablet.
+    return { flex: c.width ? undefined : action ? (c.flex ?? 1.1) * 1.7 : c.flex ?? 1, width: c.width, paddingHorizontal: gutter, minWidth: 0,
       alignItems: action ? "flex-start" : c.align === "right" ? "flex-end" : c.align === "center" ? "center" : "flex-start" };
   };
   // Real table semantics for screen readers: table, rows, column headers and cells.
   const body = (
-    <View style={{ minWidth, flex: 1 }} role="table">
+    <View style={{ minWidth: floor, flex: 1 }} role="table">
       <View style={s.thead} role="row">
         {columns.map((c) => <View key={c.key} style={cell(c)} role="columnheader" aria-label={c.label || "Actions"}><Text style={s.th} numberOfLines={1}>{c.label}</Text></View>)}
       </View>

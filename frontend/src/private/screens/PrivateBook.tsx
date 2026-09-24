@@ -3,7 +3,7 @@ import {LocalLessonView} from '../LocalLessonView';
 import { useBackTo } from "@/hooks/useBackTo";
 import {generationJobs,DOUBTS_PAUSED_MESSAGE} from '../jobs';
 import {jobScope,useGenerationJobs,useDoubtsBlocked} from '../useGenerationJobs';
-import React,{useEffect,useRef,useState} from 'react';
+import React,{useCallback,useEffect,useRef,useState} from 'react';
 import {Pressable,View} from 'react-native';
 import {useLocalSearchParams,useRouter} from 'expo-router';
 import {Screen,PageHeading,Card,Row,H2,P,Button,Badge,Notice,ErrorBanner,Loading,PageTabs,Input,Split,Dropdown,confirmAsync,colors,showToast} from '@/ui';
@@ -24,6 +24,11 @@ export default function PrivateBook(){
  const back=useBackTo();
  const book=useAsync(()=>{if(!library)throw Error('Open the library after signing in.');return library.book(id);},[id,library]);
  const [sectionId,setSectionId]=useState(''),[query,setQuery]=useState('');
+ // Generate lesson sits under the source text, so the work it starts appears
+ // far above where the reader is standing. Moving this counter takes the page
+ // back to the top through the same mechanism a section change uses.
+ const [topTick,setTopTick]=useState(0);
+ const backToTop=useCallback(()=>setTopTick(t=>t+1),[]);
  // The book opens to its module list; a link to a specific module opens it directly.
  const [listing,setListing]=useState(!targetSection);
  useEffect(()=>{setListing(!targetSection);},[id,targetSection]);
@@ -48,13 +53,13 @@ export default function PrivateBook(){
     </Pressable>):<View style={{padding:24}}><P muted>{`No module matches “${query.trim()}”. Try a shorter word or a module number.`}</P></View>}
   </Card>:null}
  </Screen>;
- return <Screen scrollTopOn={sectionId}><PageHeading title={b?.title||'Private book'} subtitle="Personal study · Saved only on this device" right={<Button title="All modules" variant="secondary" icon="list-outline" onPress={()=>{void confirmLeave().then(ok=>{if(ok)setListing(true);});}}/>}/><ErrorBanner message={book.error} onRetry={book.reload}/>
+ return <Screen scrollTopOn={`${sectionId}:${topTick}`}><PageHeading title={b?.title||'Private book'} subtitle="Personal study · Saved only on this device" right={<Button title="All modules" variant="secondary" icon="list-outline" onPress={()=>{void confirmLeave().then(ok=>{if(ok)setListing(true);});}}/>}/><ErrorBanner message={book.error} onRetry={book.reload}/>
   {book.loading&&!b?<Loading/>:null}
   {b?.warnings.length?<Notice inline tone="warning" title="About this import" message={b.warnings.join('\n')}/>:null}
-  {b&&s&&library?<Split side={null} main={<ModuleLearning key={`${library.prefix}:${id}:${s.id}`} bookId={id} initialTab={targetTab} onSourceSaved={book.reload} section={s} hasNext={b.sections.findIndex(x=>x.id===s.id)<b.sections.length-1} next={()=>{const n=b.sections.findIndex(x=>x.id===s.id)+1;if(b.sections[n])void confirmLeave().then(ok=>{if(ok)selectSection(b.sections[n].id);});}}/>}/>:null}
+  {b&&s&&library?<Split side={null} main={<ModuleLearning key={`${library.prefix}:${id}:${s.id}`} bookId={id} initialTab={targetTab} onSourceSaved={book.reload} backToTop={backToTop} section={s} hasNext={b.sections.findIndex(x=>x.id===s.id)<b.sections.length-1} next={()=>{const n=b.sections.findIndex(x=>x.id===s.id)+1;if(b.sections[n])void confirmLeave().then(ok=>{if(ok)selectSection(b.sections[n].id);});}}/>}/>:null}
  </Screen>;
 }
-function ModuleLearning({bookId,section,next,hasNext,initialTab,onSourceSaved}:{bookId:string;section:Section;next:()=>void;hasNext:boolean;initialTab?:string;onSourceSaved:()=>Promise<unknown>}){
+function ModuleLearning({bookId,section,next,hasNext,initialTab,onSourceSaved,backToTop}:{bookId:string;section:Section;next:()=>void;hasNext:boolean;initialTab?:string;onSourceSaved:()=>Promise<unknown>;backToTop:()=>void}){
  const library=useLibrary()!,router=useRouter();
  const doubtsBlocked=useDoubtsBlocked();
  const jobs=useGenerationJobs(library.prefix).filter(j=>j.bookId===bookId&&j.sectionId===section.id);
@@ -88,7 +93,7 @@ function ModuleLearning({bookId,section,next,hasNext,initialTab,onSourceSaved}:{
  const enqueue=(kind:string,run:(signal:AbortSignal,progress:(s:string)=>void)=>Promise<unknown>)=>{
   try{setLocalError('');generationJobs.enqueue({scope:jobScope(library.prefix),bookId,sectionId:section.id,kind,label:`${section.title} · ${kind}`},run);}catch(e){setLocalError(String(e));}
  };
- const generateLesson=()=>{setLessonId('');enqueue('lesson',(signal,progress)=>library.generateLesson(bookId,section.id,signal,progress));};
+ const generateLesson=()=>{setLessonId('');backToTop();enqueue('lesson',(signal,progress)=>library.generateLesson(bookId,section.id,signal,progress));};
  const generatedQuiz=useRef('');
  useEffect(()=>{if(generatedQuiz.current&&quizzes.data?.some(q=>q.id===generatedQuiz.current)){setQuizId(generatedQuiz.current);generatedQuiz.current='';}},[quizzes.data]);
  const generateQuiz=()=>{const total=Number(count);enqueue('quiz',async(signal,progress)=>{const result=await library.generateQuiz(bookId,section.id,total,signal,n=>progress(`Prepared question ${n} of ${total}`),progress);generatedQuiz.current=result.id;return result;});};
@@ -168,7 +173,7 @@ function QuizPractice({quiz}:{quiz:QuizVersion}){
      ``stripOptionLabel`` runs on the way out as well as on the way in: quizzes
      generated before the parser removed labels are stored with "A. " inside
      the option, and would otherwise render "A. A. Cloud computing". */}
- {quiz.questions.map((q,n)=><View key={q.id} style={{gap:8,paddingVertical:12,borderBottomWidth:1,borderColor:colors.border}}><H2>{n+1}. {q.question}</H2>{q.options.map((o,i)=><Pressable key={i} accessibilityRole="radio" accessibilityLabel={`${String.fromCharCode(65+i)}. ${stripOptionLabel(o)}`} aria-checked={answers[q.id]===i} aria-disabled={!ready||!!result||task.busy} accessibilityState={{checked:answers[q.id]===i,disabled:!ready||!!result||task.busy}} disabled={!ready||!!result||task.busy} onPress={()=>choose(q.id,i)} style={{flexDirection:'row',alignItems:'flex-start',gap:10,borderWidth:1,borderColor:answers[q.id]===i?colors.primary:colors.border,paddingHorizontal:12,paddingVertical:11,borderRadius:8,backgroundColor:answers[q.id]===i?'#EAF2ED':'white'}}><P style={{fontWeight:'700',minWidth:16}}>{String.fromCharCode(65+i)}</P><P style={{flex:1}}>{stripOptionLabel(o)}</P></Pressable>)}{result?<Notice tone={result.checks[n].correct?'success':'warning'} title={result.checks[n].correct?'Correct':`Correct answer: ${String.fromCharCode(65+q.answer)} — ${stripOptionLabel(q.options[q.answer])}`} message={`${q.explanation}\nFrom the book: ${q.quote}`}/>:null}</View>)}
+ {quiz.questions.map((q,n)=><View key={q.id} style={{gap:8,paddingVertical:12,borderBottomWidth:1,borderColor:colors.border}}><H2>{n+1}. {q.question}</H2>{q.options.map((o,i)=><Pressable key={i} accessibilityRole="radio" accessibilityLabel={`${String.fromCharCode(65+i)}. ${stripOptionLabel(o)}`} aria-checked={answers[q.id]===i} aria-disabled={!ready||!!result||task.busy} accessibilityState={{checked:answers[q.id]===i,disabled:!ready||!!result||task.busy}} disabled={!ready||!!result||task.busy} onPress={()=>choose(q.id,i)} style={{flexDirection:'row',alignItems:'flex-start',gap:10,borderWidth:1,borderColor:answers[q.id]===i?colors.primary:colors.border,paddingHorizontal:12,paddingVertical:11,borderRadius:8,backgroundColor:answers[q.id]===i?'#EAF2ED':'white'}}><P style={{fontWeight:'700',minWidth:16}}>{String.fromCharCode(65+i)}</P><P style={{flex:1}}>{stripOptionLabel(o)}</P></Pressable>)}{result?<Notice inline tone={result.checks[n].correct?'success':'warning'} title={result.checks[n].correct?'Correct':`Correct answer: ${String.fromCharCode(65+q.answer)} — ${stripOptionLabel(q.options[q.answer])}`} message={`${q.explanation}\nFrom the book: ${q.quote}`}/>:null}</View>)}
  {result?<Notice inline tone="success" title={`${result.correct} of ${result.total} correct`} message="Private practice only. This result is saved here, not sent to faculty and never locks another module."/>:<Button title="Check my answers" onPress={check} busy={task.busy} disabled={!ready||Object.keys(answers).length!==quiz.questions.length}/>}
  <Button title="Start this quiz again" variant="secondary" disabled={!ready||task.busy} onPress={()=>task.run(async()=>{if(await confirmAsync('Start again?','Clear the current answers. Previous checked results remain in your history.','Start again','Keep answers')){await serial.current;await library.saveDraft(quiz.bookId,quiz.id,{});if(alive.current){persisted.current={};answersRef.current={};dirty.current=false;setAnswers({});setResult(null);setSaved(true);}}})}/>
  {!!history.data?.length&&<><H2>Previous practice</H2>{history.data.map(r=><P key={r.id}>{new Date(r.createdAt).toLocaleString()} · {r.correct}/{r.total} correct</P>)}</>}

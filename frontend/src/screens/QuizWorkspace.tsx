@@ -20,7 +20,7 @@ import { useTabParam } from "@/hooks/useTabParam";
 import { useDraft } from "@/hooks/useDraft";
 import {
   Badge, Button, Card, CardHead, CellText, Column, DangerZone, DetailList, Dropdown, Empty, ErrorBanner, FormFooter, Grid, Input, Loading,
-  Notice, OptionCard, PageHeading, PageTabs, Screen, Split, StepList, Table, TableToolbar, TextLink, Tone, colors, alertAsync, confirmAsync, confirmDeleteAsync, fmtSeconds, pct,
+  Notice, OptionCard, PageHeading, PageTabs, Row, Screen, Split, StepList, Table, TableToolbar, TextLink, Tone, colors, alertAsync, confirmAsync, confirmDeleteAsync, fmtSeconds, pct,
 RequestFailed, } from "@/ui";
 import { DateTimeField } from "@/ui/DateTimeField";
 import { ResultsRelease, type ReleaseMode } from "@/ui/ResultsRelease";
@@ -69,7 +69,7 @@ export function QuizListPage() {
   return (
     <Screen refreshing={list.loading} onRefresh={list.reload}>
       <PageHeading eyebrow="ASSESSMENT WORKSPACE" title="Quizzes" subtitle="Create, review, publish, and release results without changing workspaces."
-        right={<Button title="Create a quiz" icon="add" onPress={() => router.push("/manage/quiz/new")} />} />
+        right={<Row><Button title="Saved quiz drafts" variant="secondary" icon="document-text-outline" onPress={() => router.push("/manage/local-quizzes")} /><Button title="Create a quiz" icon="add" onPress={() => router.push("/manage/quiz/new")} /></Row>} />
       <ErrorBanner message={list.error} onRetry={list.reload} />
       <Card flush>
         <TableToolbar right={<>
@@ -182,7 +182,6 @@ export function QuizNewPage() {
     <Screen>
       <PageHeading eyebrow="QUIZZES" title="Create a quiz" subtitle="Choose the source first. Then generate questions or write your own."
         right={<Button title="Back to quizzes" variant="secondary" icon="arrow-back" onPress={() => back("/manage/quizzes")} />} />
-      <Button title="Saved quiz drafts" variant="secondary" onPress={()=>router.push("/manage/local-quizzes")}/>
       <Split
         main={
           <Card>

@@ -1,4 +1,5 @@
 """AssessmentService: lifecycle, attempts, grading, scoping."""
+import re
 
 from django.conf import settings
 from core.generation_policy import require_server_authoring
@@ -237,6 +238,30 @@ def update(actor, assessment, *, questions=None, request=None, **fields):
     return assessment
 
 
+# Text a quiz opens with, which nobody should ever see as a student. The
+# starter question the editor writes, the lettered options beside it, and the
+# filler the fallback generator produces when the AI is unavailable.
+_PLACEHOLDER_QUESTION = re.compile(r"^(replace this question|untitled question|question \d+)$", re.I)
+_PLACEHOLDER_OPTION = re.compile(r"^(option [a-d]|placeholder distractor.*|choice [a-d])$", re.I)
+
+
+def _placeholder_questions(questions):
+    """1-based positions of the questions still holding starter text."""
+    found = []
+    for position, question in enumerate(questions or [], start=1):
+        text = (question.get("question") or "").strip()
+        if _PLACEHOLDER_QUESTION.match(text):
+            found.append(position)
+            continue
+        options = [o for o in (question.get("options") or []) if isinstance(o, dict)]
+        lettered = [o for o in options if _PLACEHOLDER_OPTION.match((o.get("text") or "").strip())]
+        # One odd option is a wording choice; every option lettered means nobody
+        # typed them.
+        if options and len(lettered) == len(options):
+            found.append(position)
+    return found
+
+
 @transaction.atomic
 def set_status(actor, assessment, status, request=None):
     _require_manage(actor, assessment.subject)
@@ -245,8 +270,18 @@ def set_status(actor, assessment, status, request=None):
             raise Conflict("Only drafts or closed quizzes can be published.", code="INVALID_STATE")
         if not assessment.questions:
             raise Conflict("Add questions before publishing.", code="NO_QUESTIONS")
-        if assessment.generator == Generator.FALLBACK and any("Placeholder distractor" in o["text"] for q in assessment.questions if q["type"] == "mcq" for o in q["options"]):
-            raise Conflict("Fallback-generated questions contain placeholders; edit them before publishing.", code="PLACEHOLDER_QUESTIONS")
+        unedited = _placeholder_questions(assessment.questions)
+        if unedited:
+            # This used to look only at fallback-generated quizzes for the words
+            # "Placeholder distractor", so a quiz written by hand published with
+            # the starter question and A/B/C/D still in it, and students saw it.
+            # The check is here rather than in the editor because publishing
+            # never passes through the editor's save path.
+            where = ", ".join(str(n) for n in unedited[:5])
+            raise Conflict(
+                f"Question{'s' if len(unedited) > 1 else ''} {where} still hold{'' if len(unedited) > 1 else 's'} placeholder text. "
+                "Write the question and its options before publishing.",
+                code="PLACEHOLDER_QUESTIONS")
         # Read current source state rather than trusting cached relation objects.
         modules = []
         documents = []

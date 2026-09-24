@@ -37,7 +37,7 @@ export default function Books() {
     if (!user || !(await confirmAsync("Unarchive this book?", "Its saved content will return as unpublished. Publish it when you are ready for students to see it.", "Unarchive", "Cancel"))) return;
     await unarchiveBook(d.id, user.id); await q.reload();
   });
-  const busy = q.data?.some((d) => d.status === "processing") ?? false;
+  const busy = q.data?.some((d) => d.status === "processing" || d.status === "uploaded" || ["pending", "retry", "running"].includes(d.background_job?.status || "")) ?? false;
   useEffect(() => { if (!busy) return; const t = setInterval(q.reload, 4000); return () => clearInterval(t); }, [busy, q.reload]);
   const subjectOf = (d: Document) => subjects.data?.find((s) => s.id === d.subject_id);
   const facultyNames = useMemo(() => [...new Set((subjects.data ?? []).flatMap((s) => s.faculty_names ?? []))].sort(), [subjects.data]);

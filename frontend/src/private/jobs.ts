@@ -1,5 +1,6 @@
 export const DOUBTS_PAUSED_MESSAGE = "Content generation is in progress. Ask a doubt will be available when generation finishes. You can continue reading and taking saved quizzes.";
 /** App-lifetime jobs. Results are persisted by the library; no page owns cancellation. */
+export const SWEEP_MS=20000;
 export type JobState='queued'|'running'|'completed'|'failed'|'cancelled';
 export type Job={id:number;scope:string;bookId:string;sectionId:string;kind:string;label:string;documentId?:string;documentIds?:string[];state:JobState;note:string;error:string;
  /** This job specifically is being cancelled. Per job, never shared: one row
@@ -54,12 +55,23 @@ export class JobQueue{
  cancelOtherScopes(scope:string){for(const j of this.entries)if(j.scope!==scope)this.cancel(j.id);}
  async cancelDocument(scope:string,documentId:string,moduleIds:string[]=[]){const jobs=this.entries.filter(j=>j.scope===scope&&(j.documentId===documentId||j.documentIds?.includes(documentId)||j.bookId===documentId||moduleIds.includes(j.bookId)));for(const j of jobs)this.cancel(j.id);await Promise.all(jobs.map(j=>j.settled));}
  async cancelBook(scope:string,bookId:string){const jobs=this.entries.filter(j=>j.scope===scope&&j.bookId===bookId);for(const j of jobs)this.cancel(j.id);await Promise.all(jobs.map(j=>j.settled));}
+ /** Drop a finished row once the person has had time to read it. Completed
+  * and cancelled work is saved on the device already, so the row is a receipt,
+  * not state: leaving every one of them on the page turned the list into a log
+  * nobody could find anything in. Failures stay, because a failure is
+  * something to act on. */
+ private sweep(id:number){
+  const j=this.entries.find(j=>j.id===id);if(!j||j.state==='failed')return;
+  setTimeout(()=>{const at=this.entries.findIndex(e=>e.id===id&&e.state!=='failed');if(at>=0){this.entries.splice(at,1);this.emit();}},SWEEP_MS);
+ }
  private pump(){
   while(true){const running=this.entries.filter(j=>j.state==='running');
    const j=this.entries.find(j=>j.state==='queued'&&!running.some(r=>conflicts(j,r))&&(this.doubtLane?(j.kind==='doubt'?!running.some(r=>r.kind==='doubt'):running.filter(r=>r.kind!=='doubt').length<this.concurrency):this.active<this.concurrency));if(!j)break;this.active++;j.state='running';j.note='Preparing on this device';this.emit();
    void(async()=>{try{await j.run!(j.controller.signal,s=>{if(!j.controller.signal.aborted){j.note=s;this.emit();}});j.state=j.controller.signal.aborted?'cancelled':'completed';j.note=j.state==='completed'?'Saved on this device':'Cancelled';}
-    catch(e){j.state=j.controller.signal.aborted?'cancelled':'failed';j.error=j.state==='failed'?(e instanceof Error?e.message:String(e)):'';}
-    finally{j.run=undefined;j.cancelling=false;j.finish();this.active--;this.emit();this.pump();}})();
+    // A cancelled job used to keep the note it had while it was stopping, so a
+    // row that had already finished still read "Cancelling…" forever.
+    catch(e){j.state=j.controller.signal.aborted?'cancelled':'failed';j.note=j.state==='cancelled'?'Cancelled':'';j.error=j.state==='failed'?(e instanceof Error?e.message:String(e)):'';}
+    finally{j.run=undefined;j.cancelling=false;j.finish();this.active--;this.emit();this.sweep(j.id);this.pump();}})();
   }
  }
 }

@@ -155,6 +155,34 @@ export function validateMCQ(raw: unknown, source: string, sectionId: string, id:
 // by the grounding checks so both sides judge on the same vocabulary.
 const QUESTION_NOISE=new Set(['what','which','where','when','who','why','how','does','did','the','this','that','these','those','with','from','have','has','are','is','was','were','and','for','into','about','please','tell','give','some','can','could','would','should','explain','describe','list','name','mean','means']);
 
+/** A light stem so a question, an answer and the book meet on the same word:
+ *  plural and verb endings, and the Latin plurals textbooks use
+ *  ("villi"/"villus"). Short words are left alone so unrelated words do not
+ *  collide. Mirrors ``stem`` in backend/documents/services/retrieval.py, and is
+ *  checked against it, so a student asking about a villus is not refused by a
+ *  book that says villi. */
+function stemWord(term: string): string {
+  let t = term;
+  if (t.length <= 3) return t;
+  let cut = false;
+  for (const [suffix, keep] of [['ies', 'y'], ['sses', 'ss'], ['ches', 'ch'], ['shes', 'sh'], ['xes', 'x']] as const) {
+    if (t.endsWith(suffix) && t.length > suffix.length + 2) { t = t.slice(0, -suffix.length) + keep; cut = true; break; }
+  }
+  if (!cut) {
+    if (t.endsWith('es') && t.length > 4 && 'sxz'.includes(t[t.length - 3])) t = t.slice(0, -2);
+    else if (t.endsWith('s') && !/(ss|us|is)$/.test(t) && t.length > 3) t = t.slice(0, -1);
+    else if (t.endsWith('ing') && t.length > 5) t = t.slice(0, -3);
+    else if (t.endsWith('ed') && t.length > 4) t = t.slice(0, -2);
+  }
+  if (t.length >= 5 && /(us|um|ae)$/.test(t)) t = t.slice(0, -2);
+  else if (t.length >= 5 && t.endsWith('i') && !t.endsWith('ii')) t = t.slice(0, -1);
+  return t;
+}
+
+/** The meaningful words of a passage, stemmed and deduplicated. */
+const contentTerms = (t: string): Set<string> =>
+  new Set((t.toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || []).filter((w) => !QUESTION_NOISE.has(w)).map(stemWord));
+
 /** Names, places and numbers in the answer that the module never mentions.
  *
  *  An earlier version measured how much of the answer's vocabulary came from
@@ -196,7 +224,7 @@ export function questionIsAbout(question: string, moduleText: string): boolean {
   if (asked.size < MIN_QUESTION_TERMS) return true;
   const have = contentTerms(moduleText);
   let shared = 0;
-  asked.forEach((w) => { if (have.has(w)) shared += 1; });
+  asked.forEach((w: string) => { if (have.has(w)) shared += 1; });
   return shared > 0;
 }
 
@@ -205,11 +233,14 @@ export function questionIsAbout(question: string, moduleText: string): boolean {
  *  the retrieved passage is a slice of the module, not all of it. */
 export function validateAnswer(raw: unknown, source: string, moduleText?: string) {
   const r=obj(raw); requireThat(typeof r.supported==='boolean','The AI did not indicate whether the book supports its answer');
-  if(!r.supported) return {answer:NOT_IN_MODULE,quote:'',supported:false};
+  // Logged, not guessed: three different things produce the same sentence on
+  // screen, and telling them apart by looking at it is impossible.
+  if(!r.supported) { console.info('[doubt] the model itself reported the module does not support an answer'); return {answer:NOT_IN_MODULE,quote:'',supported:false}; }
   const answer = prose(r.answer,3500,'answer');
   // Checked before the quotation, because a quotation can be real while the
   // facts around it came from the model's own knowledge.
-  if (inventedSpecifics(answer, moduleText ?? source).length) return {answer:NOT_IN_MODULE,quote:'',supported:false};
+  const invented = inventedSpecifics(answer, moduleText ?? source);
+  if (invented.length) { console.info('[doubt] answer names', invented.slice(0,5).join(', '), '- absent from the module'); return {answer:NOT_IN_MODULE,quote:'',supported:false}; }
   return { answer, quote:quoteIn(r.quote,source), supported:true };
 }
 export function markQuiz(questions: MCQ[], answers: Record<string,number>) {

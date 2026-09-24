@@ -37,6 +37,7 @@ export async function answerCourse(owner:string,moduleId:string,question:string,
  // Refuse a question that is not about this module at all before the model is
  // asked. Cheaper, and safer than asking a small model to refuse on our behalf.
  if(!questionIsAbout(question,m.source_text)) {
+  console.info('[doubt] refused before generating: no word of the question appears in the module');
   const row:PrivateChat={id:randomUUID(),question,answer:notInModule(),quote:'',supported:false,createdAt:new Date().toISOString()};
   await saveCourseDoubt({id:row.id,kind:'doubt',module_id:moduleId,occurred_at:row.createdAt,question:row.question,answer:row.answer,quote:row.quote,supported:row.supported,source_hash:fingerprint(m.source_text.trim())});guard();return {local:row};
  }

@@ -3,14 +3,25 @@ import re
 
 from core.exceptions import ValidationFailed
 
-# LocalMind is used wherever the institution is, so a strict national format
-# would reject correct numbers. What a check can honestly catch is a typo or
-# the wrong field: stray letters, too few digits to dial, more digits than any
-# country uses. E.164 allows at most 15 digits; the shortest usable national
-# numbers run to 7.
 PHONE_ALLOWED = re.compile(r"^[0-9+()\-.\s]+$")
-PHONE_MIN_DIGITS = 7
-PHONE_MAX_DIGITS = 15
+# The national number, with any country code taken off the front. Ten digits is
+# what India and the US use and what the institution asks for; a number written
+# with +91 or +1 in front still has to have ten after it.
+PHONE_DIGITS = 10
+MAX_COUNTRY_CODE_DIGITS = 3
+
+
+def national_digits(raw):
+    """The digits of the number itself, after removing a leading country code.
+    Only a number written with a leading + has one to remove: bare digits are
+    read as a national number, so 9876543210 keeps all ten."""
+    digits = re.sub(r"\D", "", raw)
+    if not raw.strip().startswith("+"):
+        return digits
+    for code in range(1, MAX_COUNTRY_CODE_DIGITS + 1):
+        if len(digits) - code == PHONE_DIGITS:
+            return digits[code:]
+    return digits
 
 
 def phone_problem(value):
@@ -23,12 +34,12 @@ def phone_problem(value):
         return "Use digits, spaces, brackets, hyphens and an optional leading +."
     if "+" in raw and not raw.startswith("+"):
         return "A country code goes at the start, as +91."
-    digits = re.sub(r"\D", "", raw)
-    if len(digits) < PHONE_MIN_DIGITS:
-        return f"A phone number needs at least {PHONE_MIN_DIGITS} digits."
-    if len(digits) > PHONE_MAX_DIGITS:
-        return f"A phone number has at most {PHONE_MAX_DIGITS} digits, including the country code."
-    return None
+    national = national_digits(raw)
+    if len(national) == PHONE_DIGITS:
+        return None
+    if len(national) < PHONE_DIGITS:
+        return f"A phone number needs {PHONE_DIGITS} digits, not counting the country code."
+    return f"A phone number is {PHONE_DIGITS} digits, not counting the country code."
 
 
 def clean_phone(value, field="phone"):

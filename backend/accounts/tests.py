@@ -675,11 +675,20 @@ class PhoneNumberTests(TestCase):
 
     def test_typos_are_refused_with_a_reason(self):
         student = client_for(make_student())
-        for number, expected in [("call me", "digits"), ("12345", "at least"), ("1234567890123456", "at most"),
+        for number, expected in [("call me", "digits"), ("12345", "needs 10"), ("98765432101", "is 10"),
                                  ("98765+43210", "country code")]:
             res = student.patch("/api/auth/me/", {"profile": {"phone": number}}, format="json")
             self.assertEqual(res.status_code, 400, f"{number!r} should be refused")
             self.assertIn(expected, str(res.data).lower() if expected == "digits" else str(res.data))
+
+    def test_the_country_code_does_not_count_toward_the_ten(self):
+        """+91 98765 43210 is thirteen digits and a correct ten-digit number."""
+        student = client_for(make_student())
+        for number in ["+91 98765 43210", "+1 937 555 0142", "9876543210"]:
+            res = student.patch("/api/auth/me/", {"profile": {"phone": number}}, format="json")
+            self.assertEqual(res.status_code, 200, f"{number!r}: {res.content}")
+        short = student.patch("/api/auth/me/", {"profile": {"phone": "+91 98765"}}, format="json")
+        self.assertEqual(short.status_code, 400, short.content)
 
     def test_an_administrator_cannot_save_a_broken_number_either(self):
         admin = client_for(make_admin())
