@@ -8,7 +8,7 @@ import { device } from './device';
 import { cancelled } from './busy';
 import { avoidList } from './promptBudget';
 import type { LocalFile } from './device.types';
-import { MAX_READING_CHARS, MAX_SECTION_CHARS, ANSWER_SCHEMA, groundedSchema, GROUNDING, COMPACT_LESSON_SCHEMA, COMPACT_MCQ_SCHEMA, compactMcqBatchSchema, markQuiz, requireThat, bookReference, pageSource, lessonPassages, headingPassages, passageHeading, text, validateAnswer, validateBook, validateLesson, validateMCQ, type PrivateBook, type Lesson, type MCQ, type SourceVisual } from './core';
+import { isFollowUp, MAX_READING_CHARS, MAX_SECTION_CHARS, ANSWER_SCHEMA, groundedSchema, GROUNDING, COMPACT_LESSON_SCHEMA, COMPACT_MCQ_SCHEMA, compactMcqBatchSchema, markQuiz, requireThat, bookReference, pageSource, lessonPassages, headingPassages, passageHeading, text, validateAnswer, validateBook, validateLesson, validateMCQ, type PrivateBook, type Lesson, type MCQ, type SourceVisual } from './core';
 export type QuizVersion = { id: string; bookId: string; sectionId: string; createdAt: string; requestedCount?: number; questions: MCQ[] };
 export type LessonVersion = { id: string; sectionId: string; createdAt: string; lesson: Lesson };
 export type PracticeResult = { id: string; quizId: string; createdAt: string; answers: Record<string, number> } & ReturnType<typeof markQuiz>;
@@ -204,10 +204,27 @@ export class Library {
   async ask(bookId: string, sectionId: string, question: string, signal: AbortSignal, progress?: (message:string)=>void) {
     generationJobs.requireDoubtsAvailable();
     const b = await this.book(bookId), s = b.sections.find(x => x.id === sectionId); requireThat(s, 'Choose a module'); requireThat(s.source.trim(), 'This page has no recognised text. View its original image; the text tutor cannot interpret image-only content.'); text(question, 1000, 'question');
-    const history = (/\b(it|that|this|they|those|these|why|more)\b/i.test(question) ? (await this.chats(bookId, sectionId)).slice(-1) : []).map(h => `Earlier question: ${h.question.slice(0, 300)}`).join('\n');
-    const d = await device(), reference = bookReference(b.sections, sectionId, question);
+    // Four turns, and the answers as well as the questions. A follow-up like
+    // "explain this in detail" refers to the answer before it, which the model
+    // could not see: it received earlier QUESTIONS only, so the safest thing it
+    // could do was repeat itself or give up.
+    const turns = (await this.chats(bookId, sectionId)).slice(-4);
+    const previous = turns.filter(t => t.supported).slice(-1)[0];
+    const followUp = isFollowUp(question) && !!previous;
+    // A follow-up has no subject of its own, so searching the book with its own
+    // words finds the wrong passage, or none. Search with the subject of the
+    // conversation and the answer being asked about.
+    const subject = followUp ? [...turns].reverse().find(t => !isFollowUp(t.question))?.question || '' : question;
+    const transcript = turns.map(t => `STUDENT: ${t.question.slice(0, 250)}\nTUTOR: ${(t.answer || '').slice(0, 600)}`).join('\n\n');
+    const d = await device(), reference = bookReference(b.sections, sectionId, followUp ? `${subject} ${previous!.answer}`.slice(0, 600) : question);
     generationJobs.requireDoubtsAvailable();
-    const raw = await d.complete({ system: GROUNDING, prompt: `Answer concisely in at most 120 words, using only this reference. If it does not contain the answer, set supported=false.\nSTORED BOOK REFERENCE:\n${reference}\n${history}\nSTUDENT QUESTION:\n${question}`, schema: groundedSchema(ANSWER_SCHEMA, reference, question), maxTokens: 420, temperature: 0.1, signal, progress });
+    // A follow-up is an instruction about the previous answer. Saying so, and
+    // showing that answer, is what turns "in detail" into a fuller version
+    // instead of the same paragraph or a refusal.
+    const task = followUp
+      ? `The student is asking you to rewrite YOUR PREVIOUS ANSWER, below, the way they describe. Do not repeat it unchanged and do not add anything the reference does not support. Follow their instruction: shorter means shorter, one line means one sentence, simpler means plainer words, in detail means more of what the reference says about it.\nYOUR PREVIOUS ANSWER:\n${previous!.answer}\nTHEIR INSTRUCTION:\n${question}`
+      : `Answer the question from the reference alone, in at most 120 words. If the reference does not contain the answer, set supported=false.\nSTUDENT QUESTION:\n${question}`;
+    const raw = await d.complete({ system: GROUNDING, prompt: `Use only this stored book reference. Everything you write must come from it.\nSTORED BOOK REFERENCE:\n${reference}\n\nCONVERSATION SO FAR:\n${transcript || '(none)'}\n\n${task}`, schema: groundedSchema(ANSWER_SCHEMA, reference, followUp ? `${subject} ${question}` : question), maxTokens: followUp ? 600 : 420, temperature: 0.1, signal, progress });
     const answer = validateAnswer(raw, reference); await this.book(bookId); requireThat(!signal.aborted, 'Cancelled');
     const row: PrivateChat = { id: randomUUID(), question, ...answer, createdAt: new Date().toISOString() };
     await d.put(`${this.work(bookId)}chat:${sectionId}:${row.id}`, row); this.guard(); return row;

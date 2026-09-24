@@ -97,7 +97,11 @@ function ModuleLearning({bookId,section,next,hasNext,initialTab,onSourceSaved,ba
  const generatedQuiz=useRef('');
  useEffect(()=>{if(generatedQuiz.current&&quizzes.data?.some(q=>q.id===generatedQuiz.current)){setQuizId(generatedQuiz.current);generatedQuiz.current='';}},[quizzes.data]);
  const generateQuiz=()=>{const total=Number(count);enqueue('quiz',async(signal,progress)=>{const result=await library.generateQuiz(bookId,section.id,total,signal,n=>progress(`Prepared question ${n} of ${total}`),progress);generatedQuiz.current=result.id;return result;});};
- const ask=()=>{const q=question.trim();enqueue('doubt',(signal,progress)=>library.ask(bookId,section.id,q,signal,progress));};
+ // The question box is saved per section so a half-typed question survives
+ // a reload. Asking has to clear both the box and that saved copy, or the
+ // question the student just asked is still sitting there waiting to be
+ // sent again.
+ const ask=()=>{const q=question.trim();if(!q)return;changeQuestion('');enqueue('doubt',(signal,progress)=>library.ask(bookId,section.id,q,signal,progress));};
  return <Card><Row><H2>{section.title}</H2><Badge value="All modules open" tone="green"/></Row>
   <PageTabs value={tab} onChange={t=>{if(t!==tab)void confirmLeave().then(ok=>{if(ok)setTab(t);});}} tabs={[{key:'read',label:'Read'},{key:'lesson',label:'Lesson'},{key:'quiz',label:'Practice quiz'},{key:'ask',label:'Ask a doubt'}]}/>
   <ErrorBanner message={task.error||figures.error||lessons.error||quizzes.error||chats.error}/>
