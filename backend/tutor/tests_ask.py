@@ -210,3 +210,35 @@ class OnlyThisModuleTests(AskBase):
         res = self.ask("Why?", first.data["conversation_id"])
         self.assertEqual(res.status_code, 201, res.content)
         self.assertTrue(res.data["message"]["grounded"])
+
+
+class FollowUpQuestionsTests(AskBase):
+    """"Make it shorter" is an instruction about the last answer, not a new
+    question about the module. Judged as a new question it mentions nothing the
+    module contains, and was refused as off-topic."""
+
+    def test_a_follow_up_is_not_refused_as_off_topic(self):
+        from tutor.services import _is_follow_up
+        for phrase in ["explain the above thing in short", "give me the above in one line",
+                       "make it short", "summarise this", "explain more", "why?"]:
+            self.assertTrue(_is_follow_up(phrase), phrase)
+
+    def test_a_real_question_is_not_mistaken_for_a_follow_up(self):
+        from tutor.services import _is_follow_up
+        for phrase in ["what is training?", "explain encryption in short", "what do villi do?",
+                       "give me two examples of phishing", "summarise the threat landscape"]:
+            self.assertFalse(_is_follow_up(phrase), phrase)
+
+    @patch("tutor.services.gateway")
+    def test_a_follow_up_reaches_the_model(self, gw):
+        """The scope check is what used to stop a follow-up, before any model
+        ran. Assert on that, not on the wording of the answer: whether the
+        answer then survives the grounding checks is a separate question with
+        its own tests."""
+        gw.return_value.generate.return_value = answer(
+            "Villi increase the surface area so nutrients are absorbed faster.")
+        first = self.ask("What do villi do?")
+        gw.return_value.generate.reset_mock()
+        res = self.ask("make it shorter", first.data["conversation_id"])
+        self.assertEqual(res.status_code, 201, res.content)
+        gw.return_value.generate.assert_called()

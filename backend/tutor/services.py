@@ -52,11 +52,42 @@ def _normalized(text):
     return " ".join(re.sub(r"[^0-9a-z]+", " ", (text or "").lower()).split())
 
 
+# Words that ask for a different treatment of what was just said rather than
+# for something new. A question built only from these has no subject of its own.
+# Keep in step with FOLLOW_UP_WORDS in frontend/src/private/core.ts.
+FOLLOW_UP_WORDS = frozenset("""
+above this that it these those them previous last again short shorter brief briefly concise
+summarise summarize summary simpler simple simply easier easy clear clearer clarify elaborate
+detail details expand more less point points bullet bullets line lines word words rephrase
+reword restate repeat instead example examples meaning thing things make made one two three
+me my answer answers response reply version way sentence sentences paragraph para text put
+say said write wrote ok okay just bit little in on at to of as by or an be do not no yes
+all only very too than then still what which where when who why how does did the with from
+have has are is was were and for please tell give some can could would should explain
+describe list name mean means
+""".split())
+
+
+def _is_follow_up(question):
+    """Whether the question is about the answer before it rather than the module."""
+    words = re.findall(r"[0-9a-z]+", (question or "").lower())
+    words = [w for w in words if len(w) > 1]
+    return not words or all(w in FOLLOW_UP_WORDS for w in words)
+
+
 def _off_topic(module):
     """One wording for every refusal, wherever it was decided."""
     return (f'This module is about "{module.title}", and its text does not cover that. '
             "Ask about something in this module, or open the Read tab to see what it covers. "
             "For anything else, your faculty is the right place to go.")
+
+
+def _cannot_rework(module):
+    """A follow-up the model could not ground. The student asked about the
+    answer before it, so pointing them back at the module is the wrong
+    instruction."""
+    return ("I could not rework that answer using this module's text. Ask the question again in your own "
+            f'words, or ask something else about "{module.title}".')
 
 
 def _content_terms(text):
@@ -280,7 +311,11 @@ def ask(student, module_id, question, conversation_id=None, request=None):
             audit.record(student, "tutor.ask", module, {"conversation": str(conv.id), "cached": True}, request)
             return conv, msg, cached.get("follow_up_suggestions", [])
 
-    if not _question_is_about(question, module.source_text):
+    # A follow-up asks for a different treatment of the answer before it, so its
+    # own words are the wrong thing to judge against the module: "explain the
+    # above in short" mentions nothing the module contains, and would otherwise
+    # be refused as off-topic.
+    if not _is_follow_up(question) and not _question_is_about(question, module.source_text):
         # Not a question about this module at all. Refusing here, before the
         # model is asked, is both cheaper and safer than asking a small model
         # to refuse on our behalf and hoping it does.
@@ -341,8 +376,10 @@ def ask(student, module_id, question, conversation_id=None, request=None):
         # The model's own wording for an off-topic question is unhelpful to a
         # student ("The source text does not cover physics"), and a small model
         # tends to spill the schema field into it as well. Replace it with a
-        # sentence that says what to do next.
-        answer = _off_topic(module)
+        # sentence that says what to do next. A follow-up gets its own wording:
+        # telling someone their module does not cover "make it shorter" is
+        # nonsense, since they were asking about the answer, not the module.
+        answer = _cannot_rework(module) if _is_follow_up(question) else _off_topic(module)
     msg = Message.objects.create(conversation=conv, role="assistant", content=answer, grounded=grounded,
                                  source_reference=reference if grounded else "",
                                  model_name=result.model, latency_ms=latency)

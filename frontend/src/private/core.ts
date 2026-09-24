@@ -183,6 +183,25 @@ function stemWord(term: string): string {
 const contentTerms = (t: string): Set<string> =>
   new Set((t.toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || []).filter((w) => !QUESTION_NOISE.has(w)).map(stemWord));
 
+/** Words that ask for a different treatment of what was just said, rather than
+ *  for something new: "in short", "explain more", "simpler", "summarise this".
+ *  A question built only from these has no subject of its own, and searching
+ *  the module for them finds nothing, which is why a follow-up used to come
+ *  back with an unrelated passage or a refusal. */
+const FOLLOW_UP_WORDS = new Set(['above','this','that','it','these','those','them','previous','last','again','short','shorter','brief','briefly','concise','summarise','summarize','summary','simpler','simple','simply','easier','easy','clear','clearer','clarify','elaborate','detail','details','expand','more','less','point','points','bullet','bullets','line','lines','word','words','rephrase','reword','restate','repeat','instead','example','examples','meaning','thing','things','make','made','one','two','three','me','my','answer','answers','response','reply','version','way','sentence','sentences','paragraph','para','text','put','say','said','write','wrote','ok','okay','just','bit','little','in','on','at','to','of','as','by','or','an','be','do','not','no','yes','all','only','very','too','than','then','still']);
+
+/** Whether the question is about the answer before it rather than the module.
+ *
+ *  True when the question says so outright ("the above", "that") or when what
+ *  is left after the follow-up words carries no subject of its own. "Explain
+ *  the above in short" and "make it shorter" are follow-ups; "explain
+ *  encryption in short" is not, because "encryption" survives. */
+export function isFollowUp(question: string): boolean {
+  const words = (question.toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || []).filter((w) => !QUESTION_NOISE.has(w));
+  if (!words.length) return true;
+  return words.every((w) => FOLLOW_UP_WORDS.has(w));
+}
+
 /** Names, places and numbers in the answer that the module never mentions.
  *
  *  An earlier version measured how much of the answer's vocabulary came from
