@@ -69,6 +69,11 @@ test('faculty prepares a book on the device with no connection, subject list fro
   return keys.some(k=>String(k).endsWith(':/faculty/subjects/'));
  }),{timeout:90000}).toBe(true);
  await context.setOffline(true);
+ // Nothing on this page polls, so the application only learns the server is gone
+ // when a request fails. Returning to the tab is what a user does here, and it is
+ // what makes the screen reload its data.
+ await page.evaluate(()=>{Object.defineProperty(document,'visibilityState',{value:'hidden',configurable:true});document.dispatchEvent(new Event('visibilitychange'));});
+ await page.evaluate(()=>{Object.defineProperty(document,'visibilityState',{value:'visible',configurable:true});document.dispatchEvent(new Event('visibilitychange'));window.dispatchEvent(new Event('focus'));});
  await expect(page.getByText('The server is unavailable.',{exact:true})).toBeVisible({timeout:60000});
  await page.getByRole('button',{name:'Prepare on this device',exact:true}).click();
  await expect(page).toHaveURL(/\/manage\/local-books/);
