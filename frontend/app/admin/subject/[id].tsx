@@ -15,7 +15,7 @@ type Tab = "details" | "faculty" | "students";
 export default function AdminSubject() {
   const { id } = useLocalSearchParams<{ id: string; tab?: Tab }>();
   const [tab, setTab] = useTabParam<Tab>("details", ["details", "faculty", "students"]);
-  const q = useAsync(() => admin.subject(id), [id]);
+  const q = useAsync(() => admin.subject(id), [id], [id]);
   const s = q.data;
   const activeFaculty = (s?.faculty ?? []).filter((f) => f.status === "active");
   return (

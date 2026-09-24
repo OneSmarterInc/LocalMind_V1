@@ -26,15 +26,15 @@ export default function StudentModule() {
   const navigation = useNavigation();
   const focused=useIsFocused();
   const [tab, setTab] = useTabParam<Tab>("read", ["read", "lesson", "ask"]);
-  const mod = useAsync(() => student.module(id), [id]);
-  const quizzes = useAsync(() => student.quizzes({ module: id }), [id]);
+  const mod = useAsync(() => student.module(id), [id], [id]);
+  const quizzes = useAsync(() => student.quizzes({ module: id }), [id], [id]);
   const m = mod.data;
   const context = useAsync(async () => {
     if (!m?.document_id) return null;
     const tree = await student.document(m.document_id);
     return (await student.subjects()).find((s) => s.id === tree.subject_id) ?? null;
   }, [m?.document_id]);
-  const teach = useAsync(() => student.teach(id), [id]);
+  const teach = useAsync(() => student.teach(id), [id], [id]);
 
   useEffect(()=>{if(focused&&tab==='lesson'&&teach.data?.status==='ready')void recordCourseWork('lesson',id).catch(()=>{});},[focused,tab,id,teach.data?.status]);
 

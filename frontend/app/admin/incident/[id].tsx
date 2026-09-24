@@ -23,7 +23,7 @@ export default function IncidentReview() {
   const router = useRouter();
   const back = useBackTo();
   const { user } = useAuth();
-  const q = useAsync(() => admin.monitorIncident(id), [id]);
+  const q = useAsync(() => admin.monitorIncident(id), [id], [id]);
   const [decision, setDecision] = useState<ReviewAction>("confirm");
   const [note, setNote] = useState("");
   const [saved, setSaved] = useState<string | null>(null);

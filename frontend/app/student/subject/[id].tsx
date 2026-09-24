@@ -8,8 +8,8 @@ import { Badge, Card, CardHead, Empty, ErrorBanner, ListRow, Loading, PageHeadin
 export default function StudentSubject() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const docs = useAsync(() => student.documents(id), [id]);
-  const an = useAsync(() => student.subjectAnalytics(id), [id]);
+  const docs = useAsync(() => student.documents(id), [id], [id]);
+  const an = useAsync(() => student.subjectAnalytics(id), [id], [id]);
   const subj = useAsync(async () => (await student.subjects()).find((s) => s.id === id) ?? null, [id]);
   const modules: any[] = an.data?.modules ?? [];
   const done = modules.filter((m) => m.status === "completed").length;

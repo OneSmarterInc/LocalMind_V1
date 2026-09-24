@@ -13,7 +13,7 @@ export default function StudentAttempt() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const back = useBackTo();
-  const q = useAsync(() => student.attempt(id), [id]);
+  const q = useAsync(() => student.attempt(id), [id], [id]);
   const retrySync = useAction(async () => { await retryCourseEvent(id); await q.reload(); });
   const quizzes = useAsync(() => student.quizzes(), []);
   const a = q.data;

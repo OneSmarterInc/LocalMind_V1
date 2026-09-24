@@ -10,7 +10,15 @@ import { ApiError, SessionChangedError, errorMessage } from "@/api/client";
  * subjects, assigned faculty) kept showing what it had when it first
  * loaded and needed a manual page refresh after adding a record.
  */
-export function useAsync<T>(fn: () => Promise<T>, deps: unknown[] = []) {
+/** A dependency this fetch cannot run without.
+ *
+ *  A route parameter is not available on the very first render, so a screen
+ *  keyed on one used to fetch ``/admin/subjects/undefined/`` before it fetched
+ *  the real thing: a 404 in the log and, briefly, an error on screen. Passing
+ *  the id through ``needs`` holds the request until there is something to ask
+ *  for. */
+export function useAsync<T>(fn: () => Promise<T>, deps: unknown[] = [], needs?: unknown[]) {
+  const ready = !needs || needs.every((v) => v !== undefined && v !== null && v !== "" && v !== "undefined");
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** The server's error code (e.g. MODULE_LOCKED) when the request failed with one. */
@@ -30,6 +38,7 @@ export function useAsync<T>(fn: () => Promise<T>, deps: unknown[] = []) {
   }
   const run = useCallback(async () => {
     const mine = ++latest.current;
+    if (!ready) { if (alive.current && mine === latest.current) setLoading(false); return; }
     setLoading(true); setError(null); setErrorCode(null);
     try { const d = await fn(); if (alive.current && mine === latest.current) setData(d); }
     catch (e) {
@@ -39,7 +48,7 @@ export function useAsync<T>(fn: () => Promise<T>, deps: unknown[] = []) {
     }
     finally { if (alive.current && mine === latest.current) setLoading(false); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
+  }, [...deps, ready]);
   useEffect(() => { alive.current = true; mounted.current = true; void run(); return () => { alive.current = false; }; }, [run]);
   // On the web build there is no pull-to-refresh and no app-state change to
   // hook into, so a student who leaves the tab open would keep seeing stale

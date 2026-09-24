@@ -43,7 +43,7 @@ export default function DocumentScreen() {
   const [tabChoice, setTabChoice] = useState<DocTab | null>(tabParam ?? null);
   useEffect(() => { setTabChoice(tabParam && ["outline", "pictures", "lessons", "publish", "live"].includes(tabParam) ? tabParam : null); }, [id, tabParam]);
   const [preview, setPreview] = useState<{ id: string; title: string; quizStatus: string; quizId: string | null } | null>(null);
-  const doc = useAsync(() => manage.document(id), [id]);
+  const doc = useAsync(() => manage.document(id), [id], [id]);
   const subjects = useAsync(() => manage.subjects(), []);
   const d = doc.data;
   const sourceChapters=d?.chapters;

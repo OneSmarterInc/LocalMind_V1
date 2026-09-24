@@ -13,7 +13,7 @@ export default function StudentBook() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const navigation = useNavigation();
-  const q = useAsync(() => student.document(id), [id]);
+  const q = useAsync(() => student.document(id), [id], [id]);
   useEffect(() => { navigation.setOptions({ backTo: q.data?.subject_id ? `/student/subject/${q.data.subject_id}` : "/student/subjects", backLabel: q.data?.subject_id ? "Back to subject" : "My subjects" }); }, [navigation, q.data?.subject_id]);
   const subjects = useAsync(() => student.subjects(), []);
   const subject = subjects.data?.find((s) => s.id === q.data?.subject_id);

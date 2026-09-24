@@ -14,7 +14,7 @@ const STATUS: Record<string, { label: string; tone: "green" | "blue" | "amber" |
 export default function FacultyStudent() {
   const { id, subject, workspace } = useLocalSearchParams<{ id: string; subject?: string; workspace?: string }>();
   const router = useRouter();
-  const q = useAsync(() => manage.studentAnalytics(id), [id]);
+  const q = useAsync(() => manage.studentAnalytics(id), [id], [id]);
   const detail = useAsync(() => (subject ? manage.studentSubjectAnalytics(id, subject) : Promise.resolve(null)), [id, subject]);
   const row = useAsync(async () => (subject ? (await manage.subjectStudentsAnalytics(subject)).students.find((r: any) => r.student_id === id) ?? null : null), [id, subject]);
   const d = q.data; const r = row.data; const sd = detail.data;

@@ -17,7 +17,7 @@ export default function TeachingSubject() {
   const { id } = useLocalSearchParams<{ id: string; tab?: Tab }>();
   const back = useBackTo();
   const [tab, setTab] = useTabParam<Tab>("overview", ["overview", "students", "modules"]);
-  const summary = useAsync(() => manage.subjectSummary(id), [id]);
+  const summary = useAsync(() => manage.subjectSummary(id), [id], [id]);
   const s = summary.data;
   return (
     <Screen refreshing={summary.loading} onRefresh={summary.reload}>
