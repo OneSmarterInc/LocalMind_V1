@@ -456,6 +456,24 @@ _worker: threading.Thread | None = None
 _lock = threading.Lock()
 
 
+def _wait_for_students(max_wait: float = 120.0):
+    """Hold off while an interactive model call is running.
+
+    Skipped under test, where the worker races the assertions and a delay
+    changes what a test observes rather than what production does."""
+    from django.conf import settings as django_settings
+
+    from ai.gateway import foreground_busy
+
+    if getattr(django_settings, "TESTING", False):
+        return
+    started = time.monotonic()
+    while foreground_busy():
+        if time.monotonic() - started > max_wait:
+            return
+        time.sleep(1.0)
+
+
 def _drain():
     global _worker
     while True:
@@ -467,6 +485,12 @@ def _drain():
             connection.close()
             return
         try:
+            # One model serves everybody, one call at a time. A judge already
+            # running holds it for its whole answer, so a student asking a
+            # question during an evaluation waited for that evaluation to
+            # finish before their own began. Wait for the student instead:
+            # a verdict seconds later costs nobody anything.
+            _wait_for_students()
             evaluate(kind, interaction_id)
         except Exception:
             logger.exception("Monitor worker failed for %s %s", kind, interaction_id)

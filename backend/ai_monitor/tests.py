@@ -505,3 +505,25 @@ class CentralJudgeWithDeviceAuthoringTests(PipelineBase):
         self.assertTrue(state["judge_enabled"])
         self.assertTrue(state["judge_ready"])
         self.assertEqual(state["judge_model"], "central-judge")
+
+
+class JudgeYieldsToStudentsTests(TestCase):
+    """One model serves everybody, one call at a time. A judge that does not
+    stand aside makes every student wait for an evaluation nobody asked for."""
+
+    def test_the_judge_is_background_work(self):
+        from ai_monitor import judge as judge_module
+        with patch.object(judge_module, "_gateway") as gw:
+            gw.return_value.generate.return_value = type("R", (), {"ok": False, "data": None, "error_code": "disabled"})()
+            judge_module.run(kind="tutor_answer", prompt="q", response="a", evidence_text="e",
+                             validator_lines=[], metadata={})
+        self.assertTrue(gw.return_value.generate.call_args.kwargs.get("background"),
+                        "the judge must not count as foreground work")
+
+    @override_settings(TESTING=False)
+    def test_the_worker_waits_while_a_student_is_being_answered(self):
+        from ai_monitor import services
+        calls = []
+        with patch("ai.gateway.foreground_busy", side_effect=lambda: calls.append(1) or len(calls) < 3):
+            services._wait_for_students(max_wait=5.0)
+        self.assertGreaterEqual(len(calls), 3, "the worker must poll until the student's call finishes")

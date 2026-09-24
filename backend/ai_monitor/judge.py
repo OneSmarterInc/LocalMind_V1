@@ -180,8 +180,12 @@ def run(*, kind: str, prompt: str, response: str, evidence_text: str, validator_
         model = _cfg("OLLAMA_MODEL")
     user_prompt = build_prompt(kind=kind, prompt=prompt, response=response, evidence_text=evidence_text,
                                validator_lines=validator_lines, metadata=metadata)
+    # Nobody is waiting on a verdict. Marked interactive, the judge counted as
+    # foreground work, so lesson and quiz generation backed off to let it run
+    # and it was never itself deferred for a student's question.
     result = _gateway().generate(task="monitor", system_prompt=SYSTEM_PROMPT, user_prompt=user_prompt,
-                                 schema=JUDGE_SCHEMA, model=model, temperature=0.0, source_chars=len(evidence_text))
+                                 schema=JUDGE_SCHEMA, model=model, temperature=0.0, source_chars=len(evidence_text),
+                                 background=True)
     if result.ok:
         result.data = normalise(result.data)
     return result
