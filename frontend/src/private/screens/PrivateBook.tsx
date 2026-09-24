@@ -74,6 +74,9 @@ function ModuleLearning({bookId,section,next,hasNext,initialTab,onSourceSaved,ba
  const saveView=(key:string,value:string)=>{writes.current=writes.current.catch(()=>{}).then(()=>library.saveViewState(bookId,key,value)).catch(e=>setLocalError(String(e)));};
  const setTab=(value:Tab)=>{setTabState(value);saveView(`tab:${section.id}`,value);};
  const changeQuestion=(value:string)=>{setQuestion(value);saveView(`question:${section.id}`,value);};
+ // The question is shown the moment it is asked, the way a chat does, rather
+ // than vanishing until the answer arrives half a minute later.
+ const [pending,setPending]=useState('');
  useEffect(()=>{let alive=true;void Promise.all([library.viewState(bookId,`tab:${section.id}`),library.viewState(bookId,`question:${section.id}`)]).then(([saved,draft])=>{if(alive){const t=initialTab||saved;setTabState(['read','lesson','quiz','ask'].includes(t)?t as Tab:'read');setQuestion(draft);setViewReady(true);}}).catch(e=>{if(alive)setLocalError(String(e));});return()=>{alive=false;};},[library,bookId,section.id,initialTab]);
  const lesson=lessons.data?.find(l=>l.id===lessonId)||lessons.data?.[0];
  const quiz=quizzes.data?.find(q=>q.id===quizId)||quizzes.data?.[0];
@@ -101,7 +104,15 @@ function ModuleLearning({bookId,section,next,hasNext,initialTab,onSourceSaved,ba
  // a reload. Asking has to clear both the box and that saved copy, or the
  // question the student just asked is still sitting there waiting to be
  // sent again.
- const ask=()=>{const q=question.trim();if(!q)return;changeQuestion('');enqueue('doubt',(signal,progress)=>library.ask(bookId,section.id,q,signal,progress));};
+ const ask=()=>{const q=question.trim();if(!q)return;changeQuestion('');setPending(q);enqueue('doubt',(signal,progress)=>library.ask(bookId,section.id,q,signal,progress));};
+ // The saved answer replaces the pending bubble; a failure puts the question
+ // back in the box rather than making them retype it.
+ const answered=chats.data?.length??0;
+ const askFailed=current?.kind==='doubt'&&(current.state==='failed'||!!current.error);
+ useEffect(()=>{setPending('');},[answered]);
+ useEffect(()=>{if(askFailed)setPending(p=>{if(p)changeQuestion(p);return '';});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ },[askFailed]);
  return <Card><Row><H2>{section.title}</H2><Badge value="All modules open" tone="green"/></Row>
   <PageTabs value={tab} onChange={t=>{if(t!==tab)void confirmLeave().then(ok=>{if(ok)setTab(t);});}} tabs={[{key:'read',label:'Read'},{key:'lesson',label:'Lesson'},{key:'quiz',label:'Practice quiz'},{key:'ask',label:'Ask a doubt'}]}/>
   <ErrorBanner message={task.error||figures.error||lessons.error||quizzes.error||chats.error}/>
@@ -141,13 +152,27 @@ function ModuleLearning({bookId,section,next,hasNext,initialTab,onSourceSaved,ba
   {tab==='ask'?<>{doubtsBlocked?<Notice inline title="Doubts temporarily unavailable" message={DOUBTS_PAUSED_MESSAGE}/>:null}<P muted>Your private doubts stay on this device.</P>
    {/* The thread scrolls in its own pane so the question box stays put instead
        of being pushed further down the page by every answer. */}
-   <ChatThread empty={<P muted>No questions yet. Ask anything about this section.</P>}>{(chats.data||[]).map(c=><Chat key={c.id} chat={c}/>)}</ChatThread>
-   <Input label="Your question" value={question} onChangeText={changeQuestion} multiline maxLength={1000} placeholder="What would you like to understand?" editable={viewReady&&!task.busy&&!doubtsBlocked} onEnter={()=>{if(viewReady&&!task.busy&&!doubtsBlocked&&question.trim())ask();}}/><Button title="Ask local AI" icon="send-outline" onPress={ask} disabled={!viewReady||task.busy||doubtsBlocked||!question.trim()}/></>:null}
+   <ChatThread empty={<P muted>No questions yet. Ask anything about this section.</P>}>{[
+    ...(chats.data||[]).map(c=><Chat key={c.id} chat={c}/>),
+    ...(pending?[<Bubble key="pending" who="You" content={pending} mine/>]:[]),
+    ...(task.busy&&currentKind==='doubt'?[<View key="working" style={{padding:14}}><P small muted>{task.note||'Reading the module…'}</P></View>]:[]),
+   ]}</ChatThread>
+   <Input label="Your question" value={question} onChangeText={changeQuestion} multiline maxLength={1000} placeholder="What would you like to understand?" editable={viewReady&&!task.busy&&!doubtsBlocked} onEnter={()=>{if(viewReady&&!task.busy&&!doubtsBlocked&&question.trim())ask();}}/><Row><Button title="Ask local AI" icon="send-outline" onPress={ask} busy={task.busy&&currentKind==='doubt'} disabled={!viewReady||task.busy||doubtsBlocked||!question.trim()}/>{task.busy&&currentKind==='doubt'?<Button title="Stop" variant="secondary" icon="pause-outline" onPress={task.cancel}/>:null}</Row></>:null}
   {(tab==='read'||tab==='lesson')&&<SourceVisuals bookId={bookId} sectionId={section.id} pagesOnly={tab==='lesson'}/>}
   <Row><Button title="Offline AI setup" small variant="secondary" onPress={()=>{void confirmLeave().then(ok=>{if(ok)router.push('/student/offline-ai');});}}/></Row>
  </Card>;
 }
-function Chat({chat}:{chat:PrivateChat}){return <View style={{gap:8,padding:14,backgroundColor:colors.bg,borderRadius:8}}><P style={{fontWeight:'600'}}>You: {chat.question}</P><P>{chat.answer}</P>{!!chat.quote&&<P muted small>From the book: {chat.quote}</P>}</View>;}
+/** One turn of the thread. The question sits on the right in its own bubble
+ *  and the answer on the left, so a long conversation reads as a conversation
+ *  rather than as a column of identical grey blocks. */
+function Bubble({who,content,mine,quote}:{who:string;content:string;mine?:boolean;quote?:string}){
+ return <View style={{padding:14,borderRadius:10,backgroundColor:mine?'#EAF2ED':'#FFFFFF',borderWidth:mine?0:1,borderColor:'#E4EAE2',gap:6,alignSelf:mine?'flex-end':'stretch',maxWidth:mine?'88%':undefined}}>
+  <P small muted>{who}</P><P>{content}</P>{quote?<P small muted>From the book: {quote}</P>:null}</View>;
+}
+function Chat({chat}:{chat:PrivateChat}){return <>
+ <Bubble who="You" content={chat.question} mine/>
+ <Bubble who="Local AI · this device" content={chat.answer} quote={chat.quote||undefined}/>
+</>;}
 function QuizPractice({quiz}:{quiz:QuizVersion}){
  const library=useLibrary()!,task=useTask();
  const [answers,setAnswers]=useState<Record<string,number>>({}),[ready,setReady]=useState(false),[saved,setSaved]=useState(true);
