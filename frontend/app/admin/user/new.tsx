@@ -6,7 +6,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { View } from "react-native";
 import { admin } from "@/api/endpoints";
 import { useAction, useAsync } from "@/hooks/useAsync";
-import { Button, Card, CardHead, Dropdown, Empty, ErrorBanner, FormFooter, Grid, Input, Notice, OptionCard, PageHeading, Screen, Split, StepList, phoneProblem } from "@/ui";
+import { Button, Card, CardHead, Dropdown, Empty, ErrorBanner, FormFooter, Grid, Input, Loading, Notice, OptionCard, PageHeading, Screen, Split, StepList, phoneProblem } from "@/ui";
 import { IssuedCredential, OneTimeCredentials } from "@/ui/OneTimeCredentials";
 
 type Kind = "students" | "faculty";
@@ -67,7 +67,8 @@ export default function AddPerson() {
                   <Input label="Phone number" error={phoneProblem(f.phone)} value={f.phone ?? ""} onChangeText={set("phone")} keyboardType="phone-pad" placeholder="Optional" />
                 </Grid>
                 <CardHead title="Teaching subjects" subtitle="Optional now; you can assign subjects later from the subject page." />
-                {subjects.data?.length ? <View style={{ gap: 8 }}>{subjects.data.map((s) => (
+                {/* Loading or failed used to read as "No active subjects", which is wrong in both cases. */}
+                {subjects.loading && !subjects.data ? <Loading lines={2} /> : subjects.error ? <ErrorBanner message={subjects.error} onRetry={subjects.reload} /> : subjects.data?.length ? <View style={{ gap: 8 }}>{subjects.data.map((s) => (
                   <OptionCard key={s.id} multi title={`${s.code} · ${s.name}`} selected={subjectIds.includes(s.id)} onPress={() => setSubjectIds((x) => (x.includes(s.id) ? x.filter((y) => y !== s.id) : [...x, s.id]))} />
                 ))}</View> : <Empty icon="library-outline" text="No active subjects to assign yet." />}
               </>

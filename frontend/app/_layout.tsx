@@ -1,4 +1,5 @@
 import { installWebHistoryGuard } from "@/hooks/webHistory";
+import { installRandomUUID } from "@/platform/randomUUID";
 import {GenerationHost} from '@/private/GenerationJobs';
 import ParserHost from "@/private/ParserHost";
 import { Stack, type ErrorBoundaryProps } from "expo-router";
@@ -39,6 +40,8 @@ if (Platform.OS === "web" && typeof window !== "undefined" && window.isSecureCon
   window.addEventListener("load", () => { navigator.serviceWorker.register("/sw.js").catch(() => {}); });
 }
 
+// Before anything can create an id: plain-http LAN addresses have no crypto.randomUUID.
+installRandomUUID();
 installWebHistoryGuard();
 
 /** Resolve the saved session before evaluating deep-link permissions. Once

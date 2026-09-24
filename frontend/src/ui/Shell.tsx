@@ -1,6 +1,6 @@
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import type { BottomTabBarProps, BottomTabHeaderProps, BottomTabNavigationOptions } from "@react-navigation/bottom-tabs";
-import { useRouter } from "expo-router";
+import { usePathname, useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import { Modal, Platform, Pressable, PressableStateCallbackType, ScrollView, StyleSheet, Text, TouchableWithoutFeedback, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -93,6 +93,17 @@ export function Brand({ size = 23 }: { size?: number }) {
   );
 }
 
+
+/** True when `path` (which may carry a query, e.g. "/admin/users?tab=faculty") is the page on screen.
+ * Pushing the page you are already on only adds a duplicate entry for browser Back to step through. */
+function isCurrentPage(path: string, pathname: string) {
+  const [target, query = ""] = path.split("?");
+  const norm = (s: string) => s.replace(/\/+$/, "") || "/";
+  if (norm(target) !== norm(pathname)) return false;
+  if (Platform.OS === "web" && typeof window !== "undefined") return window.location.search.replace(/^\?/, "") === query;
+  return query === "";
+}
+
 /* ------------------------------------------------------------------ */
 /* Sidebar                                                             */
 /* ------------------------------------------------------------------ */
@@ -134,7 +145,8 @@ function Sidebar({ state, descriptors, navigation, meta, onNavigate }: BottomTab
     if (section && current) rememberSection(meta.homePath, section, current, activeParams);
   }, [meta.homePath, section, current, activeParams]);
   const main = routes.filter((r) => r.name !== "profile");
-  const go = async (path: string) => { if (!(await confirmLeave())) return; onNavigate?.(); router.push(path as never); };
+  const pathname = usePathname();
+  const go = async (path: string) => { if (isCurrentPage(path, pathname)) { onNavigate?.(); return; } if (!(await confirmLeave())) return; onNavigate?.(); router.push(path as never); };
   return (
     <ScrollView style={s.sidebar} contentContainerStyle={[s.sidebarInner, { paddingTop: insets.top + 24 }]}>
       <Pressable onPress={() => go(meta.homePath)} accessibilityRole="link" style={{ marginHorizontal: 11, marginBottom: 25 }}><Brand /></Pressable>
@@ -292,9 +304,10 @@ export function UserMenu({ compact, profilePath }: { compact?: boolean; profileP
   const { user, logout } = useAuth();
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const pathname = usePathname();
   if (!user) return null;
 
-  const go = async (path: string) => { setOpen(false); if (!(await confirmLeave())) return; router.push(path as never); };
+  const go = async (path: string) => { setOpen(false); if (isCurrentPage(path, pathname)) return; if (!(await confirmLeave())) return; router.push(path as never); };
   return (
     <>
       <Pressable onPress={() => setOpen(true)} accessibilityRole="button" accessibilityLabel="Open account menu" style={{ flexDirection: "row", alignItems: "center", gap: 9 }}>

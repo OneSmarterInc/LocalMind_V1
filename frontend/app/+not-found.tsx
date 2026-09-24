@@ -3,6 +3,8 @@ import { Redirect, usePathname } from "expo-router";
 import { View } from "react-native";
 import { useAuth } from "@/auth/AuthContext";
 import { Loading, colors } from "@/ui";
+import { homeFor } from "@/auth/home";
+import { AccountProblem } from "@/auth/AccountProblem";
 
 /** Anything typed into the address bar that is not a route.
  *
@@ -17,10 +19,12 @@ export default function NotFound() {
   if (!ready) return <View style={{ flex: 1, backgroundColor: colors.bg, justifyContent: "center" }}><Loading /></View>;
   if (!user) return <Redirect href="/login" />;
   if (mustChangePassword) return <Redirect href="/change-password" />;
+  const home = homeFor(user.role);
+  if (!home) return <AccountProblem />;
   // Links from before assignments became quizzes have a better destination
   // than the overview, so they keep it.
   if (/^\/(student|manage)\/(assignments|assignment|submission)(\/|$)/.test(path)) {
     return <Redirect href={user.role === "student" ? "/student/quizzes" : "/manage/quizzes"} />;
   }
-  return <Redirect href={user.role === "student" ? "/student" : user.role === "faculty" ? "/manage" : "/admin"} />;
+  return <Redirect href={home} />;
 }

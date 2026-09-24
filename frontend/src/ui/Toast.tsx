@@ -9,7 +9,7 @@
  * Page explanations are also registered with the page they belong to, so
  * PageHeading can offer "About this page" to show them again later.
  */
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { NavigationContext } from "@react-navigation/native";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";

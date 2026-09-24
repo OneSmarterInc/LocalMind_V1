@@ -5,6 +5,7 @@ const INDEX = '__localmindHistoryIndex';
 let installed = false;
 let position = 0;
 const paths = new Map<number, string>();
+const MAX_PATHS = 200;
 
 export function installWebHistoryGuard() {
   if (installed || typeof window === 'undefined') return;
@@ -20,6 +21,9 @@ export function installWebHistoryGuard() {
     for (const index of paths.keys()) if (index > position) paths.delete(index);
     push({ ...state, [INDEX]: ++position }, title, url);
     paths.set(position, path());
+    // Keep the most recent entries only. "Back to X" searches this list for a
+    // parent page, and nobody walks back hundreds of pages to reach one.
+    if (paths.size > MAX_PATHS) for (const index of [...paths.keys()].sort((a, b) => a - b).slice(0, paths.size - MAX_PATHS)) paths.delete(index);
   };
   history.replaceState = (state, title, url) => {
     replace({ ...state, [INDEX]: position }, title, url);

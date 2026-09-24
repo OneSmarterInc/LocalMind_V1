@@ -13,6 +13,7 @@ import {jobScope,useGenerationJobs} from '@/private/useGenerationJobs';
 import {Screen,PageHeading,Card,H2,P,Button,Row,ErrorBanner,Badge} from '@/ui';
 import {SyncAllButton} from '@/authoring/SyncAllButton';
 import type {OutlineModule} from '@/api/types';
+import { everyVisible } from "@/hooks/visibleInterval";
 type Shared={lesson:boolean;quiz:boolean};
 const sharedOf=(m:OutlineModule):Shared=>({lesson:m.lesson_status==='ready',quiz:['ready','held','checking','dismissed'].includes(m.quiz_status||'')||!!m.shared_quiz_id});
 async function draftsFor(service:LocalAuthoring,documentId:string){
@@ -35,7 +36,7 @@ function Batch({owner}:{owner:string}){
  const [shared,setShared]=useState<Record<string,Shared>>({});
  const jobs=useGenerationJobs(library?.prefix||'').filter(j=>j.bookId===id||j.documentId===id);
  const busy=jobs.some(j=>['running','queued'].includes(j.state));
- useEffect(()=>{let live=true;const read=()=>draftsFor(service,id).then(v=>{if(live)setRows(v);}).catch(e=>{if(live)setError(String(e));});void read();const timer=setInterval(()=>{void read();void device().then(d=>d.status()).then(s=>{if(live)setModelReady(s.installed);}).catch(()=>{});},1500);return()=>{live=false;clearInterval(timer);};},[service,id]);
+ useEffect(()=>{let live=true;const read=()=>draftsFor(service,id).then(v=>{if(live)setRows(v);}).catch(e=>{if(live)setError(String(e));});void read();const stop=everyVisible(()=>{void read();void device().then(d=>d.status()).then(s=>{if(live)setModelReady(s.installed);}).catch(()=>{});},1500);return()=>{live=false;stop();};},[service,id]);
  useEffect(()=>{let live=true;setPreparing(true);
   void (async()=>{
    try{if(!id)throw new Error("Choose a book from Books & modules before preparing content.");const book=await manage.document(id);service.library.guard();const saved=await draftsFor(service,id);

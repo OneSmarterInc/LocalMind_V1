@@ -1,7 +1,7 @@
 import React,{useEffect} from "react";
 import {courseEvents,retryCourseEvent} from "@/offline/coursework";
 import { Text, View } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import type { DocumentTree, Subject, TeachResponse } from "@/api/types";
 import { useAsync } from "@/hooks/useAsync";
@@ -10,6 +10,7 @@ import { readEntry } from "@/offline/store";
 import { syncNow, useSyncState } from "@/offline/sync";
 import { device } from "@/private/device";
 import { Badge, Button, Card, CardHead, DetailList, ErrorBanner, Grid, ListRow, PageHeading, Row, Screen, colors, fmtDate } from "@/ui";
+import { everyVisible } from "@/hooks/visibleInterval";
 
 type Saved = { subjects: number; books: number; modules: number; lessons: number; conversations: number };
 async function countSaved(): Promise<Saved> {
@@ -42,7 +43,7 @@ export default function OfflineLibrary() {
   const online = useOnline(), router = useRouter();
   const sync = useSyncState();
   const work=useAsync(courseEvents,[sync.lastSync]);
-  useEffect(()=>{const timer=setInterval(work.reload,5000);return()=>clearInterval(timer);},[work.reload]);
+  useEffect(()=>everyVisible(work.reload,5000),[work.reload]);
   const pending=work.data?.filter(e=>e.state!=='synced')||[];
   const saved = useAsync(countSaved, [sync.lastSync]);
   const model = useAsync(async () => (await device()).status(), []);

@@ -1,4 +1,4 @@
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
@@ -12,6 +12,7 @@ import { useLocalDraft } from "@/hooks/useLocalDraft";
 import { registerGuard } from "@/hooks/unsavedGuard";
 import { useOnline } from "@/offline/connectivity";
 import { alertAsync, Badge, Button, Card, CardHead, DetailList, ErrorBanner, Eyebrow, FormFooter, Loading, Notice, OptionCard, PageHeading, ProgressBar, Screen, Split, StepList, colors, confirmAsync, fmtDate, pct } from "@/ui";
+import { everyVisible } from "@/hooks/visibleInterval";
 
 const releaseText = (r?: string, at?: string | null) => (r === "held" ? "After faculty release" : r === "scheduled" ? `From ${fmtDate(at)}` : "Shown after submission");
 
@@ -62,8 +63,8 @@ function StudentQuizEditor({ id }: { id: string }) {
       } finally { checking = false; }
     };
     void check();
-    const timer = setInterval(() => void check(), 1000);
-    return () => { live = false; clearInterval(timer); };
+    const stop = everyVisible(check, 1000);
+    return () => { live = false; stop(); };
   }, [id, router]));
   const answersRef = useRef(answers); answersRef.current = answers;
   // Answers are kept on this device per user and attempt, so a refresh or a resumed attempt restores them.

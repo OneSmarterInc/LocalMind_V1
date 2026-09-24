@@ -211,6 +211,12 @@ SPECTACULAR_SETTINGS = {
     "TAGS": [{"name": "auth"}, {"name": "admin"}, {"name": "faculty"}, {"name": "student"}],
 }
 
+# Content-Security-Policy sent in report-only mode on HTML pages (see
+# core/isolation.py). Report-only never blocks: it logs would-be violations in
+# the browser console. Empty string turns it off; unset uses the default policy.
+from core.isolation import DEFAULT_CSP as _DEFAULT_CSP  # noqa: E402
+CSP_REPORT_ONLY = env_str("CSP_REPORT_ONLY", _DEFAULT_CSP)
+
 CORS_ALLOWED_ORIGINS = env_list("DJANGO_CORS_ALLOWED_ORIGINS", "http://localhost:8081")
 CORS_ALLOW_CREDENTIALS = False
 

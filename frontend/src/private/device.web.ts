@@ -51,6 +51,51 @@ function script(path:string):Promise<void> {
     document.head.appendChild(tag);
   })); return scripts.get(path)!;
 }
+/* ---------------------------------------------------------------------------
+ * Book reading without a connection.
+ *
+ * The parser (PDF/DOCX reader, OCR worker and English OCR data in one file) needs
+ * nothing from the network once it is loaded, but loading it does. The service
+ * worker keeps it only on HTTPS or localhost: browsers refuse service workers on a
+ * plain-http LAN address, which is exactly how a campus server is usually reached.
+ * So a copy is also kept in IndexedDB, which every origin has, and used when the
+ * normal load fails. The file name carries the first 20 hex digits of its SHA-256
+ * (see scripts/prepare-private-assets.mjs); a copy is saved and used only when its
+ * bytes produce that same digest, so a proxy error page or a stale file can never
+ * be run as the parser.
+ * ------------------------------------------------------------------------- */
+const PARSER_COPY_KEY='@parser-copy-v1';
+type ParserCopy={asset:string;code:string};
+const parserDigest=(asset:string)=>/parser-([a-f0-9]{20})\.js$/.exec(asset)?.[1];
+const matchesAsset=(code:string,asset:string)=>{const want=parserDigest(asset);return !!want&&bytesToHex(sha256(new TextEncoder().encode(code))).slice(0,20)===want;};
+/** Save this build's parser for offline use. Cheap when it is already saved. */
+async function saveParserCopy():Promise<void>{
+  const saved=await store.get<ParserCopy>(PARSER_COPY_KEY).catch(()=>undefined);
+  if(saved?.asset===PARSER_ASSET)return;
+  const r=await fetch(PARSER_ASSET,{cache:'no-cache'});requireThat(r.ok,`The book reader could not be downloaded (${r.status}).`);
+  const code=await r.text();requireThat(matchesAsset(code,PARSER_ASSET),'The downloaded book reader did not pass its integrity check. Nothing was saved.');
+  await store.put(PARSER_COPY_KEY,{asset:PARSER_ASSET,code} satisfies ParserCopy);
+}
+function blobScript(code:string):Promise<void>{
+  const url=URL.createObjectURL(new Blob([code],{type:'text/javascript'}));
+  return new Promise<void>((resolve,reject)=>{
+    const tag=document.createElement('script');tag.type='module';tag.src=url;
+    tag.onload=()=>{URL.revokeObjectURL(url);resolve();};
+    tag.onerror=()=>{URL.revokeObjectURL(url);tag.remove();reject(new Error('The saved book reader could not start.'));};
+    document.head.appendChild(tag);
+  });
+}
+async function loadParser():Promise<Parser>{
+  if(window.__LM_PARSER__)return window.__LM_PARSER__;
+  try{await script(PARSER_ASSET);}
+  catch(networkError){
+    const saved=await store.get<ParserCopy>(PARSER_COPY_KEY).catch(()=>undefined);
+    if(!saved||saved.asset!==PARSER_ASSET||!matchesAsset(saved.code,PARSER_ASSET))
+      throw new Error('The book reader is not saved on this device yet. Open LocalMind once while connected, then import again.',{cause:networkError});
+    await blobScript(saved.code);
+  }
+  const parser=window.__LM_PARSER__;requireThat(parser,'Local book parser is missing.');return parser;
+}
 async function files() {
   requireThat(window.isSecureContext && navigator.storage?.getDirectory,'Local AI needs HTTPS or localhost and a browser supporting device file storage.');
   const root=await navigator.storage.getDirectory(); return root.getDirectoryHandle('localmind-ai',{create:true});
@@ -198,9 +243,9 @@ async function storage(){
 }
 const implementation:Device={...store, complete,
  async parse(f, signal, progress, saveVisual) {
-  const file=await fileOf(f); await script(PARSER_ASSET);requireThat(window.__LM_PARSER__,'Local book parser is missing.');
+  const file=await fileOf(f); const parser=await loadParser();
   const bytes=new Uint8Array(await file.arrayBuffer());const hash=bytesToHex(sha256(bytes));
-  const parsed=await window.__LM_PARSER__.parse(bytes,f.name,signal,progress,saveVisual?visual=>saveVisual(visual,hash):undefined);
+  const parsed=await parser.parse(bytes,f.name,signal,progress,saveVisual?visual=>saveVisual(visual,hash):undefined);
   return {hash,sections:makeReadingSections(parsed.items),warnings:parsed.warnings,visuals:parsed.visuals};
  },
  async downloadBook(url,headers,name,signal) {
@@ -251,7 +296,12 @@ const implementation:Device={...store, complete,
   return storage();
  },
  async prepareOffline(){
-   requireThat(window.isSecureContext && 'serviceWorker' in navigator,'Use HTTPS or localhost to install offline application files.');
+   // The book reader copy works on every origin, including plain-http LAN addresses.
+   if(!window.isSecureContext || !('serviceWorker' in navigator)){
+     await saveParserCopy();
+     return 'Book reading is saved on this device, so books can be imported without a connection. Reopening the whole app offline needs HTTPS or localhost.';
+   }
+   await saveParserCopy().catch(()=>{/* the service worker below also caches it */});
    await navigator.storage.persist?.();
    const registration=await navigator.serviceWorker.register('/sw.js',{updateViaCache:'none'});
    await registration.update();

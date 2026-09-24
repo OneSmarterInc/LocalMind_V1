@@ -9,7 +9,7 @@ import {device} from '@/private/device';
 import {useAuth} from "@/auth/AuthContext";
 import {LocalAuthoring,draftStatus,isFrontMatter,syncedBy,type Draft} from "@/authoring/local";
 import {SyncAllButton} from "@/authoring/SyncAllButton";
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
@@ -25,6 +25,7 @@ import { HeadingPicker, type Heading } from "@/ui/HeadingPicker";
 import type { IconName } from "@/ui/Shell";
 import { LessonView } from "@/ui/LessonView";
 import { SourceFigures } from "@/ui/SourceFigures";
+import { everyVisible } from "@/hooks/visibleInterval";
 
 /** Which node of the outline the right-hand pane is editing. */
 type Selection = { ci: number; mi: number | null };
@@ -50,7 +51,7 @@ export default function DocumentScreen() {
   const [automatic,setAutomatic]=useState<PreparationMap>({});
   const [modelInstalled,setModelInstalled]=useState(false);
   const autoStarted=useRef('');
-  useEffect(()=>{let live=true;const poll=async()=>{if(!authoring||!d)return;try{const status=await(await device()).status();const rows=await preparation(authoring,d);if(live){setModelInstalled(status.installed);setAutomatic(rows);}}catch(e){if(live)setPrepareError(errorMessage(e));}};void poll();const timer=setInterval(poll,1500);return()=>{live=false;clearInterval(timer);};},[authoring,d]);
+  useEffect(()=>{let live=true;const poll=async()=>{if(!authoring||!d)return;try{const status=await(await device()).status();const rows=await preparation(authoring,d);if(live){setModelInstalled(status.installed);setAutomatic(rows);}}catch(e){if(live)setPrepareError(errorMessage(e));}};void poll();const stop=everyVisible(poll,1500);return()=>{live=false;stop();};},[authoring,d]);
   useEffect(()=>{if(!authoring||!d||!modelInstalled||!['under_review','ready','published'].includes(d.status))return;
     const token=`${owner}:${d.id}:${d.content_version}`;if(autoStarted.current===token)return;autoStarted.current=token;
     // The guard is NOT cleared when preparation reports a problem. Clearing it
@@ -66,14 +67,13 @@ export default function DocumentScreen() {
     void (async()=>{const saved=await authoring.drafts();for(const chapter of sourceChapters)for(const module of chapter.modules){if(!live)return;if(module.id&&module.source_text?.trim())await authoring.ensure(saved.find(s=>s.snapshot.remote_id===module.id)?.snapshot.module_id||module.id);}})().catch(e=>{if(live)setPrepareError(errorMessage(e));});
     return()=>{live=false;};
   },[authoring,sourceChapters]);
-  useEffect(() => { if (d?.status !== "processing" && !["pending", "retry", "running"].includes(d?.background_job?.status || "")) return; const t = setInterval(doc.reload, 3000); return () => clearInterval(t); }, [d?.status, d?.background_job?.status, doc.reload]);
+  useEffect(() => { if (d?.status !== "processing" && !["pending", "retry", "running"].includes(d?.background_job?.status || "")) return; return everyVisible(doc.reload, 3000); }, [d?.status, d?.background_job?.status, doc.reload]);
   const lessonsBusy = (!!d?.lessons && d.lessons.pending + d.lessons.generating > 0)
     || (!!d?.auto_quizzes && d.auto_quizzes.pending + d.auto_quizzes.generating > 0);
   const { setData: setDoc } = doc;
   useEffect(() => {
     if (!lessonsBusy) return;
-    const t = setInterval(async () => { try { setDoc(await manage.document(id)); } catch { /* shown on the next full reload */ } }, 10000);
-    return () => clearInterval(t);
+    return everyVisible(async () => { try { setDoc(await manage.document(id)); } catch { /* shown on the next full reload */ } }, 10000);
   }, [lessonsBusy, id, setDoc]);
   const lessonStatus = useMemo(() => {
     const map: Record<string, LessonStatus> = {};
@@ -347,7 +347,7 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
   const {user}=useAuth(),owner=user?.id;
   const service=useMemo(()=>owner?new LocalAuthoring(owner):null,[owner]);
   const [drafts,setDrafts]=useState<Draft[]>([]);
-  useEffect(()=>{let live=true;const read=()=>service?.drafts().then(rows=>{if(live)setDrafts(rows);}).catch(()=>{});void read();const timer=setInterval(read,1500);return()=>{live=false;clearInterval(timer);};},[service]);
+  useEffect(()=>{let live=true;const read=()=>service?.drafts().then(rows=>{if(live)setDrafts(rows);}).catch(()=>{});void read();const stop=everyVisible(read,1500);return()=>{live=false;stop();};},[service]);
   const local=(id:string)=>drafts.find(d=>d.snapshot.remote_id===id)||drafts.find(d=>d.snapshot.module_id===id);
   // Generation controls: the book queues itself when opened; these let a person
   // run one module now, pause one module, or hold the whole book.
@@ -356,7 +356,7 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
   const ctlKey=controlKey(scope,doc.id);
   const controls=useBookControls(ctlKey);
   const [held,setHeldState]=useState(false);
-  useEffect(()=>{let live=true;const read=()=>{if(owner)void isHeld(prefix,doc.id).then(h=>{if(live)setHeldState(h);}).catch(()=>{});};read();const t=setInterval(read,1500);return()=>{live=false;clearInterval(t);};},[owner,prefix,doc.id]);
+  useEffect(()=>{let live=true;const read=()=>{if(owner)void isHeld(prefix,doc.id).then(h=>{if(live)setHeldState(h);}).catch(()=>{});};read();const stop=everyVisible(read,1500);return()=>{live=false;stop();};},[owner,prefix,doc.id]);
   const jobs=useGenerationJobs(prefix);
   const bookRunning=jobs.some(j=>(j.documentId===doc.id||j.bookId===doc.id)&&j.kind==='staff-auto'&&['queued','running'].includes(j.state));
   const running=controls.running;

@@ -20,10 +20,15 @@ export class LocalBooks {
  async list(){const rows=await(await device()).list<LocalBook>(this.authoring.library.prefix+'import:');this.authoring.library.guard();return rows;}
  async read(id:string){const row=await(await device()).get<LocalBook>(this.key(id));this.authoring.library.guard();requireThat(row,'This local book is unavailable.');return row;}
  private async save(row:LocalBook){this.authoring.library.guard();await(await device()).put(this.key(row.id),row);this.authoring.library.guard();}
- async subjects(refresh=false){
+ async subjects(refresh=false):Promise<Awaited<ReturnType<typeof manage.subjects>>>{
   const key=this.authoring.library.prefix+'subjects';
   if(refresh){const rows=(await manage.subjects()).filter(s=>s.status==='active');this.authoring.library.guard();await(await device()).put(key,rows);return rows;}
-  const rows=await(await device()).get<Awaited<ReturnType<typeof manage.subjects>>>(key)||[];this.authoring.library.guard();return rows;
+  const rows=await(await device()).get<Awaited<ReturnType<typeof manage.subjects>>>(key)||[];this.authoring.library.guard();
+  if(rows.length)return rows;
+  // Nothing saved here yet (this screen was never opened while connected). The offline
+  // sync keeps the faculty subject list, and the API client answers from it when the
+  // server is unreachable, so an offline import is not blocked for want of this copy.
+  try{return await this.subjects(true);}catch{return rows;}
  }
  async import(file:LocalFile,title:string,subjectId:string,signal:AbortSignal,progress:(s:string)=>void){
   requireThat(/\.(pdf|docx)$/i.test(file.name),'Choose a PDF or DOCX book for institutional authoring.');

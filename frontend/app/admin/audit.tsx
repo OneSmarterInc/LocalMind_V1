@@ -1,4 +1,4 @@
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import React, { useMemo, useState } from "react";
 import { Platform, Pressable, type PressableStateCallbackType, Text, View } from "react-native";
 import { admin } from "@/api/endpoints";

@@ -5,12 +5,13 @@ import {useAuth} from '@/auth/AuthContext';
 import {LocalBooks,type LocalBook} from '@/authoring/books';
 import {useTask} from '@/private/useTask';
 import {Screen,PageHeading,Card,H2,P,Button,Row,Dropdown,Input,ErrorBanner,Notice,Badge,confirmAsync} from '@/ui';
+import { everyVisible } from "@/hooks/visibleInterval";
 export default function LocalBooksPage(){const {user}=useAuth();return user?<Books key={user.id} owner={user.id}/>:null;}
 function Books({owner}:{owner:string}){
  const params=useLocalSearchParams<{subject?:string}>();
  const service=useMemo(()=>new LocalBooks(owner),[owner]),router=useRouter(),task=useTask();
  const [rows,setRows]=useState<LocalBook[]>([]),[subjects,setSubjects]=useState<Awaited<ReturnType<LocalBooks['subjects']>>>([]),[subject,setSubject]=useState(params.subject||''),[title,setTitle]=useState(''),[error,setError]=useState('');
- useEffect(()=>{let active=true;const read=()=>service.list().then(v=>{if(active)setRows(v);}).catch(e=>{if(active)setError(String(e));});void read();void service.subjects().then(v=>{if(active)setSubjects(v);}).catch(e=>{if(active)setError(String(e));});void service.subjects(true).then(v=>{if(active)setSubjects(v);}).catch(()=>{});const timer=setInterval(read,3000);return()=>{active=false;clearInterval(timer);};},[service]);
+ useEffect(()=>{let active=true;const read=()=>service.list().then(v=>{if(active)setRows(v);}).catch(e=>{if(active)setError(String(e));});void read();void service.subjects().then(v=>{if(active)setSubjects(v);}).catch(e=>{if(active)setError(String(e));});void service.subjects(true).then(v=>{if(active)setSubjects(v);}).catch(()=>{});const stop=everyVisible(read,3000);return()=>{active=false;stop();};},[service]);
  const open=async(row:LocalBook,id:string)=>{await service.prepare(row);router.push(`/manage/local-authoring/${id}`);};
  return <Screen><PageHeading title="Upload and prepare books" subtitle="Books and generated work save automatically. Review before publishing." right={<Button title="Books & modules" variant="secondary" onPress={()=>router.push('/manage/books')}/>}/>
  <ErrorBanner message={error||task.error}/>

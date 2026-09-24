@@ -10,7 +10,7 @@ import { confirmLeave } from "@/hooks/unsavedGuard";
 import { carryEditableFields } from "@/hooks/draftPersistence";
 import { useNavigation, useRouter } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { Platform, Pressable, Text, TextInput, View } from "react-native";
 import { manage } from "@/api/endpoints";
 import type { Attempt, Question, Quiz } from "@/api/types";

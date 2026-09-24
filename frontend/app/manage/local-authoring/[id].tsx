@@ -17,6 +17,7 @@ import {SourceVisuals} from '@/private/SourceVisuals';
 import {device} from '@/private/device';
 import {useTask} from '@/private/useTask';
 import {Screen,PageHeading,PageTabs,Card,CardHead,H2,P,Button,Row,Notice,ErrorBanner,Badge,Input,Empty,Split,DetailList,confirmAsync,colors} from '@/ui';
+import { everyVisible } from "@/hooks/visibleInterval";
 
 /** How often the draft on disk is re-read.
  *
@@ -77,8 +78,8 @@ function Authoring(){
 
  useEffect(()=>{let mounted=true;
   const tick=()=>{if(!mounted)return;void read();void device().then(d=>d.status()).then(s=>{if(mounted)setModelReady(s.installed);}).catch(()=>{});};
-  const timer=setInterval(tick,busy?BUSY_POLL_MS:IDLE_POLL_MS);
-  return()=>{mounted=false;clearInterval(timer);};
+  const stop=everyVisible(tick,busy?BUSY_POLL_MS:IDLE_POLL_MS);
+  return()=>{mounted=false;stop();};
  },[read,busy]);
 
  useEffect(()=>{setQuestionIndex(0);},[id,draft?.questions?.length]);

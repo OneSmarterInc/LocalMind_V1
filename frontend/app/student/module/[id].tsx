@@ -1,5 +1,5 @@
 import { SourceFigures } from "@/ui/SourceFigures";
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { useBackTo } from "@/hooks/useBackTo";
 import { useTabParam } from "@/hooks/useTabParam";
 import { quizNeedsSubmission } from "@/screens/student/quizStatus";

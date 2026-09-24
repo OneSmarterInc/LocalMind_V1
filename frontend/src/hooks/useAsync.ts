@@ -58,7 +58,17 @@ export function useAsync<T>(fn: () => Promise<T>, deps: unknown[] = [], needs?: 
     const doc = (globalThis as unknown as { document?: { addEventListener: Function; removeEventListener: Function; visibilityState?: string } }).document;
     const win = globalThis as unknown as { addEventListener?: Function; removeEventListener?: Function };
     if (!doc || typeof win.addEventListener !== "function") return;
-    const onVisible = () => { if (doc.visibilityState === "visible") void run(); };
+    // Returning to the browser fires both "visibilitychange" and "focus". Both are
+    // needed (a window can regain focus without changing visibility, e.g. after
+    // alt-tabbing from another application), but together they fetched every list
+    // twice. Treat events within a moment of each other as one return.
+    let lastWake = 0;
+    const onVisible = () => {
+      if (doc.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - lastWake < 750) return;
+      lastWake = now; void run();
+    };
     doc.addEventListener("visibilitychange", onVisible);
     win.addEventListener("focus", onVisible);
     return () => { doc.removeEventListener("visibilitychange", onVisible); win.removeEventListener!("focus", onVisible); };

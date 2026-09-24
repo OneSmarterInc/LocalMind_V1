@@ -12,7 +12,7 @@
  * of the page on every platform, with a dimmed backdrop, an icon that matches
  * the tone, and Cancel / confirm buttons in a consistent order.
  */
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Modal,

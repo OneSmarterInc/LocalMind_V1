@@ -9,7 +9,7 @@ import { useOnline } from "@/offline/connectivity";
 import {BookUploads} from "@/authoring/uploads";
 import { manage } from "@/api/endpoints";
 import { useAction, useAsync } from "@/hooks/useAsync";
-import { Button, Card, CardHead, Dropdown, ErrorBanner, FormFooter, Input, Notice, PageHeading, Screen, Split, StepList, Stepper, TileIcon, colors, fmtSize } from "@/ui";
+import { Button, Card, CardHead, Dropdown, ErrorBanner, FormFooter, Input, Loading, Notice, PageHeading, Screen, Split, StepList, Stepper, TileIcon, colors, fmtSize } from "@/ui";
 
 // What the server's parser can actually read, and the limit the page states.
 const ACCEPTED = ["pdf", "docx", "doc"];
@@ -78,7 +78,8 @@ export default function UploadBook() {
         main={
           <Card>
             <CardHead title="Book details" />
-            <ErrorBanner message={subjects.error} />
+            <ErrorBanner message={subjects.error} onRetry={subjects.reload} />
+            {subjects.loading && !subjects.data ? <Loading lines={1} /> : null}
             {rejected ? <Notice inline tone="warning" title="That file cannot be used" message={rejected} /> : null}
             {subjects.data && active.length === 0 ? <Notice inline tone="warning" message={user?.role === "admin" ? "There is no active subject yet. Create one under Subjects first." : "You have no active subject. Ask your administrator to assign one."} /> : null}
             <Dropdown label="Subject *" value={subjectId} onChange={setSubjectId} placeholder="Choose a subject" width="100%" options={active.map((s) => ({ value: s.id, label: `${s.code} · ${s.name}` }))} />

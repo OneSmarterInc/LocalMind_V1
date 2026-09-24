@@ -1,7 +1,7 @@
 import { enterHandler } from "./enterKey";
 import { keyboardList } from "./keyboardList";
 import { PageMessagesProvider, showToast, usePageMessages, useTimedMessage } from "./Toast";
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import React from "react";
 import {
   ActivityIndicator, Keyboard, Modal, Platform, Pressable, PressableStateCallbackType, RefreshControl, ScrollView, StyleProp, StyleSheet, Text,

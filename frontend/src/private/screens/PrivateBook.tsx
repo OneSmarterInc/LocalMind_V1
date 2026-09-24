@@ -1,4 +1,4 @@
-import {Ionicons} from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import {LocalLessonView} from '../LocalLessonView';
 import { useBackTo } from "@/hooks/useBackTo";
 import {generationJobs,DOUBTS_PAUSED_MESSAGE} from '../jobs';

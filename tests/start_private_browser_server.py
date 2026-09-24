@@ -18,6 +18,8 @@ with tempfile.TemporaryDirectory(prefix='localmind-browser-') as folder:
         DATABASE_URL=f'sqlite:///{work / "db.sqlite3"}',WEB_DIST=str(web),
         AI_ENABLED='false',AI_MONITOR_MODE='off',DURABLE_JOBS='false',
         AUTO_GENERATE_LESSONS='false',AUTO_GENERATE_QUIZZES='false',API_DOCS_ENABLED='false')
+    if os.environ.get('LM_BROWSER_ALLOWED_HOSTS'):
+        os.environ['DJANGO_ALLOWED_HOSTS']=os.environ['LM_BROWSER_ALLOWED_HOSTS']
     sys.path.insert(0,str(ROOT/'backend'))
     import django
     django.setup()
@@ -127,4 +129,6 @@ with tempfile.TemporaryDirectory(prefix='localmind-browser-') as folder:
     bitmap.close();page.close();original.close()
     (results/'fixture.json').write_text(json.dumps({'readinessDocument':str(readiness_doc.id),'autoModule':str(auto_module.pk),'quizImmediate':str(immediate.pk),'quizHeld':str(held.pk),'module':str(module.id),'document':str(doc.id),'subject':str(subject.id),'source':source,'password':password}))
     # runserver stays in this process so temporary storage settings are retained.
-    call_command('runserver','127.0.0.1:8765',use_reloader=False,verbosity=0)
+    # LM_BROWSER_BIND lets a spec reach the server by a LAN address, i.e. a plain-http
+    # origin that browsers do not treat as secure (no service worker there).
+    call_command('runserver',os.environ.get('LM_BROWSER_BIND','127.0.0.1:8765'),use_reloader=False,verbosity=0)

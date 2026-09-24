@@ -1,4 +1,4 @@
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import React, { useMemo, useState } from "react";
 import { Modal, Pressable, ScrollView, TouchableWithoutFeedback, View, useWindowDimensions } from "react-native";
 import { useDebounced } from "@/hooks/useDebounced";

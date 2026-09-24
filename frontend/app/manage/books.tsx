@@ -8,6 +8,7 @@ import type { Document } from "@/api/types";
 import { useFilterChoices } from "@/hooks/useChoices";
 import { useAction, useAsync } from "@/hooks/useAsync";
 import { Badge, Button, Card, CellText, Column, Dropdown, Empty, ErrorBanner, Input, Loading, PageHeading, Screen, Table, TableToolbar, fmtDay, RequestFailed, confirmAsync, confirmDeleteAsync } from "@/ui";
+import { everyVisible } from "@/hooks/visibleInterval";
 
 export default function Books() {
   const router = useRouter();
@@ -38,7 +39,7 @@ export default function Books() {
     await unarchiveBook(d.id, user.id); await q.reload();
   });
   const busy = q.data?.some((d) => d.status === "processing" || d.status === "uploaded" || ["pending", "retry", "running"].includes(d.background_job?.status || "")) ?? false;
-  useEffect(() => { if (!busy) return; const t = setInterval(q.reload, 4000); return () => clearInterval(t); }, [busy, q.reload]);
+  useEffect(() => { if (!busy) return; return everyVisible(q.reload, 4000); }, [busy, q.reload]);
   const subjectOf = (d: Document) => subjects.data?.find((s) => s.id === d.subject_id);
   const facultyNames = useMemo(() => [...new Set((subjects.data ?? []).flatMap((s) => s.faculty_names ?? []))].sort(), [subjects.data]);
   const code = (d: Document) => d.subject_code ?? subjects.data?.find((s) => s.id === d.subject_id)?.code ?? "";

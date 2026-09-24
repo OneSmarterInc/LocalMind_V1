@@ -7,6 +7,7 @@ import { student } from "@/api/endpoints";
 import type { DetailedResult } from "@/api/types";
 import { useAction, useAsync } from "@/hooks/useAsync";
 import { Badge, Button, Card, CardHead, DetailList, Empty, ErrorBanner, Loading, Notice, PageHeading, ScoreRing, Screen, Split, TextLink, TileIcon, colors, fmtDate, fmtSeconds, pct } from "@/ui";
+import { everyVisible } from "@/hooks/visibleInterval";
 
 
 export default function StudentAttempt() {
@@ -17,7 +18,7 @@ export default function StudentAttempt() {
   const retrySync = useAction(async () => { await retryCourseEvent(id); await q.reload(); });
   const quizzes = useAsync(() => student.quizzes(), []);
   const a = q.data;
-  useEffect(() => { if (a?.status !== "submitted" && a?.status !== "pending_evaluation") return; const t=setInterval(q.reload,5000); return()=>clearInterval(t); },[a?.status,q.reload]);
+  useEffect(() => { if (a?.status !== "submitted" && a?.status !== "pending_evaluation") return; return everyVisible(q.reload,5000); },[a?.status,q.reload]);
   const quiz = a ? quizzes.data?.find((x) => x.id === a.assessment_id) : undefined;
   const held = !!a && (a as unknown as { results_released?: boolean }).results_released === false;
   const correct = a?.detailed_results?.filter((r) => r.is_correct === true).length ?? 0;

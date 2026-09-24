@@ -1,4 +1,4 @@
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
 import { Pressable, Text, View } from "react-native";
@@ -6,6 +6,7 @@ import { useAuth } from "@/auth/AuthContext";
 import { useAction } from "@/hooks/useAsync";
 import { Button, Card, CardHead, ErrorBanner, Eyebrow, FormFooter, Input, TextLink, colors, useToast } from "@/ui";
 import { AuthLayout } from "@/ui/AuthLayout";
+import { homeFor } from "@/auth/home";
 
 export default function ChangePassword() {
   const { completePasswordChange, logout, mustChangePassword, user } = useAuth();
@@ -23,7 +24,8 @@ export default function ChangePassword() {
     </Pressable>
   );
   const mismatch = !!confirm && next !== confirm;
-  const home = user?.role === "student" ? "/student" : user?.role === "faculty" ? "/manage" : "/admin";
+  // An unrecognised role goes to the root route, which explains the problem instead of looping.
+  const home = homeFor(user?.role) ?? "/";
   const action = useAction(async () => {
     if (next !== confirm) throw new Error("The two new passwords do not match.");
     await completePasswordChange(current, next);

@@ -10,6 +10,7 @@ import {jobScope,useGenerationJobs} from '@/private/useGenerationJobs';
 import {useTask} from '@/private/useTask';
 import {Screen,PageHeading,Card,CardHead,P,Button,Row,Divider,ErrorBanner,Badge,Notice,Loading,Empty,ProgressBar,TextLink,colors,fmtDate} from '@/ui';
 import {SyncAllButton} from '@/authoring/SyncAllButton';
+import { everyVisible } from "@/hooks/visibleInterval";
 
 /** Draft, pending, synced and conflict each mean something different to the
  *  person reading the list, and all four used to arrive in the same grey. */
@@ -23,7 +24,7 @@ function Drafts({owner}:{owner:string}){
  const [rows,setRows]=useState<QuizDraft[]>([]),[loaded,setLoaded]=useState(false),[ready,setReady]=useState(false),[error,setError]=useState('');
  const [open,setOpen]=useState<Record<string,boolean>>({});
  const jobs=useGenerationJobs(library?.prefix||'');
- useEffect(()=>{let live=true;const read=async()=>{try{const [rows,status]=await Promise.all([service.list(),device().then(d=>d.status())]);if(live){setRows(rows);setReady(status.installed);setLoaded(true);}}catch(e){if(live)setError(String(e));}};void read();const timer=setInterval(read,1000);return()=>{live=false;clearInterval(timer);};},[service]);
+ useEffect(()=>{let live=true;const read=async()=>{try{const [rows,status]=await Promise.all([service.list(),device().then(d=>d.status())]);if(live){setRows(rows);setReady(status.installed);setLoaded(true);}}catch(e){if(live)setError(String(e));}};void read();const stop=everyVisible(read,1000);return()=>{live=false;stop();};},[service]);
  const generate=(row:QuizDraft)=>{try{generationJobs.enqueue({scope:jobScope(library!.prefix),bookId:row.id,documentIds:row.sources.map(s=>s.document_id),sectionId:row.id,kind:'staff-quiz-selection',label:row.title},(signal,progress)=>service.generate(row.id,signal,progress));}catch(e){setError(String(e));}};
  const shown=rows.filter(row=>!id||row.id===id);
  return <Screen><PageHeading title="Quiz drafts" subtitle="Questions save automatically. Review before sharing and publishing." right={<Button title="Create quiz" icon="add" onPress={()=>router.push('/manage/quiz/new')}/>}/><ErrorBanner message={error||task.error}/>

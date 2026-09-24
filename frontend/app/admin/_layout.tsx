@@ -1,5 +1,5 @@
 import { portalRouter } from "@/hooks/portalRouter";
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { PortalTabs as Tabs } from "@/ui/PortalTabs";
 import React from "react";
 import { PortalMeta, shellScreen, useShell } from "@/ui/Shell";
