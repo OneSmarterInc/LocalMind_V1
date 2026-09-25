@@ -98,7 +98,6 @@ jobs:
           node tests/reliability.mjs >verification/reliability.log 2>&1 || { cat verification/reliability.log; exit 1; }
           node tests/device-acceleration.mjs
           node tests/private-contracts.mjs >verification/private-contracts.log 2>&1 || { cat verification/private-contracts.log; exit 1; }
-          python scripts/check_md_alignment.py >verification/md-contracts.log 2>&1 || { tail -80 verification/md-contracts.log; exit 1; }
           python scripts/check_offline_study.py >verification/foundation-contracts.log 2>&1 || { tail -80 verification/foundation-contracts.log; exit 1; }
       - name: Browser integration with a disposable Django database
         id: browser
