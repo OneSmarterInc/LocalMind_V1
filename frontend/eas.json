@@ -4,13 +4,13 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "env": { "EXPO_PUBLIC_API_URL": "http://192.168.1.20:8000" }
+      "env": { "EXPO_PUBLIC_API_URL": "https://localmind.taild0af72.ts.net" }
     },
     "preview": {
       "distribution": "internal",
       "android": { "buildType": "apk" },
       "ios": { "simulator": false },
-      "env": { "EXPO_PUBLIC_API_URL": "http://192.168.1.20:8000" }
+      "env": { "EXPO_PUBLIC_API_URL": "https://localmind.taild0af72.ts.net" }
     },
     "production": {
       "autoIncrement": true,
