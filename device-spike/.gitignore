@@ -1,8 +1,0 @@
-node_modules/
-.expo/
-android/
-ios/
-*.gguf
-*.sqlite*
-*.jsonl
-reports/

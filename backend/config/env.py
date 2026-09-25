@@ -19,7 +19,7 @@ def _load_dotenv(path: Path) -> None:
 
 
 def _clean_value(raw: str) -> str:
-    """``KEY=value   # note`` is how SETUP_README shows settings, and a pasted
+    """``KEY=value   # note`` is how the README shows settings, and a pasted
     line used to keep the comment as part of the value (so
     ``AI_MONITOR_ENABLED=true  # master switch`` read as false). A ``#`` after
     whitespace starts a comment unless the value is quoted."""

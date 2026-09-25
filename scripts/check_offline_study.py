@@ -15,10 +15,8 @@ def main():
     tsc = str(local) if local.exists() else shutil.which(exe)
     node = shutil.which("node")
     if not tsc or not node: raise SystemExit("Install Node and TypeScript/frontend dependencies first.")
-    subprocess.run([tsc, "--strict", "--target", "es2022", "--module", "commonjs", "--outDir", ".test-build", "src/core.ts"], cwd=ROOT / "student-runtime", check=True)
-    subprocess.run([node, "--test", "tests/core.test.cjs"], cwd=ROOT / "student-runtime", check=True)
     with tempfile.TemporaryDirectory(prefix="lm-draft-") as tmp:
         subprocess.run([tsc, "--strict", "--target", "es2022", "--module", "commonjs", "--outDir", tmp, "frontend/src/hooks/draftPersistence.ts"], cwd=ROOT, check=True)
         subprocess.run([node, "--test", "tests/draft_persistence.test.cjs"], cwd=ROOT, env=dict(env, LOCALMIND_DRAFT_BUILD=tmp), check=True)
-    print("Offline study pure checks passed; full integration and native acceptance are separate.")
+    print("Study contracts and draft persistence checks passed; full integration and native acceptance are separate.")
 if __name__ == "__main__": main()

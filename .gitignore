@@ -39,3 +39,10 @@ frontend/test-results/
 frontend/playwright-report/
 
 frontend/scripts/generated-ocr.mjs
+
+# Launcher build outputs and CI evidence
+launcher/build/
+launcher/dist/
+launcher/*.zip
+verification/
+.test-build/
