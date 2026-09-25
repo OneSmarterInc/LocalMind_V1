@@ -85,10 +85,12 @@
     },
     "extra": {
       "apiUrl": "http://127.0.0.1:8000",
+      "router": {},
       "eas": {
-        "projectId": "<run: eas init>"
+        "projectId": "e5015405-bc24-4a01-904f-2b59e727f797"
       }
     },
-    "backgroundColor": "#F5F7F4"
+    "backgroundColor": "#F5F7F4",
+    "owner": "internshiponesmarter"
   }
 }
