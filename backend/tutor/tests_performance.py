@@ -72,6 +72,8 @@ class RetrievalTests(TestCase):
         self.assertEqual(full_count, DocumentChunk.objects.filter(module=self.module).count())
 
 
+# Legacy server-generation compatibility coverage.
+@override_settings(DEVICE_AUTHORING_ONLY=False)
 class TutorPromptTests(TestCase):
     def setUp(self):
         self.faculty = make_faculty()

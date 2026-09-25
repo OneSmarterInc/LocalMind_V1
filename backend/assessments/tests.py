@@ -1,7 +1,7 @@
 from datetime import timedelta
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from ai.gateway import AIResult
@@ -46,6 +46,8 @@ class Base(TestCase):
         return (client or self.sc).post(f"/api/student/quiz-attempts/{attempt_id}/submit/", {"submitted_answers": answers}, format="json")
 
 
+# Legacy server-generation compatibility coverage.
+@override_settings(DEVICE_AUTHORING_ONLY=False)
 class AuthoringTests(Base):
     def test_manual_creation_validates_questions(self):
         bad = self.fc.post("/api/faculty/quizzes/", {"module_id": str(self.module.id), "questions": [{"type": "mcq", "question": "x", "options": [], "correct_answer": "Z"}]}, format="json")
@@ -122,16 +124,18 @@ class AttemptTests(Base):
         self.assertEqual(self.sc.get("/api/student/quizzes/").data, [])
         self.assertEqual(self.start(quiz).status_code, 404)
 
-    def test_publishing_a_quiz_opens_its_locked_module(self):
+    def test_publishing_a_quiz_on_a_locked_module_is_refused(self):
         self.module.availability = "locked"
         self.module.save()
         draft = self.manual_quiz(publish=False)
-        self.assertEqual(self.sc.get("/api/student/quizzes/").data, [])
         res = self.fc.post(f"/api/faculty/quizzes/{draft.id}/status/", {"status": "published"}, format="json")
-        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.status_code, 409, res.content)
+        self.assertEqual(res.data["error"]["code"], "MODULE_LOCKED_FOR_QUIZ")
         self.module.refresh_from_db()
-        self.assertEqual(self.module.availability, "open")
-        self.assertEqual([q["id"] for q in self.sc.get("/api/student/quizzes/").data], [str(draft.id)])
+        draft.refresh_from_db()
+        self.assertEqual(self.module.availability, "locked")
+        self.assertEqual(draft.status, "draft")
+        self.assertFalse(AuditLog.objects.filter(action="module.opened_on_publish").exists())
 
     def test_start_hides_answers_and_submit_scores_deterministically(self):
         quiz = self.manual_quiz()
@@ -257,6 +261,7 @@ class GenerationRulesTests(TestCase):
         with self.assertRaises(QuizGenerationFailed):
             generate_questions([module], num_mcqs=1, previous_questions=[{"question": "What is a process?"}])
 
+    @override_settings(DEVICE_AUTHORING_ONLY=False)
     @patch("assessments.services.evaluation.gateway")
     def test_evaluator_marks_incorrect_when_model_lists_missing_points(self, gw):
         from assessments.services.evaluation import evaluate_subjective
@@ -501,6 +506,7 @@ class HeldResultsDoNotLeakTests(ResultsReleaseTests):
         self.assertEqual(progress["best_quiz_percentage"], 0.0)
         self.assertEqual(progress["quiz_attempts"], 1)
 
+    @override_settings(DEVICE_AUTHORING_ONLY=False)
     def test_remediation_refused_while_held_and_allowed_after_release(self):
         quiz = self.manual_quiz(results_release="held")
         attempt_id = self._wrong_attempt(quiz)
@@ -520,6 +526,8 @@ class HeldResultsDoNotLeakTests(ResultsReleaseTests):
         self.assertEqual(progress.quiz_attempts, 1)
 
 
+# Legacy server-generation compatibility coverage.
+@override_settings(DEVICE_AUTHORING_ONLY=False)
 class RemediationSourceTests(Base):
     def test_remediation_on_a_selection_spanning_chapters(self):
         from learning.models import Chapter

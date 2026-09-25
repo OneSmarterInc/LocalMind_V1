@@ -528,9 +528,31 @@ class ClientAddressTests(TestCase):
             self.assertEqual(client_ip(self._request("6.6.6.6, 198.51.100.7")), "198.51.100.7")
             self.assertEqual(client_ip(self._request("garbage")), "192.0.2.10")
 
-    def test_default_setting_does_not_trust_forwarded_for(self):
-        from django.conf import settings
-        self.assertEqual(settings.REST_FRAMEWORK["NUM_PROXIES"], 0)
+    def test_nothing_is_trusted_when_the_environment_says_nothing(self):
+        """The safe default is to ignore X-Forwarded-For entirely.
+
+        This used to read the resolved setting, so it failed on any machine
+        whose .env set TRUSTED_PROXY_COUNT - which is the correct value to set
+        when something like a Tailscale or nginx front end really is in front.
+        Test the default the code falls back to, not the developer's
+        environment.
+        """
+        import os
+        from unittest.mock import patch as patch_env
+        from config.env import env_int
+        with patch_env.dict(os.environ, {}, clear=False):
+            os.environ.pop("TRUSTED_PROXY_COUNT", None)
+            self.assertEqual(env_int("TRUSTED_PROXY_COUNT", 0), 0)
+
+    def test_a_configured_proxy_count_is_honoured(self):
+        """One proxy in front is a real deployment, not a misconfiguration."""
+        import os
+        from unittest.mock import patch as patch_env
+        from config.env import env_int
+        with patch_env.dict(os.environ, {"TRUSTED_PROXY_COUNT": "1"}):
+            self.assertEqual(env_int("TRUSTED_PROXY_COUNT", 0), 1)
+        with patch_env.dict(os.environ, {"TRUSTED_PROXY_COUNT": "not-a-number"}):
+            self.assertEqual(env_int("TRUSTED_PROXY_COUNT", 0), 0)
 
 
 class PasswordChangeRevokesOtherSessionsTests(TestCase):
@@ -583,3 +605,95 @@ class ResetOnboardingPasswordsCommandTests(TestCase):
         self.assertEqual(login(client_for(), "student", chosen.email, STRONG).status_code, 200)
         self.assertEqual(login(client_for(), "student", on_shared.email, INITIAL).status_code, 200)
         self.assertTrue(AuditLog.objects.filter(action="user.password_reset_to_shared", target_id=str(stuck.id)).exists())
+
+
+class EditOwnProfileTests(TestCase):
+    """A person may correct their own name and phone number. Everything the
+    institution issues stays with the administrator."""
+
+    def test_a_student_changes_their_own_name_and_phone(self):
+        student = make_student()
+        client = client_for(student)
+        res = client.patch("/api/auth/me/", {"full_name": "  Sanika Deshmukh  ", "profile": {"phone": "+91 98765 43210"}}, format="json")
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.data["full_name"], "Sanika Deshmukh")
+        self.assertEqual(res.data["profile"]["phone"], "+91 98765 43210")
+        student.refresh_from_db()
+        self.assertEqual(student.full_name, "Sanika Deshmukh")
+        self.assertEqual(student.student_profile.phone, "+91 98765 43210")
+        self.assertTrue(AuditLog.objects.filter(action="user.profile_updated", target_id=str(student.id)).exists())
+
+    def test_a_faculty_member_changes_their_own_phone(self):
+        faculty = make_faculty()
+        res = client_for(faculty).patch("/api/auth/me/", {"profile": {"phone": "0123456789"}}, format="json")
+        self.assertEqual(res.status_code, 200, res.content)
+        faculty.refresh_from_db()
+        self.assertEqual(faculty.faculty_profile.phone, "0123456789")
+
+    def test_institutional_identity_is_refused(self):
+        """A student editing their own roll number would break enrollment and
+        result reporting, so the server refuses rather than ignoring it."""
+        student = make_student()
+        before = student.student_profile.roll_number
+        res = client_for(student).patch("/api/auth/me/", {"profile": {"roll_number": "99999"}}, format="json")
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertEqual(res.data["error"]["code"], "NOT_SELF_EDITABLE")
+        student.refresh_from_db()
+        self.assertEqual(student.student_profile.roll_number, before)
+
+    def test_an_empty_name_is_refused(self):
+        student = make_student()
+        res = client_for(student).patch("/api/auth/me/", {"full_name": "   "}, format="json")
+        self.assertEqual(res.status_code, 400, res.content)
+        student.refresh_from_db()
+        self.assertNotEqual(student.full_name, "")
+
+    def test_an_admin_changes_their_name_and_has_no_profile_fields(self):
+        admin = make_admin()
+        res = client_for(admin).patch("/api/auth/me/", {"full_name": "Anshuman R"}, format="json")
+        self.assertEqual(res.status_code, 200, res.content)
+        admin.refresh_from_db()
+        self.assertEqual(admin.full_name, "Anshuman R")
+        refused = client_for(admin).patch("/api/auth/me/", {"profile": {"phone": "1"}}, format="json")
+        self.assertEqual(refused.status_code, 400, refused.content)
+
+    def test_signed_out_callers_cannot_edit(self):
+        res = client_for().patch("/api/auth/me/", {"full_name": "Nobody"}, format="json")
+        self.assertIn(res.status_code, (401, 403))
+
+
+class PhoneNumberTests(TestCase):
+    """Loose on purpose. A strict national format would refuse correct numbers
+    from wherever the institution is; what this catches is a typo or the wrong
+    field pasted in."""
+
+    def test_usable_numbers_are_accepted_in_several_shapes(self):
+        student = client_for(make_student())
+        for number in ["+91 98765 43210", "9876543210", "(937) 555-0142", "+1-937-555-0142", ""]:
+            res = student.patch("/api/auth/me/", {"profile": {"phone": number}}, format="json")
+            self.assertEqual(res.status_code, 200, f"{number!r}: {res.content}")
+
+    def test_typos_are_refused_with_a_reason(self):
+        student = client_for(make_student())
+        for number, expected in [("call me", "digits"), ("12345", "needs 10"), ("98765432101", "is 10"),
+                                 ("98765+43210", "country code")]:
+            res = student.patch("/api/auth/me/", {"profile": {"phone": number}}, format="json")
+            self.assertEqual(res.status_code, 400, f"{number!r} should be refused")
+            self.assertIn(expected, str(res.data).lower() if expected == "digits" else str(res.data))
+
+    def test_the_country_code_does_not_count_toward_the_ten(self):
+        """+91 98765 43210 is thirteen digits and a correct ten-digit number."""
+        student = client_for(make_student())
+        for number in ["+91 98765 43210", "+1 937 555 0142", "9876543210"]:
+            res = student.patch("/api/auth/me/", {"profile": {"phone": number}}, format="json")
+            self.assertEqual(res.status_code, 200, f"{number!r}: {res.content}")
+        short = student.patch("/api/auth/me/", {"profile": {"phone": "+91 98765"}}, format="json")
+        self.assertEqual(short.status_code, 400, short.content)
+
+    def test_an_administrator_cannot_save_a_broken_number_either(self):
+        admin = client_for(make_admin())
+        student = make_student()
+        res = admin.patch(f"/api/admin/students/{student.id}/", {"profile": {"phone": "not a number"}}, format="json")
+        self.assertEqual(res.status_code, 400, res.content)
+        student.refresh_from_db()
+        self.assertEqual(student.student_profile.phone, "")

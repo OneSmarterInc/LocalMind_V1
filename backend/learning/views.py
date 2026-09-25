@@ -16,6 +16,7 @@ def _module_payload(module, progress, include_source):
         "availability": module.availability, "start_page": module.start_page, "end_page": module.end_page,
         "progress": {
             "status": progress.status if progress else ProgressStatus.NOT_STARTED,
+            "lesson_viewed_at": progress.lesson_viewed_at if progress else None,
             "started_at": progress.started_at if progress else None,
             "completed_at": progress.completed_at if progress else None,
             "best_quiz_percentage": progress.best_quiz_percentage if progress else None,
@@ -24,6 +25,8 @@ def _module_payload(module, progress, include_source):
     }
     if include_source:
         data["source_text"] = module.source_text
+        from documents.services.visual_delivery import module_visuals
+        data["source_visuals"] = module_visuals(module)
     return data
 
 
@@ -85,10 +88,24 @@ class StudentModuleView(APIView):
         payload["document_id"] = str(module.chapter.document_id)
         payload["document_title"] = module.chapter.document.title
         # Position in the book ("Module 4 of 6") and who teaches it, for the module page.
-        ordered = list(Module.objects.filter(chapter__document_id=module.chapter.document_id, source_missing=False)
-                       .order_by("chapter__order", "order").values_list("id", flat=True))
+        ordered_rows = list(Module.objects.filter(chapter__document_id=module.chapter.document_id, source_missing=False)
+                            .order_by("chapter__order", "order").values_list("id", "title", "availability"))
+        ordered = [row[0] for row in ordered_rows]
         payload["module_number"] = ordered.index(module.id) + 1 if module.id in ordered else None
         payload["module_count"] = len(ordered)
+        # Neighbours for the reader's Previous/Next controls. The student page
+        # had no way to move between modules at all: you went back to the book
+        # and found the next one by eye. Availability travels with each
+        # neighbour so the button can explain a locked module instead of
+        # navigating into a MODULE_LOCKED error page.
+        here = ordered.index(module.id) if module.id in ordered else None
+        def _neighbour(index):
+            if here is None or index < 0 or index >= len(ordered_rows):
+                return None
+            nid, title, availability = ordered_rows[index]
+            return {"id": str(nid), "title": title, "availability": availability, "number": index + 1}
+        payload["previous_module"] = _neighbour(here - 1) if here is not None else None
+        payload["next_module"] = _neighbour(here + 1) if here is not None else None
         from academics.views import subject_faculty_names
         payload["faculty_names"] = subject_faculty_names([module.chapter.document.subject_id]).get(module.chapter.document.subject_id, [])
         return Response(payload)

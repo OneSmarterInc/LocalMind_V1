@@ -1,4 +1,4 @@
-import { useRouter } from "expo-router";
+import { useBackTo } from "@/hooks/useBackTo";
 import React, { useState } from "react";
 import { Text, View } from "react-native";
 import { admin } from "@/api/endpoints";
@@ -14,9 +14,10 @@ const NAMES: Record<string, string> = { backend: "Backend", database: "Database"
 const ICONS: Record<string, IconName> = { backend: "server-outline", database: "albums-outline", storage: "folder-outline", ai_runtime: "sparkles-outline", ai_model: "hardware-chip-outline", document_processing: "document-text-outline", web_client: "globe-outline", ai_monitor: "shield-checkmark-outline", offline_mode: "cloud-offline-outline" };
 
 export default function SystemReadiness() {
-  const router = useRouter();
-  const q = useAsync(() => admin.aiStatus(), []);
-  const refresh = useAction(async () => { q.setData(await admin.aiStatus(true)); });
+  const back = useBackTo();
+  const [checkedAt, setCheckedAt] = useState<string | null>(null);
+  const q = useAsync(async () => { const status = await admin.aiStatus(); setCheckedAt(new Date().toISOString()); return status; }, []);
+  const refresh = useAction(async () => { q.setData(await admin.aiStatus(true)); setCheckedAt(new Date().toISOString()); });
   const [showAll, setShowAll] = useState(false);
   const d = q.data;
   const components = d?.system?.components ?? [];
@@ -41,14 +42,13 @@ export default function SystemReadiness() {
     { key: "s", label: "State", flex: 0.8, render: (c) => <Badge value={WORD[c.status] ?? c.status} tone={TONE[c.status] ?? "neutral"} /> },
     { key: "d", label: "Details", flex: 2.2, render: (c) => <Text style={{ fontSize: 12, color: colors.text }} numberOfLines={3}>{c.summary}</Text> },
   ];
-  const checkedAt = new Date().toISOString();
   const refreshButton = <Button title={aiDown && !showAll ? "Check again" : "Refresh status"} icon="refresh" onPress={() => refresh.run()} busy={refresh.busy} />;
 
   if (d && aiDown && !showAll) {
     const runtime = d.runtime || d.provider;
     return (
       <Screen refreshing={q.loading} onRefresh={q.reload}>
-        <PageHeading eyebrow="SYSTEM READINESS · ERROR" title="The AI model needs attention." subtitle="Reading remains available. New AI generation cannot run yet." right={refreshButton} />
+        <PageHeading eyebrow="SYSTEM READINESS · ERROR" title="The AI model needs attention." subtitle="Server AI generation needs attention. Saved content and a configured device model remain available." right={refreshButton} />
         <ErrorBanner message={q.error ?? refresh.error} onRetry={q.reload} />
         <Notice tone="danger" title={modelProblem?.status === "MISSING" ? "Model file not found." : "The AI model is not ready."} message={modelProblem?.summary || d.error || "The configured model could not be loaded."} />
         <Card>
@@ -62,7 +62,7 @@ export default function SystemReadiness() {
           <Text style={{ fontSize: 11, color: colors.muted }}>The first model download needs internet access. Afterwards the platform runs offline.</Text>
           <View style={{ flexDirection: "row", gap: 9, flexWrap: "wrap" }}>
             <Button title="View all components" variant="secondary" icon="list-outline" onPress={() => setShowAll(true)} />
-            <Button title="Back to overview" variant="ghost" onPress={() => router.push("/admin")} />
+            <Button title="Back to overview" variant="ghost" onPress={() => back("/admin")} />
           </View>
         </Card>
       </Screen>
@@ -73,8 +73,8 @@ export default function SystemReadiness() {
     <Screen refreshing={q.loading} onRefresh={q.reload}>
       <PageHeading eyebrow="PLATFORM HEALTH" title="System readiness" subtitle="See the exact component that needs attention, without guessing." right={refreshButton} />
       <ErrorBanner message={q.error ?? refresh.error} onRetry={q.reload} />
-      {d && !problems.length ? <Notice tone="success" title="All components are ready." message="Every checked component responded normally." /> : null}
-      {d && problems.length ? <Notice tone="warning" title={`${problems.length} component${problems.length === 1 ? " needs" : "s need"} attention.`} message="The details below come from the server and name the exact reason and how to fix it." /> : null}
+      {d && !problems.length ? <Notice inline tone="success" title="All components are ready." message="Every checked component responded normally." /> : null}
+      {d && problems.length ? <Notice inline tone="warning" title={`${problems.length} component${problems.length === 1 ? " needs" : "s need"} attention.`} message="The details below come from the server and name the exact reason and how to fix it." /> : null}
       {q.loading && !d ? <Loading /> : null}
       {d ? (
         <>
@@ -93,7 +93,7 @@ export default function SystemReadiness() {
             </Card>
             <Card>
               <CardHead title="Offline does not mean the same thing everywhere" />
-              <Text style={{ fontSize: 12, lineHeight: 20, color: colors.text }}>The full platform can run on a reachable local server. If a student’s device loses access to that server, only previously saved reading content remains available.</Text>
+              <Text style={{ fontSize: 12, lineHeight: 20, color: colors.text }}>The full platform can run on a reachable local server. If a student’s device loses access to that server, saved content, local practice, and generation with a configured device model remain available. Server actions resume when the connection returns.</Text>
             </Card>
           </Grid>
         </>

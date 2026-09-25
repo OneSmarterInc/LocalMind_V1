@@ -1,5 +1,6 @@
-import { Ionicons } from "@expo/vector-icons";
-import { Tabs } from "expo-router";
+import { portalRouter } from "@/hooks/portalRouter";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { PortalTabs as Tabs } from "@/ui/PortalTabs";
 import React from "react";
 import { OfflineNoticeContext } from "@/offline/OfflineBanner";
 import { PortalMeta, shellScreen, useShell } from "@/ui/Shell";
@@ -13,14 +14,17 @@ const icon = (name: keyof typeof Ionicons.glyphMap) => {
 const STUDENT_META: PortalMeta = {
   name: "Student workspace",
   navLabel: "MY LEARNING",
+  homePath: "/student",
   profilePath: "/student/profile",
   finder: [
+    { title: "Private library", section: "Your books and local AI", path: "/student/private-library" },
+    { title: "Generation jobs", section: "Background progress", path: "/student/generation-jobs" },
+    { title: "Offline AI", section: "Download or import a local model", path: "/student/offline-ai" },
     { title: "Overview", section: "Your next steps", path: "/student" },
     { title: "My subjects", section: "Books and modules", path: "/student/subjects" },
     { title: "My quizzes", section: "Quizzes and results", path: "/student/quizzes" },
-    { title: "My assignments", section: "Assignments and feedback", path: "/student/assignments" },
     { title: "My progress", section: "Scores and learning time", path: "/student/progress" },
-    { title: "Offline reading library", section: "Saved on this device", path: "/student/offline" },
+    { title: "Course sync", section: "Downloads and pending course work", path: "/student/offline" },
     { title: "My profile", section: "Account", path: "/student/profile" },
     { title: "Change password", section: "Account", path: "/change-password" },
   ],
@@ -35,20 +39,22 @@ export default function StudentLayout() {
   const shell = useShell(STUDENT_META);
   return (
     <OfflineNoticeContext.Provider value>
-      <Tabs screenOptions={shell.screenOptions} tabBar={shell.tabBar}>
+      <Tabs backBehavior="fullHistory" UNSTABLE_router={portalRouter} screenOptions={shell.screenOptions} tabBar={shell.tabBar}>
         <Tabs.Screen name="index" options={{ title: "Overview", tabBarIcon: icon("home-outline") }} />
         <Tabs.Screen name="subjects" options={{ title: "My subjects", tabBarIcon: icon("library-outline") }} />
         <Tabs.Screen name="quizzes" options={{ title: "Quizzes", tabBarIcon: icon("help-circle-outline") }} />
-        <Tabs.Screen name="assignments" options={{ title: "Assignments", tabBarIcon: icon("create-outline") }} />
         <Tabs.Screen name="progress" options={{ title: "My progress", tabBarIcon: icon("stats-chart-outline") }} />
+        <Tabs.Screen name="offline" options={{ title: "Course sync", tabBarIcon: icon("sync-outline") }} />
+        <Tabs.Screen name="private-library" options={{ title: "Private library", tabBarIcon: icon("book-outline") }} />
+        <Tabs.Screen name="generation-jobs" options={{ title: "Generation jobs", tabBarIcon: icon("time-outline") }} />
+        <Tabs.Screen name="offline-ai" options={{ title: "Offline AI", tabBarIcon: icon("hardware-chip-outline") }} />
         <Tabs.Screen name="profile" options={{ title: "My profile", tabBarIcon: icon("person-circle-outline") }} />
-        <Tabs.Screen name="offline" options={shellScreen({ href: null, title: "Offline reading library" }, { backTo: "/student", backLabel: "Overview" })} />
+        <Tabs.Screen name="private-book/[id]" options={shellScreen({ href: null, title: "Private book" }, { backTo: "/student/private-library", backLabel: "Private library" })} />
         <Tabs.Screen name="subject/[id]" options={shellScreen({ href: null, title: "Subject" }, { backTo: "/student/subjects", backLabel: "My subjects" })} />
         <Tabs.Screen name="document/[id]" options={shellScreen({ href: null, title: "Book" }, { backTo: "/student/subjects", backLabel: "My subjects" })} />
         <Tabs.Screen name="module/[id]" options={shellScreen({ href: null, title: "Module" }, { backTo: "/student/subjects", backLabel: "My subjects" })} />
         <Tabs.Screen name="quiz/[id]" options={shellScreen({ href: null, title: "Quiz" }, { backTo: "/student/quizzes", backLabel: "Quizzes" })} />
         <Tabs.Screen name="attempt/[id]" options={shellScreen({ href: null, title: "Quiz result" }, { backTo: "/student/quizzes", backLabel: "Quizzes" })} />
-        <Tabs.Screen name="assignment/[id]" options={shellScreen({ href: null, title: "Assignment" }, { backTo: "/student/assignments", backLabel: "Assignments" })} />
       </Tabs>
     </OfflineNoticeContext.Provider>
   );

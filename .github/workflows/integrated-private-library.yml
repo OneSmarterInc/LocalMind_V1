@@ -1,0 +1,139 @@
+name: Integrated private library
+on:
+  push:
+    branches: [feature/integrated-private-library]
+  pull_request:
+    branches: [main, feature/integrated-private-library]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: integrated-private-library-${{ github.ref }}
+  cancel-in-progress: true
+defaults:
+  run:
+    shell: bash
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      AI_ENABLED: 'false'
+      AI_MONITOR_MODE: sync
+      API_DOCS_ENABLED: 'true'
+      DURABLE_JOBS: 'false'
+      DJANGO_SECRET_KEY: private-library-ci-not-for-deployment
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Record the exact source under test
+        run: |
+          mkdir -p verification
+          git rev-parse HEAD | tee verification/tested-commit.txt
+          # Evidence contains only tracked source; no generated DB, model or credentials.
+          git archive --format=tar.gz -o "$RUNNER_TEMP/localmind-tested-source.tar.gz" HEAD
+      - name: Save source provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: private-library-tested-source
+          path: ${{ runner.temp }}/localmind-tested-source.tar.gz
+          retention-days: 7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install backend test dependencies
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          lines=Path('backend/requirements.txt').read_text().splitlines()
+          keep=[s for s in lines if s.strip() and not s.lstrip().startswith('#') and not s.startswith(('docling','llama-cpp-python'))]
+          Path('/tmp/private-requirements.txt').write_text('\n'.join(keep)+'\n')
+          PY
+          python -m pip install -q -r /tmp/private-requirements.txt -r backend/requirements-dev.txt >verification/backend-install.log 2>&1 || { tail -60 verification/backend-install.log; exit 1; }
+      - name: Check database migrations
+        id: migrations
+        continue-on-error: true
+        run: cd backend && python manage.py makemigrations --check --dry-run >../verification/migrations.log 2>&1 || { tail -60 ../verification/migrations.log; exit 1; }
+      - name: Full Django test suite
+        id: django
+        continue-on-error: true
+        run: |
+          cd backend
+          python manage.py test --verbosity=2 >../verification/django.log 2>&1 || { tail -100 ../verification/django.log; exit 1; }
+          tail -7 ../verification/django.log
+      - name: Install locked frontend and local runtime resources
+        id: install
+        continue-on-error: true
+        run: cd frontend && npm ci >../verification/frontend-install.log 2>&1 || { tail -60 ../verification/frontend-install.log; exit 1; }
+      - name: Full frontend TypeScript check
+        id: types
+        continue-on-error: true
+        run: cd frontend && npm run typecheck >../verification/types.log 2>&1 || { cat ../verification/types.log; exit 1; }
+      - name: Frontend lint
+        id: lint
+        continue-on-error: true
+        run: cd frontend && npm run lint >../verification/lint.log 2>&1 || { cat ../verification/lint.log; exit 1; }
+      - name: Production web export and offline manifest
+        id: export
+        continue-on-error: true
+        run: cd frontend && npm run export:web >../verification/export.log 2>&1 || { tail -80 ../verification/export.log; exit 1; }
+      - name: Private study and prior integrity contracts
+        id: contracts
+        continue-on-error: true
+        run: |
+          (cd frontend && npm run test:private) >verification/developer-ab-contracts.log 2>&1 || { cat verification/developer-ab-contracts.log; exit 1; }
+          node tests/unarchive-device.mjs >verification/unarchive-device.log 2>&1 || { cat verification/unarchive-device.log; exit 1; }
+          node tests/private-generation.mjs >verification/private-generation.log 2>&1 || { cat verification/private-generation.log; exit 1; }
+          node tests/quiz-generation.mjs >verification/quiz-generation.log 2>&1 || { cat verification/quiz-generation.log; exit 1; }
+          node tests/authoring-batch.mjs >verification/authoring-batch.log 2>&1 || { cat verification/authoring-batch.log; exit 1; }
+          node tests/quiz-draft-recovery.mjs >verification/quiz-draft-recovery.log 2>&1 || { cat verification/quiz-draft-recovery.log; exit 1; }
+          node tests/doubt-availability.mjs >verification/doubt-availability.log 2>&1 || { cat verification/doubt-availability.log; exit 1; }
+          node tests/auth-navigation.mjs >verification/auth-navigation.log 2>&1 || { cat verification/auth-navigation.log; exit 1; }
+          node --test tests/portal-navigation.mjs tests/navigation-history.mjs tests/editor-state.mjs >verification/portal-navigation.log 2>&1 || { cat verification/portal-navigation.log; exit 1; }
+          node tests/authoring-races.mjs >verification/authoring-races.log 2>&1 || { cat verification/authoring-races.log; exit 1; }
+          node tests/connection-stability.mjs >verification/connection-stability.log 2>&1 || { cat verification/connection-stability.log; exit 1; }
+          node tests/reliability.mjs >verification/reliability.log 2>&1 || { cat verification/reliability.log; exit 1; }
+          node tests/device-acceleration.mjs
+          node tests/private-contracts.mjs >verification/private-contracts.log 2>&1 || { cat verification/private-contracts.log; exit 1; }
+          python scripts/check_offline_study.py >verification/foundation-contracts.log 2>&1 || { tail -80 verification/foundation-contracts.log; exit 1; }
+      - name: Browser integration with a disposable Django database
+        id: browser
+        continue-on-error: true
+        run: |
+          cd frontend
+          npx playwright install --with-deps chromium >../verification/browser-install.log 2>&1 || { tail -60 ../verification/browser-install.log; exit 1; }
+          npm run test:private:web >../verification/browser.log 2>&1 || { tail -100 ../verification/browser.log; exit 1; }
+          tail -12 ../verification/browser.log
+      - name: Record dependency advisories for review
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          cd frontend
+          npm audit --json >../verification/npm-audit.json || test -s ../verification/npm-audit.json
+      - name: Check tracked source stayed unchanged
+        id: clean
+        if: always()
+        continue-on-error: true
+        run: git diff --exit-code && git diff --cached --exit-code
+      - name: Save verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integrated-private-library-results
+          path: |
+            verification/
+            frontend/test-results/
+          retention-days: 7
+      - name: Require every integration check
+        if: always()
+        env:
+          RESULTS: '${{ steps.migrations.outcome }} ${{ steps.django.outcome }} ${{ steps.install.outcome }} ${{ steps.types.outcome }} ${{ steps.lint.outcome }} ${{ steps.export.outcome }} ${{ steps.contracts.outcome }} ${{ steps.browser.outcome }} ${{ steps.clean.outcome }}'
+        run: |
+          for result in $RESULTS; do
+            if [ "$result" != success ]; then echo 'A check failed or did not execute. Inspect the saved evidence.'; exit 1; fi
+          done
+          echo 'Integration passed. Controlled inference is used in this suite; the separate real-AI workflow tests the downloaded model. Native binaries, device performance and dependency security review are separate acceptance gates.'

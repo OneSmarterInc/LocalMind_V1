@@ -4,7 +4,13 @@ from django.contrib import admin
 from django.urls import include, path, re_path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
+from jobs.views import JobView
+
 urlpatterns = [
+    path("api/faculty/", include("private_library.urls_staff")),
+    path("api/student/", include("private_library.urls_student")),
+    path("api/study/", include("study.urls")),
+    path("api/jobs/<uuid:job_id>/", JobView.as_view()),
     path("api/health/", include("core.urls")),
     path("api/meta/", include("core.urls_meta")),
     path("api/auth/", include("accounts.urls_auth")),
@@ -12,18 +18,16 @@ urlpatterns = [
     path("api/admin/", include("accounts.urls_admin")),
     path("api/admin/", include("academics.urls_admin")),
     path("api/admin/", include("audit.urls")),
-    # Content work (books, quizzes, assignments, their analytics) has one home,
+    # Content work (books, quizzes, their analytics) has one home,
     # /api/faculty/, for faculty and administrators alike; the permission
     # classes admit both roles. It used to be mounted a second time under
     # /api/admin/, which nothing used and doubled what had to be secured.
     path("api/faculty/", include("academics.urls_faculty")),
     path("api/faculty/", include("documents.urls_manage")),
     path("api/faculty/", include("assessments.urls_manage")),
-    path("api/faculty/", include("assignments.urls_manage")),
     path("api/student/", include("academics.urls_student")),
     path("api/student/", include("learning.urls_student")),
     path("api/student/", include("assessments.urls_student")),
-    path("api/student/", include("assignments.urls_student")),
     path("api/student/", include("tutor.urls_student")),
     path("api/student/", include("activity.urls_student")),
     path("api/student/", include("analytics.urls_student")),

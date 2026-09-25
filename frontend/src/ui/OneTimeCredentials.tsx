@@ -47,7 +47,7 @@ export function OneTimeCredentials({ rows, title, onDone, filename = "localmind-
   return (
     <Card accent={colors.warning}>
       <H2 icon="key-outline">{title}</H2>
-      <Notice tone="warning" message="Shown only now. The platform stores no readable copy, so hand these over before leaving this screen. A lost password is replaced with Reset Password on the person's account; each one must be changed at first sign-in." />
+      <Notice inline tone="warning" message="Shown only now. The platform stores no readable copy, so hand these over before leaving this screen. A lost password is replaced with Reset Password on the person's account; each one must be changed at first sign-in." />
       <View style={{ gap: 2 }}>
         {rows.map((r) => (
           <Row key={r.email} style={{ gap: space.sm, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.border }}>

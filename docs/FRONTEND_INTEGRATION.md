@@ -8,7 +8,7 @@ The client needs one base URL. Everything is under `/api/`. The server's `DJANGO
 
 ## Offline reading
 
-After a student signs in, fetch `GET /api/student/offline/` and store each entry of `entries` under its key (the request path, plus the sorted query when there is one). When a student GET fails because the server cannot be reached, answer it from that store. Refresh the bundle when the app starts online, when connectivity returns, when the app comes to the foreground and periodically; skip rewriting when `version` has not changed. Clear the store on sign-out and when a different user signs in. Anything that writes (tutor questions, quiz attempts, assignment submissions) needs the server.
+After a student signs in, fetch `GET /api/student/offline/` and store each entry of `entries` under its key (the request path, plus the sorted query when there is one). When a student GET fails because the server cannot be reached, answer it from that store. Refresh the bundle when the app starts online, when connectivity returns, when the app comes to the foreground and periodically; skip rewriting when `version` has not changed. Clear the store on sign-out and when a different user signs in. Anything that writes (tutor questions, quiz attempts) needs the server.
 
 ## Login and first run
 
@@ -42,7 +42,6 @@ Quizzes: `GET /api/student/quizzes/?module={id}` lists what is available with `a
 
 Remediation after a failed quiz: `POST /api/student/quiz-attempts/{id}/remediation/`.
 
-Assignments: `GET /api/student/assignments/`, `POST /api/student/assignments/{id}/submissions/` with `content` (and optionally `time_spent_seconds`), then `GET /api/student/assignment-submissions/` for status, `score` and `feedback`. Respect `due_at` and `allow_late` in the UI; the server enforces them too.
 
 Own analytics for a dashboard: `GET /api/student/analytics/overview/`.
 
@@ -56,7 +55,6 @@ After review: `ready/`, `publish/` (may return `PUBLISH_ADMIN_ONLY` depending on
 
 Quizzes: generate with `POST /api/faculty/quizzes/generate/`, show the draft for editing (show `generation_warning` when present; a 503 `QUIZ_GENERATION_FAILED` means nothing was created), save edits with `PATCH`, publish with `status/`. Editing after attempts exist returns a new quiz id; update the list. Attempts and re-evaluation live under `.../attempts/` and `/api/faculty/quiz-attempts/{id}/re-evaluate/`.
 
-Assignments mirror quizzes, with `rubric` points summing to `max_score` and evaluation at `/api/faculty/assignment-submissions/{id}/evaluate/`.
 
 Analytics for a faculty dashboard: overview, per-subject summary, students table and module funnel, all under `/api/faculty/analytics/`. Each endpoint returns everything the screen needs in one call; do not fan out per student.
 

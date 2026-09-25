@@ -35,7 +35,7 @@ class DocumentQuerySet(models.QuerySet):
             return self
         if user.role == Role.FACULTY:
             return self.filter(subject__faculty_links__faculty=user,
-                               subject__faculty_links__status=AssignmentStatus.ACTIVE).distinct()
+                               subject__faculty_links__status=AssignmentStatus.ACTIVE).exclude(subject__status="archived").distinct()
         if user.role == Role.STUDENT:
             return self.filter(status=DocumentStatus.PUBLISHED, subject__status="active",
                                subject__enrollments__student=user,
@@ -82,6 +82,9 @@ class Document(TimeStampedUUIDModel):
     subject = models.ForeignKey("academics.Subject", on_delete=models.PROTECT, related_name="documents")
     uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="uploaded_documents")
     title = models.CharField(max_length=300, blank=True)
+    # True when a person typed the title at upload. Processing then keeps it;
+    # only an auto-derived title (the file name) may be replaced by the outline.
+    title_is_custom = models.BooleanField(default=False)
     original_name = models.CharField(max_length=300)
     file = models.FileField(upload_to=document_upload_path)
     file_type = models.CharField(max_length=10)
@@ -94,6 +97,9 @@ class Document(TimeStampedUUIDModel):
 
     processed_markdown_path = models.CharField(max_length=500, blank=True)
     extracted_headings = models.JSONField(default=list, blank=True)
+    outline_strategy = models.CharField(
+        max_length=20, choices=[("source", "Keep source headings"), ("ai", "Suggest with AI")], default="source")
+    outline_quality = models.JSONField(default=dict, blank=True)
     outline_source = models.CharField(max_length=30, blank=True)  # ai | source_hierarchy | edited
     parse_mode = models.CharField(max_length=30, blank=True)
     error_message = models.TextField(blank=True)
@@ -132,3 +138,36 @@ class Document(TimeStampedUUIDModel):
     @property
     def is_published(self):
         return self.status == DocumentStatus.PUBLISHED
+
+
+class LocalAuthoringReceipt(TimeStampedUUIDModel):
+    """An atomic acknowledgement for replaying a device authoring operation."""
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='+')
+    operation_id = models.UUIDField()
+    payload_hash = models.CharField(max_length=64)
+    response = models.JSONField(default=dict)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['actor', 'operation_id'], name='unique_local_authoring_op')]
+
+
+class LocalBookUpload(TimeStampedUUIDModel):
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='+')
+    subject = models.ForeignKey('academics.Subject', on_delete=models.CASCADE, related_name='+')
+    operation_id = models.UUIDField()
+    original_name = models.CharField(max_length=300)
+    sha256 = models.CharField(max_length=64)
+    size = models.PositiveBigIntegerField()
+    received = models.PositiveBigIntegerField(default=0)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['actor', 'operation_id'], name='unique_local_book_upload')]
+
+
+class LocalBookUploadChunk(models.Model):
+    upload = models.ForeignKey(LocalBookUpload, on_delete=models.CASCADE, related_name='chunks')
+    offset = models.PositiveBigIntegerField()
+    data = models.BinaryField()
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['upload', 'offset'], name='unique_local_book_chunk')]

@@ -69,7 +69,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8000")))
-    ap.add_argument("--threads", type=int, default=8)
+    ap.add_argument("--threads", type=int, default=32)
     ap.add_argument("--no-browser", action="store_true")
     ap.add_argument("--admin-email", default=os.environ.get("BOOTSTRAP_ADMIN_EMAIL", "admin@localmind.local"))
     ap.add_argument("--skip-ai-check", action="store_true", help="Start even if the model is missing (AI features use fallbacks).")
@@ -113,6 +113,9 @@ def main():
         except Exception as exc:
             print(f"AI not ready: {exc}\nStarting anyway; quizzes, assignments and the tutor will use their deterministic fallbacks "
                   "until the model is available (python manage.py fetch_model).")
+
+    from jobs.services import start_local_worker
+    start_local_worker()
 
     from waitress import serve
 

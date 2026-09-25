@@ -29,12 +29,15 @@ Rules that keep this correct under edits, restarts and several processes:
 """
 from __future__ import annotations
 
+from documents.services.visual_delivery import enrich_lesson
+
 import hashlib
 import logging
 import threading
 import time
 from datetime import timedelta
 
+from core.generation_policy import device_authoring_only
 from django.conf import settings
 from django.db import close_old_connections, transaction
 from django.db.models import Case, F, IntegerField, Q, Value, When
@@ -49,8 +52,8 @@ logger = logging.getLogger("localmind.lessons")
 
 LESSON_SCHEMA = {"type": "object", "properties": {
     "title": {"type": "string"},
-    "learning_objectives": {"type": "array", "minItems": 2, "maxItems": 6, "items": {"type": "string"}},
-    "sections": {"type": "array", "minItems": 2, "maxItems": 8, "items": {"type": "object", "properties": {
+    "learning_objectives": {"type": "array", "minItems": 1, "maxItems": 6, "items": {"type": "string"}},
+    "sections": {"type": "array", "minItems": 1, "maxItems": 8, "items": {"type": "object", "properties": {
         "heading": {"type": "string"}, "explanation": {"type": "string"}, "source_reference": {"type": "string"}},
         "required": ["heading", "explanation", "source_reference"]}},
     "key_terms": {"type": "array", "items": {"type": "object", "properties": {"term": {"type": "string"}, "definition": {"type": "string"}}, "required": ["term", "definition"]}},
@@ -65,7 +68,7 @@ GROUNDING = (
     "4. Write in plain, simple English for a first-time learner.\n"
     "5. Output JSON only.\n"
 )
-LESSON_TASK = ("TASK: Turn the source into a lesson with two to six learning_objectives, two to eight sections "
+LESSON_TASK = ("TASK: Turn the source into a lesson with one to six learning_objectives, one to eight sections "
                "(each with a heading, a clear explanation and a source_reference), the key_terms defined in the "
                "source, and a short summary.")
 
@@ -100,6 +103,8 @@ def request_lessons(modules, *, force: bool = False, reason: str = "") -> int:
     now = timezone.now()
     queued = 0
     for module in modules:
+        if (device_authoring_only() or module.chapter.document.parse_mode == "device-local"):
+            continue
         if not has_text(module):
             continue
         digest = source_hash(module.source_text)
@@ -141,7 +146,7 @@ def request_for_document(document, *, force: bool = False, reason: str = "") -> 
 
 
 def auto_generate_enabled() -> bool:
-    return bool(_cfg("AUTO_GENERATE", True))
+    return not device_authoring_only() and bool(_cfg("AUTO_GENERATE", True))
 
 
 def on_content_changed(modules, reason: str) -> int:
@@ -168,10 +173,13 @@ def state_for(module, row=_UNSET) -> str:
         return "none"
     if row is _UNSET:
         row = ModuleLesson.objects.filter(module=module).first()
+    local = (device_authoring_only() or module.chapter.document.parse_mode == "device-local")
     if row is None:
-        return LessonStatus.PENDING if auto_generate_enabled() else "none"
+        return LessonStatus.PENDING if auto_generate_enabled() and not local else "none"
     if row.source_hash != source_hash(module.source_text):
-        return LessonStatus.PENDING
+        return "none" if local else LessonStatus.PENDING
+    if local and row.status in (LessonStatus.PENDING, LessonStatus.GENERATING):
+        return "none"
     return row.status
 
 
@@ -179,11 +187,6 @@ def fallback_lesson(module) -> dict:
     """A plain lesson made from the source text, for when no AI lesson exists."""
     paragraphs = [p.strip() for p in (module.source_text or "").split("\n\n") if p.strip()] or [(module.source_text or "").strip()]
     sections = [{"heading": f"Part {i}", "explanation": p[:1500], "source_reference": p[:120]} for i, p in enumerate(paragraphs[:8], start=1)]
-    if len(sections) < 2:
-        text = sections[0]["explanation"]
-        half = len(text) // 2
-        sections = [{"heading": "Part 1", "explanation": text[:half], "source_reference": text[:120]},
-                    {"heading": "Part 2", "explanation": text[half:], "source_reference": text[half:half + 120]}]
     return {"title": module.title, "learning_objectives": [f"Read and understand '{module.title}'", "Identify the key ideas in the source text"],
             "sections": sections, "key_terms": [], "summary": "This is a plain summary of the source text; the tutor's full lesson is not available."}
 
@@ -199,15 +202,18 @@ def lesson_for_student(module) -> dict:
     state = state_for(module, row)
     base = {"module_id": str(module.id), "state": state}
     if state == LessonStatus.READY and row and row.lesson:
-        return {**base, "status": "ready", "lesson": row.lesson, "generator": "ai", "cached": True,
+        return {**base, "status": "ready", "lesson": enrich_lesson(row.lesson, module), "generator": "ai", "cached": True,
                 "model": row.model_name, "generated_at": row.generated_at}
+    if (device_authoring_only() or module.chapter.document.parse_mode == "device-local"):
+        return {**base, "status": "unavailable", "lesson": None, "generator": None, "cached": False,
+                "ai_error": "local_authoring_required", "retry_scheduled": False}
     ai_on = bool(settings.AI.get("ENABLED"))
     if state in (LessonStatus.PENDING, LessonStatus.GENERATING) and ai_on:
         start_worker()
         return {**base, "status": "preparing", "lesson": None, "generator": None, "cached": False,
                 "queue_position": queue_position(row) if row else None}
     reason = "ai_disabled" if not ai_on else (row.last_error if row else "not_generated")
-    return {**base, "status": "unavailable", "lesson": fallback_lesson(module), "generator": "fallback", "cached": False,
+    return {**base, "status": "unavailable", "lesson": enrich_lesson(fallback_lesson(module), module), "generator": "fallback", "cached": False,
             "ai_error": reason, "retry_scheduled": bool(row and row.next_attempt_at)}
 
 
@@ -226,15 +232,17 @@ def summary_for_document(document) -> dict:
     """Counts for the faculty screen: every module with text is in exactly one bucket."""
     from learning.models import Module
 
-    modules = list(Module.objects.filter(chapter__document=document).select_related("lesson"))
-    counts = {"total": 0, "ready": 0, "pending": 0, "generating": 0, "failed": 0}
+    modules = ([m for chapter in document.chapters.all() for m in chapter.modules.all()]
+               if "chapters" in getattr(document, "_prefetched_objects_cache", {})
+               else list(Module.objects.filter(chapter__document=document).select_related("lesson")))
+    counts = {"total": 0, "ready": 0, "pending": 0, "generating": 0, "failed": 0, "not_generated": 0}
     for m in modules:
         # A missing reverse one-to-one raises an AttributeError subclass.
         state = state_for(m, getattr(m, "lesson", None))
-        if state == "none":
+        if not has_text(m):
             continue
         counts["total"] += 1
-        counts[state if state in counts else "pending"] += 1
+        counts["not_generated" if state == "none" else state if state in counts else "pending"] += 1
     counts["auto_generate"] = auto_generate_enabled()
     return counts
 
@@ -243,7 +251,7 @@ def detail_for_faculty(module) -> dict:
     row = ModuleLesson.objects.filter(module=module).first()
     state = state_for(module, row)
     return {"module_id": str(module.id), "status": state,
-            "lesson": row.lesson if (row and state == LessonStatus.READY) else None,
+            "lesson": enrich_lesson(row.lesson, module) if (row and state == LessonStatus.READY) else None,
             "model": row.model_name if row else "", "generated_at": row.generated_at if row else None,
             "attempts": row.attempts if row else 0, "last_error": row.last_error if row else "",
             "next_attempt_at": row.next_attempt_at if row else None,
@@ -274,6 +282,8 @@ def _ordered(queryset):
 
 
 def claim_next() -> ModuleLesson | None:
+    if device_authoring_only():
+        return None
     """Take the next job in ``_ordered`` order. The conditional update is the lock."""
     now = timezone.now()
     candidates = _ordered(ModuleLesson.objects.filter(_claimable(now))).values_list("pk", "version")[:5]
@@ -303,6 +313,8 @@ def _backoff(attempts: int) -> timedelta:
 
 
 def process_one(row: ModuleLesson) -> str:
+    if device_authoring_only():
+        return "device_required"
     """Generate the claimed lesson and record the outcome. Returns the new status
     (or "discarded" when the module changed or vanished meanwhile)."""
     claimed_version = row.version
@@ -363,6 +375,8 @@ def run_pending(limit: int | None = None, *, wait_for_students: bool = True) -> 
     """Work through the queue in this thread. Used by the background worker,
     the ``generate_lessons`` command and the tests."""
     outcome = {"ready": 0, "failed": 0, "discarded": 0}
+    if device_authoring_only():
+        return outcome
     done = 0
     while limit is None or done < limit:
         if wait_for_students:
@@ -392,6 +406,8 @@ def _worker_loop():
     try:
         while True:
             close_old_connections()
+            if device_authoring_only():
+                return
             outcome = {"ready": 0, "failed": 0, "discarded": 0}
             for runner, label in ((run_pending, "lesson"), (auto_quiz.run_pending, "quiz")):
                 try:
@@ -420,7 +436,7 @@ def start_worker() -> bool:
     """Start this process's lesson worker if it is not running. Never runs
     under the test runner (tests call ``run_pending`` directly) or with AI off."""
     global _worker
-    if settings.TESTING or not settings.AI.get("ENABLED"):
+    if device_authoring_only() or settings.TESTING or not settings.AI.get("ENABLED"):
         return False
     with _worker_lock:
         if _worker is not None and _worker.is_alive():
@@ -433,7 +449,7 @@ def start_worker() -> bool:
 def resume_on_startup(delay: float = 5.0) -> None:
     """Called once when the web process starts: pick up jobs left by a restart.
     Waits a moment so the server is accepting requests first."""
-    if settings.TESTING or not settings.AI.get("ENABLED"):
+    if device_authoring_only() or settings.TESTING or not settings.AI.get("ENABLED"):
         return
 
     def later():

@@ -160,3 +160,22 @@ class AdminAnalyticsTests(Base):
         self.assertEqual(rows["OS"]["faculty"], [self.faculty.full_name])
         self.assertEqual(rows["OS"]["documents_published"], 1)
         self.assertEqual(rows["DB"]["documents_published"], 0)
+
+
+class StableIdentityTests(Base):
+    def test_duplicate_faculty_names_keep_distinct_subject_ids(self):
+        from analytics.services import admin_subjects
+        self.other_faculty.full_name = self.faculty.full_name
+        self.other_faculty.save(update_fields=["full_name"])
+        rows = admin_subjects()["subjects"]
+        ours = next(row for row in rows if row["subject_id"] == str(self.subject.id))
+        self.assertEqual(ours["faculty_ids"], [str(self.faculty.id)])
+        self.assertNotIn(str(self.other_faculty.id), ours["faculty_ids"])
+
+    def test_document_list_includes_lesson_counts(self):
+        from documents.serializers import DocumentSerializer
+        from documents.models import Document
+        result = DocumentSerializer(Document.objects.filter(subject=self.subject).first()).data
+        self.assertIn("lessons", result)
+        self.assertGreater(result["lessons"]["total"], 0)
+        self.assertEqual(result["lessons"]["ready"], 0)

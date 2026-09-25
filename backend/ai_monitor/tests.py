@@ -211,6 +211,7 @@ class PipelineTests(PipelineBase):
         self.assertIn("boom", ev.error)
         self.assertEqual(ev.verdict, Verdict.ABSTAIN)
 
+    @override_settings(DEVICE_AUTHORING_ONLY=True)
     def test_judge_is_called_for_suspicious_answer_and_can_clear_it(self):
         # Paraphrase with low lexical overlap: validators are unsure, judge says fine.
         msg = self.ask("What is a process?", "Think of it as a running program that the operating system is currently executing and managing on the processor.")
@@ -225,6 +226,7 @@ class PipelineTests(PipelineBase):
         self.assertEqual(ev.judge_model, "judge-fake")
         self.assertEqual(ev.judge_json["confidence"], 0.8)
 
+    @override_settings(DEVICE_AUTHORING_ONLY=True)
     def test_judge_issue_creates_incident(self):
         msg = self.ask("What is a process?", "Think of it as a running program that the operating system is currently executing and managing on the processor.")
         with override_settings(AI_MONITOR={**services.settings.AI_MONITOR, "JUDGE_ENABLED": True}), \
@@ -234,6 +236,7 @@ class PipelineTests(PipelineBase):
         self.assertEqual((ev.verdict, ev.issue_type), (Verdict.ISSUE, IssueType.HALLUCINATION))
         self.assertTrue(Incident.objects.filter(evaluation=ev, severity=Severity.HIGH).exists())
 
+    @override_settings(DEVICE_AUTHORING_ONLY=True)
     def test_judge_outage_falls_back_to_validators(self):
         msg = self.ask("What is a process?", "Think of it as a running program that the operating system is currently executing and managing on the processor.")
         with override_settings(AI_MONITOR={**services.settings.AI_MONITOR, "JUDGE_ENABLED": True}), \
@@ -420,6 +423,7 @@ class ApiTests(PipelineBase):
         self.assertEqual(r.status_code, 201)
         self.assertEqual(self.c.get(f"/api/admin/monitor/evaluations/{self.good.id}/").data["feedback"][0]["label"], "correct")
 
+    @override_settings(DEVICE_AUTHORING_ONLY=True)
     def test_reevaluate_forces_judge(self):
         with patch("ai_monitor.judge.run", return_value=judge_ok(confidence=0.9)) as run, \
              override_settings(AI_MONITOR={**services.settings.AI_MONITOR, "JUDGE_ENABLED": True}), \
@@ -481,3 +485,45 @@ class ApiTests(PipelineBase):
         r = self.c.get("/api/admin/ai/status/")
         names = [c["component"] for c in r.data["system"]["components"]]
         self.assertIn("ai_monitor", names)
+
+@override_settings(DEVICE_AUTHORING_ONLY=True, AI={"ENABLED": True},
+                   AI_MONITOR={"ENABLED": True, "MODE": "sync", "JUDGE_ENABLED": True})
+class CentralJudgeWithDeviceAuthoringTests(PipelineBase):
+    def test_judge_adapter_uses_central_gateway(self):
+        from . import judge
+        with patch("ai_monitor.judge._gateway") as gateway:
+            gateway.return_value.generate.return_value = judge_ok()
+            result = judge.run(kind="quiz", prompt="", response="", evidence_text=SOURCE,
+                               validator_lines=[], metadata={})
+        gateway.return_value.generate.assert_called_once()
+        self.assertTrue(result.ok)
+
+    def test_status_preserves_central_judge(self):
+        with patch("ai_monitor.judge.judge_available", return_value=(True, "ready")), \
+             patch("ai_monitor.judge.judge_model_label", return_value="central-judge"):
+            state = services.status()
+        self.assertTrue(state["judge_enabled"])
+        self.assertTrue(state["judge_ready"])
+        self.assertEqual(state["judge_model"], "central-judge")
+
+
+class JudgeYieldsToStudentsTests(TestCase):
+    """One model serves everybody, one call at a time. A judge that does not
+    stand aside makes every student wait for an evaluation nobody asked for."""
+
+    def test_the_judge_is_background_work(self):
+        from ai_monitor import judge as judge_module
+        with patch.object(judge_module, "_gateway") as gw:
+            gw.return_value.generate.return_value = type("R", (), {"ok": False, "data": None, "error_code": "disabled"})()
+            judge_module.run(kind="tutor_answer", prompt="q", response="a", evidence_text="e",
+                             validator_lines=[], metadata={})
+        self.assertTrue(gw.return_value.generate.call_args.kwargs.get("background"),
+                        "the judge must not count as foreground work")
+
+    @override_settings(TESTING=False)
+    def test_the_worker_waits_while_a_student_is_being_answered(self):
+        from ai_monitor import services
+        calls = []
+        with patch("ai.gateway.foreground_busy", side_effect=lambda: calls.append(1) or len(calls) < 3):
+            services._wait_for_students(max_wait=5.0)
+        self.assertGreaterEqual(len(calls), 3, "the worker must poll until the student's call finishes")

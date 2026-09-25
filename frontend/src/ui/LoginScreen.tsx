@@ -1,4 +1,4 @@
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
 import { Pressable, Text, View } from "react-native";
@@ -28,7 +28,7 @@ export function LoginScreen({ role }: { role: Role }) {
       <View style={{ backgroundColor: colors.pale, borderRadius: 5, paddingHorizontal: 8, paddingVertical: 5, marginBottom: 6 }}>
         <Text style={{ fontSize: 10, fontWeight: "600", color: colors.primary }}>{LABEL[role]} portal</Text>
       </View>
-      {!online ? <Notice tone="warning" message="The LocalMind server cannot be reached. Signing in needs a connection." /> : null}
+      {!online ? <Notice inline tone="warning" message="The LocalMind server cannot be reached. Signing in needs a connection." /> : null}
       <Input label="Email address" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" autoComplete="email" textContentType="username" placeholder="you@example.edu" onSubmitEditing={submit} />
       <View>
         <Input label="Password" value={password} onChangeText={setPassword} secureTextEntry={!show} textContentType="password" autoComplete="password" onSubmitEditing={submit} />
@@ -40,7 +40,7 @@ export function LoginScreen({ role }: { role: Role }) {
       <View style={{ flexDirection: "row" }}>
         <Button title={`Sign in to the ${LABEL[role].toLowerCase()} portal`} icon="arrow-forward" onPress={submit} busy={action.busy} disabled={!email.trim() || !password} />
       </View>
-      <Notice title="First time here?" message="Use the initial password from your administrator. You will choose a new one right after signing in." />
+      <Notice inline title="First time here?" message="Use the initial password from your administrator. You will choose a new one right after signing in." />
       <Text style={{ marginTop: 12, paddingTop: 14, borderTopWidth: 1, borderTopColor: colors.border, fontSize: 11, color: colors.muted, textAlign: "center" }}>
         Need an account or a password reset? Contact your administrator.
       </Text>

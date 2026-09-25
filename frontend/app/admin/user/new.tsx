@@ -1,36 +1,51 @@
-import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useState } from "react";
+import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
+import { useDraft } from "@/hooks/useDraft";
+import { confirmLeave } from "@/hooks/unsavedGuard";
+import { useBackTo } from "@/hooks/useBackTo";
+import React, { useEffect, useMemo, useState } from "react";
 import { View } from "react-native";
 import { admin } from "@/api/endpoints";
 import { useAction, useAsync } from "@/hooks/useAsync";
-import { Button, Card, CardHead, Dropdown, Empty, ErrorBanner, FormFooter, Grid, Input, Notice, OptionCard, PageHeading, Screen, Split, StepList } from "@/ui";
+import { Button, Card, CardHead, Dropdown, Empty, ErrorBanner, FormFooter, Grid, Input, Loading, Notice, OptionCard, PageHeading, Screen, Split, StepList, phoneProblem } from "@/ui";
 import { IssuedCredential, OneTimeCredentials } from "@/ui/OneTimeCredentials";
 
 type Kind = "students" | "faculty";
 
 export default function AddPerson() {
   const router = useRouter();
+  const navigation = useNavigation();
+  const back = useBackTo();
   const p = useLocalSearchParams<{ kind?: string }>();
-  const [kind, setKind] = useState<Kind>(p.kind === "faculty" ? "faculty" : "students");
-  const [f, setF] = useState<Record<string, string>>({ batch: "" });
-  const [subjectIds, setSubjectIds] = useState<string[]>([]);
+  const kind: Kind = p.kind === "faculty" ? "faculty" : "students";
+  useEffect(() => { navigation.setOptions({ backTo: `/admin/users?kind=${kind}`, backLabel: "People" }); }, [navigation, kind]);
+  const setKind = (next: Kind) => { void confirmLeave().then(ok => { if (ok) router.setParams({ kind: next }); }); };
+  const source = useMemo(() => ({ id: `new-account:${kind}`, fields: {} as Record<string, string>, subjects: [] as string[] }), [kind]);
+  const { draft, edit, markSaved } = useDraft(source, { label: () => "the new account", save: async () => (await create.run()) === true });
+  const f = draft?.fields ?? {};
+  const subjectIds = draft?.subjects ?? [];
+  const setF = (value: Record<string, string> | ((previous: Record<string, string>) => Record<string, string>)) => edit(d => ({ ...d, fields: typeof value === "function" ? value(d.fields) : value }));
+  const setSubjectIds = (value: string[] | ((previous: string[]) => string[])) => edit(d => ({ ...d, subjects: typeof value === "function" ? value(d.subjects) : value }));
   const [issued, setIssued] = useState<{ row: IssuedCredential; notice: string } | null>(null);
+  useEffect(() => { setIssued(null); }, [kind]);
   const subjects = useAsync(() => admin.subjects({ status: "active" }), []);
   const set = (k: string) => (v: string) => setF((x) => ({ ...x, [k]: v }));
   const faculty = kind === "faculty";
   const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((f.email ?? "").trim());
   const create = useAction(async () => {
+    if (issued || !draft || draft.id !== source.id || !emailOk || !f.full_name?.trim()) return false;
+    const sent = draft;
     const keys = faculty ? ["employee_id", "department", "designation", "phone"] : ["roll_number", "program", "batch", "phone"];
     const profile = Object.fromEntries(keys.filter((k) => f[k]?.trim()).map((k) => [k, f[k].trim()]));
     const u = await admin.createUser(kind, { email: f.email?.trim().toLowerCase(), full_name: f.full_name?.trim(), profile, ...(faculty && subjectIds.length ? { subject_ids: subjectIds } : {}) });
+    markSaved(sent);
     const notice = `${faculty ? "Faculty account" : "Student account"} for ${u.full_name} created.`;
-    if (u.initial_password) { setIssued({ row: { full_name: u.full_name, email: u.email, initial_password: u.initial_password }, notice }); setF({}); setSubjectIds([]); return; }
-    router.replace({ pathname: "/admin/users", params: { kind, notice } });
+    if (u.initial_password) { setIssued({ row: { full_name: u.full_name, email: u.email, initial_password: u.initial_password }, notice }); return true; }
+    router.replace({ pathname: "/admin/users", params: { kind, notice } }); return true;
   });
   return (
     <Screen>
       <PageHeading eyebrow="PEOPLE" title="Add a person" subtitle="Create the account first. Assign learning or teaching access in the next step."
-        right={<Button title="Back to people" variant="secondary" icon="arrow-back" onPress={() => router.push({ pathname: "/admin/users", params: { kind } })} />} />
+        right={<Button title="Back to people" variant="secondary" icon="arrow-back" onPress={() => back({ pathname: "/admin/users", params: { kind } })} />} />
       {issued ? <OneTimeCredentials title={`One-time password for ${issued.row.full_name}`} rows={[issued.row]} onDone={() => router.replace({ pathname: "/admin/users", params: { kind, notice: issued.notice } })} /> : null}
       <Split
         main={
@@ -44,24 +59,25 @@ export default function AddPerson() {
             {faculty ? (
               <>
                 <Grid min={240} gap={16}>
-                  <Input label="Employee ID" value={f.employee_id ?? ""} onChangeText={set("employee_id")} />
-                  <Input label="Department" value={f.department ?? ""} onChangeText={set("department")} />
+                  <Input label="Employee ID" placeholder="For example, EMP1043" value={f.employee_id ?? ""} onChangeText={set("employee_id")} />
+                  <Input label="Department" placeholder="For example, Computer Science" value={f.department ?? ""} onChangeText={set("department")} />
                 </Grid>
                 <Grid min={240} gap={16}>
-                  <Input label="Designation" value={f.designation ?? ""} onChangeText={set("designation")} />
-                  <Input label="Phone number" value={f.phone ?? ""} onChangeText={set("phone")} keyboardType="phone-pad" placeholder="Optional" />
+                  <Input label="Designation" placeholder="For example, Assistant Professor" value={f.designation ?? ""} onChangeText={set("designation")} />
+                  <Input label="Phone number" error={phoneProblem(f.phone)} value={f.phone ?? ""} onChangeText={set("phone")} keyboardType="phone-pad" placeholder="Optional" />
                 </Grid>
                 <CardHead title="Teaching subjects" subtitle="Optional now; you can assign subjects later from the subject page." />
-                {subjects.data?.length ? <View style={{ gap: 8 }}>{subjects.data.map((s) => (
+                {/* Loading or failed used to read as "No active subjects", which is wrong in both cases. */}
+                {subjects.loading && !subjects.data ? <Loading lines={2} /> : subjects.error ? <ErrorBanner message={subjects.error} onRetry={subjects.reload} /> : subjects.data?.length ? <View style={{ gap: 8 }}>{subjects.data.map((s) => (
                   <OptionCard key={s.id} multi title={`${s.code} · ${s.name}`} selected={subjectIds.includes(s.id)} onPress={() => setSubjectIds((x) => (x.includes(s.id) ? x.filter((y) => y !== s.id) : [...x, s.id]))} />
                 ))}</View> : <Empty icon="library-outline" text="No active subjects to assign yet." />}
               </>
             ) : (
               <>
-                <Input label="Phone number" value={f.phone ?? ""} onChangeText={set("phone")} keyboardType="phone-pad" placeholder="Optional" containerStyle={{ maxWidth: 320 }} />
+                <Input label="Phone number" error={phoneProblem(f.phone)} value={f.phone ?? ""} onChangeText={set("phone")} keyboardType="phone-pad" placeholder="Optional" containerStyle={{ maxWidth: 320 }} />
                 <Grid min={240} gap={16}>
-                  <Input label="Roll number" value={f.roll_number ?? ""} onChangeText={set("roll_number")} />
-                  <Input label="Program" value={f.program ?? ""} onChangeText={set("program")} />
+                  <Input label="Roll number" placeholder="For example, 21CS047" value={f.roll_number ?? ""} onChangeText={set("roll_number")} />
+                  <Input label="Program" placeholder="For example, B.Tech Computer Science" value={f.program ?? ""} onChangeText={set("program")} />
                 </Grid>
                 <Input label="Batch" value={f.batch ?? ""} onChangeText={set("batch")} placeholder={String(new Date().getFullYear())} containerStyle={{ maxWidth: 320 }} />
               </>
@@ -69,8 +85,8 @@ export default function AddPerson() {
             <Notice title="A first sign-in password change is required." message="The account uses the platform's onboarding password policy: the person must change the initial password at first sign-in. No email is sent." />
             <ErrorBanner message={create.error} />
             <FormFooter note="The initial password is shown once after the account is created.">
-              <Button title="Cancel" variant="secondary" onPress={() => router.push({ pathname: "/admin/users", params: { kind } })} />
-              <Button title="Create account" icon="add" onPress={() => create.run()} busy={create.busy} disabled={!emailOk || !f.full_name?.trim()} />
+              <Button title="Cancel" variant="secondary" onPress={() => back({ pathname: "/admin/users", params: { kind } })} />
+              <Button title="Create account" icon="add" onPress={() => create.run()} busy={create.busy} disabled={!!issued || !emailOk || !f.full_name?.trim() || !!phoneProblem(f.phone)} />
             </FormFooter>
           </Card>
         }

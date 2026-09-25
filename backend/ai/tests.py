@@ -401,19 +401,29 @@ class LlamaCppProviderTests(TestCase):
             self.assertFalse(ok); self.assertIn("GGUF", err)
         self.assertEqual(_display_name("Qwen3-1.7B-Q4_K_M.gguf"), "Qwen3 1.7B (Q4_K_M)")
 
-    @override_settings(AI=dict(AI_ON, PROVIDER="llamacpp"))
     def test_system_status_reports_components(self):
+        import tempfile
+        from pathlib import Path
         from core.system_health import system_status
 
-        gw._provider_cache.clear(); gw.reset_health_cache()
-        report = system_status(force=True)
+        # Never rely on backend/models being empty on the developer's laptop.
+        # This path is unique and deliberately contains no model file.
+        with tempfile.TemporaryDirectory(prefix="localmind-missing-model-") as directory:
+            missing = str(Path(directory) / "missing.gguf")
+            gw._provider_cache.clear(); gw.reset_health_cache()
+            try:
+                with override_settings(AI=dict(AI_ON, PROVIDER="llamacpp", MODEL_PATH=missing)):
+                    report = system_status(force=True)
+            finally:
+                gw._provider_cache.clear(); gw.reset_health_cache()
         names = [c["component"] for c in report["components"]]
         for expected in ("backend", "database", "storage", "ai_runtime", "ai_model", "document_processing", "web_client", "offline_mode"):
             self.assertIn(expected, names)
         by = {c["component"]: c for c in report["components"]}
         self.assertEqual(by["database"]["status"], "READY")
         self.assertEqual(by["storage"]["status"], "READY")
-        self.assertEqual(by["ai_model"]["status"], "MISSING")  # no model file in the test environment
+        self.assertEqual(by["ai_model"]["status"], "MISSING")
+        self.assertEqual(by["ai_model"]["path"], missing)
         self.assertEqual(by["offline_mode"]["status"], "ERROR")
         self.assertTrue(any("ai model" in b for b in by["offline_mode"]["blockers"]))
         self.assertEqual(report["status"], "ERROR")

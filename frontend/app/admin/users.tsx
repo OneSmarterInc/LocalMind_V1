@@ -1,4 +1,5 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useTabParam } from "@/hooks/useTabParam";
 import React, { useEffect, useState } from "react";
 import { admin } from "@/api/endpoints";
 import type { User } from "@/api/types";
@@ -11,19 +12,20 @@ type Kind = "students" | "faculty";
 export default function People() {
   const router = useRouter();
   const p = useLocalSearchParams<{ kind?: string; tab?: string; notice?: string }>();
-  const initial: Kind = p.kind === "faculty" || p.tab === "faculty" ? "faculty" : "students";
-  const [kind, setKind] = useState<Kind>(initial);
+  const [kind, setKind] = useTabParam<Kind>(p.kind === "faculty" ? "faculty" : "students", ["students", "faculty"]);
   const [notice, setNotice] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
+  // A link that arrives with ?kind=faculty (from an account page) still selects that tab
+  // even though this screen stays mounted and does not remount.
+  useEffect(() => { if (p.kind === "faculty" || p.kind === "students") setKind(p.kind); }, [p.kind, setKind]);
   useEffect(() => {
-    if (p.kind === "faculty" || p.kind === "students") setKind(p.kind);
     if (p.notice) { setNotice(String(p.notice)); router.setParams({ notice: "" } as never); }
-  }, [p.kind, p.notice, router]);
+  }, [p.notice, router]);
   const query = useDebounced(q);
   const list = useAsync(() => admin.users(kind, { q: query, status: status || undefined }), [kind, query, status]);
   const subjects = useAsync(() => admin.platformSubjects(), []);
-  const teaching = (u: User) => (subjects.data?.subjects ?? []).filter((s: any) => (s.faculty ?? []).includes(u.full_name)).map((s: any) => s.code);
+  const teaching = (u: User) => (subjects.data?.subjects ?? []).filter((s: any) => (s.faculty_ids ?? []).includes(u.id)).map((s: any) => s.code);
   const open = (u: User) => router.push({ pathname: "/admin/user/[id]", params: { id: u.id, kind } });
   const statusBadge = (u: User) => <Badge value={u.status} tone={u.status === "active" ? "green" : "red"} />;
   const studentCols: Column<User>[] = [

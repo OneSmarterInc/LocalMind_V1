@@ -1,6 +1,8 @@
 """AssessmentService: lifecycle, attempts, grading, scoping."""
+import re
 
 from django.conf import settings
+from core.generation_policy import require_server_authoring
 from django.db import transaction
 from django.utils import timezone
 
@@ -24,7 +26,7 @@ RELEASE_FIELDS = ("instructions", "max_attempts", "time_limit_minutes", "availab
 
 def manageable(user):
     from academics.models import Subject
-    return Assessment.objects.filter(subject__in=Subject.objects.visible_to(user)).select_related("subject", "module", "chapter", "created_by")
+    return Assessment.objects.filter(subject__in=Subject.objects.visible_to(user)).select_related("subject", "module__chapter", "chapter", "created_by").prefetch_related("source_modules__chapter")
 
 
 def student_visible(student):
@@ -43,7 +45,7 @@ def student_visible(student):
         source_modules__in=Module.objects.exclude(pk__in=open_modules.values("pk")),
     ).values("pk")
     qs = qs.exclude(pk__in=incomplete)
-    return qs.select_related("module", "chapter", "subject").distinct()
+    return qs.select_related("module__chapter", "chapter", "subject").prefetch_related("source_modules__chapter").order_by("-created_at", "id").distinct()
 
 
 def models_q_module_or_chapter(open_modules):
@@ -150,6 +152,7 @@ def generate(actor, *, module_id=None, chapter_id=None, module_ids=None, num_mcq
     SQLite write lock is not held for the length of the call."""
     subject, chapter, module, source_text, default_title, kind, modules = _target(actor, module_id, chapter_id, module_ids)
     _require_manage(actor, subject)
+    require_server_authoring()
     if num_mcqs + num_subjective <= 0 or num_mcqs > 30 or num_subjective > 10:
         raise ValidationFailed("Ask for 1-30 MCQs and 0-10 subjective questions.", code="INVALID_COUNTS")
     # Exclude what the last few quizzes on the same material already asked. A
@@ -235,6 +238,30 @@ def update(actor, assessment, *, questions=None, request=None, **fields):
     return assessment
 
 
+# Text a quiz opens with, which nobody should ever see as a student. The
+# starter question the editor writes, the lettered options beside it, and the
+# filler the fallback generator produces when the AI is unavailable.
+_PLACEHOLDER_QUESTION = re.compile(r"^(replace this question|untitled question|question \d+)$", re.I)
+_PLACEHOLDER_OPTION = re.compile(r"^(option [a-d]|placeholder distractor.*|choice [a-d])$", re.I)
+
+
+def _placeholder_questions(questions):
+    """1-based positions of the questions still holding starter text."""
+    found = []
+    for position, question in enumerate(questions or [], start=1):
+        text = (question.get("question") or "").strip()
+        if _PLACEHOLDER_QUESTION.match(text):
+            found.append(position)
+            continue
+        options = [o for o in (question.get("options") or []) if isinstance(o, dict)]
+        lettered = [o for o in options if _PLACEHOLDER_OPTION.match((o.get("text") or "").strip())]
+        # One odd option is a wording choice; every option lettered means nobody
+        # typed them.
+        if options and len(lettered) == len(options):
+            found.append(position)
+    return found
+
+
 @transaction.atomic
 def set_status(actor, assessment, status, request=None):
     _require_manage(actor, assessment.subject)
@@ -243,12 +270,41 @@ def set_status(actor, assessment, status, request=None):
             raise Conflict("Only drafts or closed quizzes can be published.", code="INVALID_STATE")
         if not assessment.questions:
             raise Conflict("Add questions before publishing.", code="NO_QUESTIONS")
-        if assessment.generator == Generator.FALLBACK and any("Placeholder distractor" in o["text"] for q in assessment.questions if q["type"] == "mcq" for o in q["options"]):
-            raise Conflict("Fallback-generated questions contain placeholders; edit them before publishing.", code="PLACEHOLDER_QUESTIONS")
+        unedited = _placeholder_questions(assessment.questions)
+        if unedited:
+            # This used to look only at fallback-generated quizzes for the words
+            # "Placeholder distractor", so a quiz written by hand published with
+            # the starter question and A/B/C/D still in it, and students saw it.
+            # The check is here rather than in the editor because publishing
+            # never passes through the editor's save path.
+            where = ", ".join(str(n) for n in unedited[:5])
+            raise Conflict(
+                f"Question{'s' if len(unedited) > 1 else ''} {where} still hold{'' if len(unedited) > 1 else 's'} placeholder text. "
+                "Write the question and its options before publishing.",
+                code="PLACEHOLDER_QUESTIONS")
+        # Read current source state rather than trusting cached relation objects.
+        modules = []
+        documents = []
+        if assessment.kind == AssessmentKind.SELECTION:
+            modules = list(assessment.source_modules.select_related("chapter__document").all())
+            documents = [m.chapter.document for m in modules]
+        elif assessment.module_id:
+            module = Module.objects.select_related("chapter__document").get(pk=assessment.module_id)
+            modules, documents = [module], [module.chapter.document]
+        elif assessment.chapter_id:
+            chapter = Chapter.objects.select_related("document").get(pk=assessment.chapter_id)
+            modules, documents = list(chapter.modules.all()), [chapter.document]
+        if any(d.status != "published" for d in documents):
+            raise Conflict("This book is not published yet.", code="BOOK_NOT_PUBLISHED")
+        locked = [m.title for m in modules if m.availability != "open"]
+        chapter_only = assessment.chapter_id and not assessment.module_id and assessment.kind != AssessmentKind.SELECTION
+        blocked = not any(m.availability == "open" for m in modules) if chapter_only else bool(locked)
+        if blocked:
+            raise Conflict("This module is locked. Open it before publishing its quiz.",
+                           code="MODULE_LOCKED_FOR_QUIZ", details={"modules": locked})
         assessment.status, assessment.published_at = status, timezone.now()
         # Publishing by hand is the review a held automatic quiz was waiting for.
         assessment.held_for_review, assessment.hold_reason = False, ""
-        learning.open_target_modules(actor, assessment, "quiz.published", request)
     elif status == AssessmentStatus.CLOSED:
         if assessment.status != AssessmentStatus.PUBLISHED:
             raise Conflict("Only published quizzes can be closed.", code="INVALID_STATE")
@@ -318,9 +374,9 @@ def student_questions(assessment):
     return out
 
 
-def _grade(assessment, submitted_answers):
+def _grade(assessment, submitted_answers, *, source_text=None):
     """Deterministic MCQ grading; subjective via evaluator. Returns (score, results, pending)."""
-    source = _source_text(assessment)
+    source = _source_text(assessment) if source_text is None else source_text
     score, results, pending = 0.0, [], False
     for q in assessment.questions:
         qid = q["id"]
@@ -329,8 +385,19 @@ def _grade(assessment, submitted_answers):
             selected = str(answer or "").strip().upper()
             correct = selected == q["correct_answer"]
             score += 1.0 if correct else 0.0
+            # The letter alone ("B") tells a reviewer nothing: faculty marking an
+            # attempt, and the student reading their own result, both saw bare
+            # letters with no way to know what was chosen. Carry the text too.
+            # ``options`` is stored with the row rather than read from the live
+            # question, so a result keeps the wording the student actually saw
+            # even after faculty edit the quiz into a new version.
+            by_key = {str(o.get("key")): str(o.get("text", "")) for o in (q.get("options") or []) if isinstance(o, dict)}
             results.append({"question_id": qid, "type": "mcq", "question": q["question"], "selected_option": selected,
                             "correct_option": q["correct_answer"], "is_correct": correct, "score_awarded": 1.0 if correct else 0.0,
+                            "selected_option_text": by_key.get(selected, ""),
+                            "correct_option_text": by_key.get(q["correct_answer"], ""),
+                            "options": [{"key": str(o.get("key")), "text": str(o.get("text", ""))}
+                                        for o in (q.get("options") or []) if isinstance(o, dict)],
                             "explanation": q.get("explanation", ""), "source_reference": q.get("source_reference", "")})
         else:
             text = str(answer or "")
@@ -435,6 +502,14 @@ def submit_attempt(student, attempt_id, submitted_answers, request=None):
             attempt.evaluation_notes = {"late_by_seconds": elapsed - limit * 60}
         attempt.status = AttemptStatus.SUBMITTED
         attempt.save()
+        from jobs.services import enabled, enqueue
+        if enabled() and any(q["type"] != "mcq" for q in attempt.assessment.questions):
+            enqueue("assessment_grade", str(attempt.id), {"attempt_id": str(attempt.id), "source_text": _source_text(attempt.assessment)},
+                    unique=f"assessment-grade:{attempt.id}")
+            from activity.services import record_event
+            record_event(student, "quiz", attempt.time_taken_seconds, subject=attempt.assessment.subject, module=attempt.assessment.module, reference_id=attempt.id)
+            audit.record(student, "quiz.attempt_submitted", attempt, {"status": "submitted", "evaluation": "queued"}, request)
+            return attempt
     score, results, pending = _grade(attempt.assessment, attempt.submitted_answers)
     with transaction.atomic():
         attempt = _finalize(attempt, score, results, pending)
@@ -523,6 +598,13 @@ def re_evaluate(actor, attempt, overrides=None, request=None):
 
     Model calls happen before the transaction opens (see submit_attempt)."""
     _require_manage(actor, attempt.assessment.subject)
+    from jobs.models import Job
+    job = Job.objects.filter(kind="assessment_grade", target=str(attempt.id)).first()
+    if job and attempt.status in (AttemptStatus.SUBMITTED, AttemptStatus.PENDING_EVALUATION) and not attempt.detailed_results:
+        if job.status == "failed":
+            Job.objects.filter(pk=job.id, status="failed").update(status="pending", attempts=0, available_at=timezone.now(), finished_at=None, error="")
+            return attempt
+        raise Conflict("Evaluation is already queued or running. Your submitted answers are saved.", code="EVALUATION_PENDING")
     if attempt.status == AttemptStatus.IN_PROGRESS:
         raise Conflict("The attempt has not been submitted.", code="NOT_SUBMITTED")
     overrides = overrides or {}

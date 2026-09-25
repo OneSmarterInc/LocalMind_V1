@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run export:web",
+  "outputDirectory": "dist",
+  "rewrites": [
+    { "source": "/((?!api/|_expo/|assets/|offline-files.json|sw.js|favicon.ico).*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    { "source": "/sw.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+    { "source": "/offline-files.json", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
+  ]
+}

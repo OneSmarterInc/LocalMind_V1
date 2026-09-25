@@ -2,7 +2,7 @@
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from ai.gateway import AIResult
 from core.testing import assign, client_for, enroll, make_faculty, make_published_document, make_student, make_subject
@@ -26,6 +26,8 @@ def answer(text="Villi absorb nutrients.", grounded=True, ref="absorbs nutrients
                                                  "follow_up_suggestions": suggestions or []})
 
 
+# Legacy server-generation compatibility coverage.
+@override_settings(DEVICE_AUTHORING_ONLY=False)
 class AskBase(TestCase):
     def setUp(self):
         cache.clear()
@@ -150,3 +152,93 @@ class NoDeadEndsTests(AskBase):
         self.assertEqual(gw.return_value.generate.call_count, 1)
         self.assertEqual(res.data["message"]["content"], "Villi absorb nutrients.")
         self.assertEqual(Message.objects.filter(role="assistant").count(), 2)
+
+
+class OnlyThisModuleTests(AskBase):
+    """The tutor answers from the module or it does not answer.
+
+    The model's own ``grounded`` flag is a claim. A small model will recognise
+    a question from its training data, lift a real phrase out of the section to
+    satisfy the quotation requirement, and answer around it. These are the
+    checks that stop that, so each is tested against a model that lies.
+    """
+
+    @patch("tutor.services.gateway")
+    def test_a_question_with_no_word_in_the_module_never_reaches_the_model(self, gw):
+        gw.return_value.generate.return_value = answer("Narendra Modi is the prime minister.", ref="")
+        res = self.ask("Who is the prime minister of India?")
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertFalse(res.data["message"]["grounded"])
+        self.assertIn("does not cover that", res.data["message"]["content"])
+        gw.return_value.generate.assert_not_called()
+
+    @patch("tutor.services.gateway")
+    def test_honest_paraphrase_is_kept(self, gw):
+        """The check must not punish the model for using its own words. This
+        answers a book that says villi absorb nutrients and shares almost none
+        of its vocabulary, which an overlap rule refused."""
+        gw.return_value.generate.return_value = answer("Villi soak up digested food.")
+        res = self.ask("What do villi do?")
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertTrue(res.data["message"]["grounded"], res.data["message"]["content"])
+
+    @patch("tutor.services.gateway")
+    def test_a_real_quotation_does_not_rescue_an_invented_answer(self, gw):
+        """The hole the quotation check alone left open: quote the section, then
+        state facts the module never mentions."""
+        gw.return_value.generate.return_value = answer(
+            "Villi were first described by Marcello Malpighi in Bologna during the seventeenth century.",
+            ref="absorbs nutrients through villi")
+        res = self.ask("Who discovered villi?")
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertFalse(res.data["message"]["grounded"])
+        self.assertEqual(res.data["message"]["source_reference"], "")
+
+    @patch("tutor.services.gateway")
+    def test_an_answer_built_from_the_section_is_kept(self, gw):
+        gw.return_value.generate.return_value = answer(
+            "The small intestine absorbs nutrients through villi, and villi increase the surface area.")
+        res = self.ask("What do villi do?")
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertTrue(res.data["message"]["grounded"], res.data["message"]["content"])
+
+    @patch("tutor.services.gateway")
+    def test_a_follow_up_with_no_content_words_still_reaches_the_model(self, gw):
+        gw.return_value.generate.return_value = answer(
+            "Villi increase the surface area so the small intestine absorbs nutrients faster.")
+        first = self.ask("What do villi do?")
+        res = self.ask("Why?", first.data["conversation_id"])
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertTrue(res.data["message"]["grounded"])
+
+
+class FollowUpQuestionsTests(AskBase):
+    """"Make it shorter" is an instruction about the last answer, not a new
+    question about the module. Judged as a new question it mentions nothing the
+    module contains, and was refused as off-topic."""
+
+    def test_a_follow_up_is_not_refused_as_off_topic(self):
+        from tutor.services import _is_follow_up
+        for phrase in ["explain the above thing in short", "give me the above in one line",
+                       "make it short", "summarise this", "explain more", "why?"]:
+            self.assertTrue(_is_follow_up(phrase), phrase)
+
+    def test_a_real_question_is_not_mistaken_for_a_follow_up(self):
+        from tutor.services import _is_follow_up
+        for phrase in ["what is training?", "explain encryption in short", "what do villi do?",
+                       "give me two examples of phishing", "summarise the threat landscape"]:
+            self.assertFalse(_is_follow_up(phrase), phrase)
+
+    @patch("tutor.services.gateway")
+    def test_a_follow_up_reaches_the_model(self, gw):
+        """The scope check is what used to stop a follow-up, before any model
+        ran. Assert on that, not on the wording of the answer: whether the
+        answer then survives the grounding checks is a separate question with
+        its own tests."""
+        gw.return_value.generate.return_value = answer(
+            "Villi increase the surface area so nutrients are absorbed faster.")
+        first = self.ask("What do villi do?")
+        gw.return_value.generate.reset_mock()
+        res = self.ask("make it shorter", first.data["conversation_id"])
+        self.assertEqual(res.status_code, 201, res.content)
+        gw.return_value.generate.assert_called()

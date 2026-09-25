@@ -1,17 +1,21 @@
+import { deleteSubjectFlow } from "@/screens/admin/deleteSubject";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useEffect, useMemo, useState } from "react";
+import { useDraft } from "@/hooks/useDraft";
+import { confirmLeave } from "@/hooks/unsavedGuard";
+import { useTabParam } from "@/hooks/useTabParam";
+import React, { useMemo, useState } from "react";
 import { Text, View } from "react-native";
 import { admin, manage } from "@/api/endpoints";
 import { useAction, useAsync } from "@/hooks/useAsync";
-import { Badge, Button, Card, CardHead, CellText, Column, DangerZone, DetailList, Empty, ErrorBanner, Input, Loading, Notice, OptionCard, PageHeading, PageTabs, ProgressBar, Screen, Split, Table, colors, confirmAsync, confirmDeleteAsync, pct, RequestFailed } from "@/ui";
+import { Badge, Button, Card, CardHead, CellText, Column, DangerZone, DetailList, Empty, ErrorBanner, Input, Loading, Notice, OptionCard, PageHeading, PageTabs, ProgressBar, Screen, Split, Table, colors, confirmAsync, pct, RequestFailed } from "@/ui";
 import { StudentPicker } from "@/ui/StudentPicker";
 
 type Tab = "details" | "faculty" | "students";
 
 export default function AdminSubject() {
-  const { id, tab: t } = useLocalSearchParams<{ id: string; tab?: Tab }>();
-  const [tab, setTab] = useState<Tab>(t ?? "details");
-  const q = useAsync(() => admin.subject(id), [id]);
+  const { id } = useLocalSearchParams<{ id: string; tab?: Tab }>();
+  const [tab, setTab] = useTabParam<Tab>("details", ["details", "faculty", "students"]);
+  const q = useAsync(() => admin.subject(id), [id], [id]);
   const s = q.data;
   const activeFaculty = (s?.faculty ?? []).filter((f) => f.status === "active");
   return (
@@ -21,11 +25,11 @@ export default function AdminSubject() {
       {s ? (
         <>
           <PageHeading eyebrow="SUBJECTS" title={s.name} subtitle={`${s.code} · Manage the subject and its access.`} right={<Badge value={s.status.charAt(0).toUpperCase() + s.status.slice(1)} tone={s.status === "active" ? "green" : "neutral"} />} />
-          <PageTabs<Tab> value={tab} onChange={setTab} tabs={[{ key: "details", label: "Subject details" }, { key: "faculty", label: "Assigned faculty", count: activeFaculty.length }, { key: "students", label: "Enrolled students", count: s.active_students ?? null }]} />
+          <PageTabs<Tab> value={tab} onChange={(next) => { void confirmLeave().then(ok => { if (ok) setTab(next); }); }} tabs={[{ key: "details", label: "Subject details" }, { key: "faculty", label: "Assigned faculty", count: activeFaculty.length }, { key: "students", label: "Enrolled students", count: s.active_students ?? null }]} />
           {tab === "details" ? <DetailsTab subject={s} onChanged={q.reload} /> : null}
           {tab === "faculty" ? <FacultyTab subjectId={id} faculty={activeFaculty} onChanged={q.reload} /> : null}
           {tab === "students" ? <StudentsTab subjectId={id} /> : null}
-          {s.status === "archived" ? <Notice tone="warning" message="Archived subjects are read-only for teaching. Delete removes the subject and its content for good." /> : null}
+          {s.status === "archived" ? <Notice inline tone="warning" message="This subject is archived. Unarchive it to restore teaching access and keep its existing records." /> : null}
           <View style={{ height: 4 }} />
         </>
       ) : null}
@@ -35,28 +39,28 @@ export default function AdminSubject() {
 
 function DetailsTab({ subject: s, onChanged }: { subject: any; onChanged: () => void }) {
   const router = useRouter();
-  const [name, setName] = useState(s.name);
-  const [code, setCode] = useState(s.code);
-  const [description, setDescription] = useState(s.description ?? "");
+  const source = useMemo(() => ({ id: String(s.id), name: String(s.name), code: String(s.code), description: String(s.description ?? "") }), [s]);
+  const { draft, edit, dirty, discard, markSaved } = useDraft(source, { label: () => "this subject", save: async () => (await save.run()) === true });
+  const { name, code, description } = draft ?? source;
+  const setName = (name: string) => edit(d => ({ ...d, name }));
+  const setCode = (code: string) => edit(d => ({ ...d, code }));
+  const setDescription = (description: string) => edit(d => ({ ...d, description }));
   const [saved, setSaved] = useState(false);
-  useEffect(() => { setName(s.name); setCode(s.code); setDescription(s.description ?? ""); }, [s]);
   const stats = useAsync(async () => (await admin.platformSubjects()).subjects.find((x: any) => x.subject_id === s.id) ?? null, [s.id]);
-  const dirty = name !== s.name || code !== s.code || description !== (s.description ?? "");
-  const save = useAction(async () => { await admin.updateSubject(s.id, { name: name.trim(), code: code.trim().toUpperCase(), description: description.trim() }); setSaved(true); onChanged(); });
+  const save = useAction(async () => { if (!draft || !name.trim() || !code.trim()) return false; const sent = draft; await admin.updateSubject(s.id, { name: name.trim(), code: code.trim().toUpperCase(), description: description.trim() }); markSaved(sent); setSaved(true); onChanged(); return true; });
   const status = useAction(async (next: string) => {
     const text: Record<string, [string, string]> = {
       discontinued: ["Discontinue this subject?", "Faculty and students keep their records, but the subject is no longer active."],
       archived: ["Archive this subject?", "The subject becomes read-only. Its records stay for reference."],
-      active: ["Reactivate this subject?", "Faculty and enrolled students can use it again."],
+      active: [s.status === "archived" ? "Unarchive this subject?" : "Reactivate this subject?", "Faculty and enrolled students can use it again."],
     };
-    if (!(await confirmAsync(text[next][0], text[next][1], next === "active" ? "Reactivate" : next === "archived" ? "Archive subject" : "Discontinue subject", "Cancel", { tone: next === "active" ? "primary" : "warning" }))) return;
+    if (!(await confirmAsync(text[next][0], text[next][1], next === "active" ? (s.status === "archived" ? "Unarchive subject" : "Reactivate") : next === "archived" ? "Archive subject" : "Discontinue subject", "Cancel", { tone: next === "active" ? "primary" : "warning" }))) return;
     await admin.subjectStatus(s.id, next); onChanged();
   });
   const remove = useAction(async () => {
-    const ok = await confirmDeleteAsync("Delete this subject?", "This permanently removes the subject along with its books, modules, quizzes, assignments, submissions and enrolment records. It cannot be undone.", { detail: `${s.code} · ${s.name}`, okLabel: "Delete subject" });
-    if (!ok) return;
-    await admin.deleteSubject(s.id);
-    router.replace({ pathname: "/admin/subjects", params: { notice: `${s.code} · ${s.name} was deleted.` } });
+    const done = await deleteSubjectFlow(s, { students: stats.data?.students_enrolled ?? s.active_students, books: stats.data?.documents_published });
+    if (done === "deleted") router.replace({ pathname: "/admin/subjects", params: { notice: `${s.code} · ${s.name} was deleted.` } });
+    else if (done === "archived") onChanged();
   });
   return (
     <>
@@ -64,13 +68,13 @@ function DetailsTab({ subject: s, onChanged }: { subject: any; onChanged: () => 
       main={
         <Card>
           <CardHead title="Subject information" />
-          <Input label="Subject name" required value={name} onChangeText={(v) => { setSaved(false); setName(v); }} />
-          <Input label="Subject code" required value={code} onChangeText={(v) => { setSaved(false); setCode(v); }} autoCapitalize="characters" hint="Existing identifier; changing a subject code should follow your institution’s naming rules." />
+          <Input label="Subject name" required placeholder="For example, Introduction to Cybersecurity" value={name} onChangeText={(v) => { setSaved(false); setName(v); }} />
+          <Input label="Subject code" required placeholder="For example, CS101" value={code} onChangeText={(v) => { setSaved(false); setCode(v); }} autoCapitalize="characters" hint="Existing identifier; changing a subject code should follow your institution’s naming rules." />
           <Input label="Description" multiline value={description} onChangeText={(v) => { setSaved(false); setDescription(v); }} placeholder="A short description for faculty and students." />
           <ErrorBanner message={save.error} />
           {saved && !dirty ? <Notice tone="success" message="Subject saved." /> : null}
           <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 9, paddingTop: 18, borderTopWidth: 1, borderTopColor: colors.border }}>
-            <Button title="Cancel" variant="secondary" disabled={!dirty} onPress={() => { setName(s.name); setCode(s.code); setDescription(s.description ?? ""); }} />
+            <Button title="Cancel" variant="secondary" disabled={!dirty} onPress={discard} />
             <Button title="Save subject" icon="checkmark" onPress={() => save.run()} busy={save.busy} disabled={!dirty || !name.trim() || !code.trim()} />
           </View>
         </Card>
@@ -88,7 +92,7 @@ function DetailsTab({ subject: s, onChanged }: { subject: any; onChanged: () => 
             <View style={{ height: 1, backgroundColor: colors.border }} />
             <Button title="Open content workspace" variant="secondary" icon="book-outline" full onPress={() => router.push({ pathname: "/manage/books", params: { subject: s.id } })} />
             <View style={{ height: 1, backgroundColor: colors.border }} />
-            {s.status === "active" ? <Button title="Discontinue subject" variant="secondary" full onPress={() => status.run("discontinued")} busy={status.busy} /> : <Button title="Reactivate subject" full onPress={() => status.run("active")} busy={status.busy} />}
+            {s.status === "active" ? <Button title="Discontinue subject" variant="secondary" full onPress={() => status.run("discontinued")} busy={status.busy} /> : <Button title={s.status === "archived" ? "Unarchive subject" : "Reactivate subject"} full onPress={() => status.run("active")} busy={status.busy} />}
             {s.status !== "archived" ? <Button title="Archive subject" variant="secondary" icon="archive-outline" full onPress={() => status.run("archived")} busy={status.busy} /> : null}
             <ErrorBanner message={status.error} />
           </Card>
@@ -161,14 +165,14 @@ function StudentsTab({ subjectId }: { subjectId: string }) {
     { key: "p", label: "Progress", flex: 1.3, render: (r) => <View style={{ gap: 5, width: "100%" }}><ProgressBar value={r.completion_percentage} /><Text style={{ fontSize: 11, color: colors.muted }}>{pct(r.completion_percentage)} completed</Text></View> },
     { key: "q", label: "Best quiz", flex: 0.7, render: (r) => pct(r.best_quiz_percentage) },
     { key: "s", label: "Learning status", flex: 1, render: (r) => { const [l, tone] = status(r); return <Badge value={l} tone={tone} />; } },
-    { key: "x", label: "", flex: 1, render: (r) => <Button title="View progress" small variant="secondary" onPress={() => router.push({ pathname: "/manage/student/[id]", params: { id: r.student_id, subject: subjectId } })} /> },
+    { key: "x", label: "", flex: 1, render: (r) => <Button title="View progress" small variant="secondary" onPress={() => router.push({ pathname: "/manage/student/[id]", params: { id: r.student_id, subject: subjectId, workspace: "admin" } })} /> },
   ];
   return (
     <>
       {picking ? (
         <Card>
           <CardHead title="Enroll students" subtitle="Search existing student accounts. Create new accounts from People." action={<Button title="Done" small variant="secondary" onPress={() => setPicking(false)} />} />
-          <StudentPicker subjectId={subjectId} search={admin.searchStudents} enrol={(ids) => admin.enroll(subjectId, ids)} onDone={rows.reload} />
+          <StudentPicker subjectId={subjectId} search={admin.searchStudents} enroll={(ids) => admin.enroll(subjectId, ids)} onDone={rows.reload} />
         </Card>
       ) : null}
       <ErrorBanner message={rows.error ?? drop.error} onRetry={rows.reload} />

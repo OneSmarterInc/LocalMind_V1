@@ -7,7 +7,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from academics.models import EnrollmentStatus
-from core.exceptions import Forbidden, NotFound
+from core.exceptions import Conflict, Forbidden, NotFound
 from documents.models import Document, DocumentStatus
 
 from .models import Module, ModuleAvailability, ModuleProgress, ProgressStatus
@@ -43,6 +43,8 @@ def resolve_accessible_module(student, module_id):
         module = student_module_queryset(student).select_related("chapter__document__subject").get(pk=module_id)
     except (Module.DoesNotExist, ValueError, TypeError):
         raise NotFound("Module not found.")
+    if not (module.source_text or "").strip():
+        raise Conflict("This module has no stored source text. Ask faculty to correct it.", code="MODULE_SOURCE_MISSING")
     if module.availability != ModuleAvailability.OPEN:
         raise Forbidden("This module has not been opened by faculty.", code="MODULE_LOCKED")
     return module

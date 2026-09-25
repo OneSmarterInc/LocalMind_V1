@@ -11,7 +11,6 @@ from academics.models import Subject
 from accounts.models import User
 from accounts.services.users import NewUser, create_user
 from assessments.services import assessments as quizzes
-from assignments import services as assignments
 from documents.models import Document, DocumentStatus
 from learning.models import Chapter, Module
 
@@ -64,10 +63,7 @@ class Command(BaseCommand):
             MCQ("What does the scheduler choose?", ["A file", "The next ready process", "A page size", "A directory"], "B", "The scheduler decides which ready process runs next."),
         ])
         quizzes.set_status(faculty[0], quiz, "published")
-        assignment = assignments.create(faculty[0], module_id=str(os_module.id), title="Scheduling essay", max_score=10,
-                                        description="Compare round robin and priority scheduling.",
-                                        rubric=[{"criterion": "Accuracy", "points": 6}, {"criterion": "Clarity", "points": 4}])
-        assignments.set_status(faculty[0], assignment, "published")
+
 
         pw = settings.LOCALMIND["INITIAL_USER_PASSWORD"]
         self.stdout.write(self.style.SUCCESS(f"Seeded. All accounts use the initial password '{pw}' and must change it at first login."))

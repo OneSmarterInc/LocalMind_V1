@@ -80,6 +80,7 @@ class ModuleProgress(TimeStampedUUIDModel):
     started_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     last_viewed_at = models.DateTimeField(null=True, blank=True)
+    lesson_viewed_at = models.DateTimeField(null=True, blank=True)
     best_quiz_percentage = models.FloatField(null=True, blank=True)
     quiz_attempts = models.PositiveIntegerField(default=0)
     learning_seconds = models.PositiveIntegerField(default=0)
@@ -92,3 +93,14 @@ class ModuleProgress(TimeStampedUUIDModel):
 
     def __str__(self):
         return f"{self.student.email} / {self.module.title}: {self.status}"
+
+
+class CourseSyncReceipt(TimeStampedUUIDModel):
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='course_sync_receipts')
+    event_id = models.UUIDField()
+    payload_hash = models.CharField(max_length=64)
+    response = models.JSONField(default=dict)
+    attempt = models.ForeignKey('assessments.AssessmentAttempt', null=True, blank=True, on_delete=models.SET_NULL)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['student', 'event_id'], name='unique_student_sync_event')]

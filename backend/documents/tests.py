@@ -86,8 +86,9 @@ class ParserAndOutlineTests(TestCase):
         sections = extract_sections_from_markdown(SAMPLE_MD)
         outline = source_hierarchy_outline("book.pdf", sections)
         self.assertEqual([c["title"] for c in outline["chapters"]], ["Operating Systems", "Networks"])
-        self.assertEqual([m["title"] for m in outline["chapters"][0]["modules"]], ["Process Management", "Memory Management"])
-        self.assertEqual(outline["chapters"][0]["modules"][0]["source_heading_index"], 1)
+        self.assertEqual([m["title"] for m in outline["chapters"][0]["modules"]], ["Operating Systems: Overview", "Process Management", "Memory Management"])
+        self.assertEqual(outline["chapters"][0]["modules"][1]["source_heading_index"], 1)
+        self.assertIn("Intro paragraph", outline["chapters"][0]["modules"][0]["source_text"])
 
     def _doc(self):
         subject = make_subject()
@@ -112,6 +113,7 @@ class ParserAndOutlineTests(TestCase):
         self.assertIsNone(ai_outline(self._doc(), fake_parse(None)["headings"]))
 
     @patch("documents.services.outline.gateway")
+    @override_settings(DEVICE_AUTHORING_ONLY=False)
     def test_ai_outline_keeps_source_index_mapping(self, gw):
         from ai.gateway import AIResult
         gw.return_value.generate.return_value = AIResult(ok=True, data={"document_title": "OS Course", "chapters": [
@@ -133,14 +135,11 @@ class ParserAndOutlineTests(TestCase):
             {"title": "C", "source_heading_index": 0,
              "modules": [{"title": "Real", "source_heading_index": 1}, {"title": "Ghost", "source_heading_index": None}]},
             {"title": "Empty chapter", "modules": [{"title": "Also ghost", "source_heading_index": None, "source_text": "   "}]}]}
-        report = persist_outline(doc, outline, parsed["sections"], user_edited=True)
-        self.assertFalse(Module.objects.filter(title__in=["Ghost", "Also ghost"]).exists())
-        self.assertTrue(Module.objects.filter(title="Real", source_missing=False).exists())
-        self.assertFalse(Chapter.objects.filter(document=doc, title="Empty chapter").exists())
-        self.assertEqual({m["title"] for m in report["removed_empty_modules"]}, {"Ghost", "Also ghost"})
-        self.assertEqual([c["title"] for c in report["removed_empty_chapters"]], ["Empty chapter"])
-        # Orders stay contiguous after the drop.
-        self.assertEqual(list(Chapter.objects.filter(document=doc).values_list("order", flat=True)), [1])
+        with self.assertRaises(ValidationFailed) as ctx:
+            persist_outline(doc, outline, parsed["sections"], user_edited=True)
+        self.assertEqual(ctx.exception.code, "EMPTY_SOURCE_TEXT")
+        self.assertFalse(Module.objects.filter(chapter__document=doc).exists())
+        self.assertFalse(Chapter.objects.filter(document=doc).exists())
 
     def test_an_outline_with_no_text_anywhere_is_refused(self):
         doc = self._doc()
@@ -148,8 +147,31 @@ class ParserAndOutlineTests(TestCase):
         outline = {"document_title": "T", "chapters": [{"title": "C", "modules": [{"title": "Ghost", "source_heading_index": None}]}]}
         with self.assertRaises(ValidationFailed) as ctx:
             persist_outline(doc, outline, parsed["sections"], user_edited=True)
-        self.assertEqual(ctx.exception.code, "NO_SOURCE_TEXT")
+        self.assertEqual(ctx.exception.code, "EMPTY_SOURCE_TEXT")
         self.assertFalse(Module.objects.filter(chapter__document=doc).exists())
+
+    def test_a_custom_title_survives_processing(self):
+        """A title the person typed at upload must not be replaced by the
+        outline's file-name-derived title once the book is processed."""
+        subject = make_subject()
+        doc = Document.objects.create(subject=subject, original_name="leph101.pdf",
+                                      title="Electric Charges and Fields", title_is_custom=True, file_type="pdf")
+        parsed = fake_parse(None)
+        persist_outline(doc, source_hierarchy_outline("leph101.pdf", parsed["sections"]), parsed["sections"])
+        doc.refresh_from_db()
+        self.assertEqual(doc.title, "Electric Charges and Fields")
+
+    def test_an_auto_derived_title_is_still_replaced_by_the_outline(self):
+        """When the person gave no title, the outline may still name the book."""
+        subject = make_subject()
+        doc = Document.objects.create(subject=subject, original_name="leph101.pdf",
+                                      title="leph101", title_is_custom=False, file_type="pdf")
+        parsed = fake_parse(None)
+        outline = source_hierarchy_outline("leph101.pdf", parsed["sections"])
+        outline["document_title"] = "Chapter One"
+        persist_outline(doc, outline, parsed["sections"])
+        doc.refresh_from_db()
+        self.assertEqual(doc.title, "Chapter One")
 
     def test_persist_outline_reconciles_existing_ids(self):
         doc = self._doc()
@@ -183,9 +205,12 @@ class DocumentLifecycleTests(TestCase):
         assign(self.other_faculty, self.other_subject)
         enroll(self.student, self.subject)
 
-    def upload(self, client=None, subject=None, **kw):
+    def upload(self, client=None, subject=None, title=None, **kw):
         client = client or client_for(self.faculty)
-        return client.post("/api/faculty/documents/", {"subject_id": str((subject or self.subject).id), "file": pdf_upload(**kw)}, format="multipart")
+        body = {"subject_id": str((subject or self.subject).id), "file": pdf_upload(**kw)}
+        if title is not None:
+            body["title"] = title
+        return client.post("/api/faculty/documents/", body, format="multipart")
 
     def test_student_cannot_upload(self, _):
         res = client_for(self.student).post("/api/faculty/documents/", {"subject_id": str(self.subject.id), "file": pdf_upload()}, format="multipart")
@@ -203,6 +228,19 @@ class DocumentLifecycleTests(TestCase):
         res = self.upload(name="fake.pdf", content=b"not a pdf at all")
         self.assertEqual(res.status_code, 400)
         self.assertEqual(res.data["error"]["code"], "FILE_CONTENT_MISMATCH")
+
+    def test_a_typed_title_is_kept_and_marked_custom(self, _):
+        res = self.upload(title="Electric Charges and Fields", name="leph101.pdf")
+        self.assertEqual(res.status_code, 201, res.content)
+        doc = Document.objects.get(pk=res.data["id"])
+        self.assertEqual(doc.title, "Electric Charges and Fields")
+        self.assertTrue(doc.title_is_custom)
+
+    def test_no_title_falls_back_to_the_file_name_and_is_not_custom(self, _):
+        res = self.upload(name="leph101.pdf")
+        doc = Document.objects.get(pk=res.data["id"])
+        self.assertEqual(doc.title, "leph101")
+        self.assertFalse(doc.title_is_custom)
 
     def test_upload_stores_under_document_id_not_client_name(self, _):
         res = self.upload(name="../../evil.pdf")
@@ -222,10 +260,10 @@ class DocumentLifecycleTests(TestCase):
     def test_processing_creates_mapped_structure_and_review_state(self, _):
         client, doc = self._processed_doc()
         self.assertEqual(doc.status, DocumentStatus.UNDER_REVIEW)
-        self.assertEqual(doc.outline_source, "source_hierarchy")  # AI disabled in tests
+        self.assertEqual(doc.outline_source, "reading_units")  # deterministic, no central AI
         self.assertEqual(doc.chapters.count(), 2)
         module = Module.objects.get(chapter__document=doc, title="Process Management")
-        self.assertEqual(module.source_heading_index, 1)
+        self.assertIsNone(module.source_heading_index)  # grouped source is an exact materialized copy
         self.assertIn("Processes are programs", module.source_text)
         self.assertEqual(module.availability, "locked")
         self.assertTrue(AuditLog.objects.filter(action="document.processed", target_id=str(doc.id)).exists())
@@ -317,6 +355,7 @@ class DocumentLifecycleTests(TestCase):
         client.post(f"/api/faculty/documents/{doc.id}/publish/")
         self.assertEqual(client.post(f"/api/faculty/documents/{doc.id}/unpublish/").data["status"], "unpublished")
         self.assertEqual(client.post(f"/api/faculty/documents/{doc.id}/archive/").data["status"], "archived")
+        self.assertEqual(client.post(f"/api/faculty/documents/{doc.id}/archive/").status_code, 200)
         self.assertEqual(client.post(f"/api/faculty/documents/{doc.id}/process/").status_code, 409)
 
     def test_the_same_book_cannot_be_uploaded_twice_to_one_subject(self, _):
@@ -352,6 +391,9 @@ class DocumentLifecycleTests(TestCase):
         from learning.models import Chapter, Module
 
         client, doc = self._processed_doc()
+        # Exercise the editing guard against a saved legacy multi-module outline.
+        sections = fake_parse(None)["sections"]
+        persist_outline(doc, source_hierarchy_outline(doc.original_name, sections), sections)
         client.post(f"/api/faculty/documents/{doc.id}/publish/")
         outline = client.get(f"/api/faculty/documents/{doc.id}/outline/").data
         chapter = outline["chapters"][0]
@@ -377,6 +419,9 @@ class DocumentLifecycleTests(TestCase):
         from learning.models import Module, ModuleProgress
 
         client, doc = self._processed_doc()
+        # Exercise the editing guard against a saved legacy multi-module outline.
+        sections = fake_parse(None)["sections"]
+        persist_outline(doc, source_hierarchy_outline(doc.original_name, sections), sections)
         client.post(f"/api/faculty/documents/{doc.id}/publish/")
         outline = client.get(f"/api/faculty/documents/{doc.id}/outline/").data
         chapter = outline["chapters"][0]
@@ -502,9 +547,14 @@ class StudentAccessTests(TestCase):
         self.fc.post(f"/api/faculty/documents/{self.doc.id}/publish/")
         self.fc.post(f"/api/faculty/modules/{self.module.id}/availability/", {"availability": "locked"}, format="json")
         sc = client_for(self.student)
-        listing = sc.get(f"/api/student/documents/{self.doc.id}/").data
-        self.assertEqual(listing["chapters"][0]["modules"][0]["availability"], "locked")
-        self.assertNotIn("source_text", listing["chapters"][0]["modules"][0])
+        listed = sc.get(f"/api/student/documents/{self.doc.id}/")
+        self.assertEqual(listed.status_code, 200, listed.content)
+        modules = {str(m["id"]): m for c in listed.data["chapters"] for m in c["modules"]}
+        # A preserved chapter introduction can now precede this module.
+        self.assertIn(str(self.module.id), modules)
+        locked = modules[str(self.module.id)]
+        self.assertEqual(locked["availability"], "locked")
+        self.assertNotIn("source_text", locked)
         res = sc.get(f"/api/student/modules/{self.module.id}/")
         self.assertEqual(res.status_code, 403)
         self.assertEqual(res.data["error"]["code"], "MODULE_LOCKED")
@@ -778,7 +828,9 @@ class PdfParsingTests(TestCase):
             self.assertEqual(len(built), 2)
             ocr_opts = built[1][InputFormat.PDF].pipeline_options
             self.assertTrue(ocr_opts.do_ocr)
-            self.assertFalse(ocr_opts.do_table_structure)
+            # Table extraction is enabled for both PDF passes.
+            self.assertTrue(ocr_opts.do_table_structure)
+            self.assertTrue(built[0][InputFormat.PDF].pipeline_options.do_table_structure)
             self.assertEqual(ocr_opts.ocr_options.mode, "full_page")
             parser.release_document_models()
             d = parser._get_converter(use_ocr=False)

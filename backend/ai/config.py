@@ -55,7 +55,7 @@ _PROFILES = {
 # room so two quizzes on the same module differ.
 _SAMPLING = {
     "tutor": (0.2, 0.9),
-    "quiz": (0.7, 0.9),
+    "quiz": (0.2, 0.9),
     "lesson": (0.3, 0.9),
     "remediation": (0.2, 0.9),
     "outline": (0.0, 0.1),

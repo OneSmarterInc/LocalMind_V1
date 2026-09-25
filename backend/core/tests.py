@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.db import connection
-from django.test import TestCase, TransactionTestCase
+from django.test import TestCase, TransactionTestCase, override_settings
 
 from ai.gateway import AIResult
 from assessments.models import AssessmentAttempt, AttemptStatus
@@ -23,6 +23,8 @@ def _no_transaction_open(**kwargs):
     return AIResult(ok=False, error_code="disabled", error="disabled")
 
 
+# Legacy server-generation compatibility coverage.
+@override_settings(DEVICE_AUTHORING_ONLY=False)
 class NoTransactionDuringModelCallTests(TransactionTestCase):
     def setUp(self):
         self.faculty = make_faculty()
@@ -58,13 +60,6 @@ class NoTransactionDuringModelCallTests(TransactionTestCase):
             gw.return_value.generate.side_effect = answer
             res = self.fc.post("/api/faculty/quizzes/generate/", {"module_id": str(self.module.id), "num_mcqs": 1}, format="json")
         self.assertEqual(res.status_code, 201, res.content)
-        self.assertEqual(gw.return_value.generate.call_count, 1)
-
-    def test_assignment_generation(self):
-        with patch("assignments.services.gateway") as gw:
-            gw.return_value.generate.side_effect = _no_transaction_open
-            res = self.fc.post("/api/faculty/assignments/generate/", {"module_id": str(self.module.id)}, format="json")
-        self.assertIn(res.status_code, (200, 201), res.content)
         self.assertEqual(gw.return_value.generate.call_count, 1)
 
     def test_submit_and_reevaluate_with_subjective_grading(self):
@@ -141,6 +136,16 @@ class HealthDisclosureTests(TestCase):
 
     PRIVATE_KEYS = {"details", "error", "tutor_model", "outline_model"}
 
+    def setUp(self):
+        """Pin the proxy count. Whether a loopback address means "the operator at
+        the keyboard" depends on it, so a deployment's own TRUSTED_PROXY_COUNT
+        must not decide what these tests assert. Each test states the case it is
+        about: nothing in front here, a proxy in front below."""
+        super().setUp()
+        direct = self.settings(REST_FRAMEWORK={**settings.REST_FRAMEWORK, "NUM_PROXIES": 0})
+        direct.enable()
+        self.addCleanup(direct.disable)
+
     def _get(self, url, client=None, remote="203.0.113.9"):
         from core.testing import client_for
         return (client or client_for()).get(url, REMOTE_ADDR=remote)
@@ -158,7 +163,25 @@ class HealthDisclosureTests(TestCase):
         res = client_for().get("/api/health/?full=1", REMOTE_ADDR="203.0.113.9", HTTP_X_FORWARDED_FOR="127.0.0.1")
         self.assertNotIn("system", res.data)
 
+    def test_a_proxy_in_front_ends_the_loopback_exception(self):
+        """Tailscale Funnel, `tailscale serve` and the like forward to 127.0.0.1
+        without passing the caller's address on, so every visitor arrives as
+        loopback. Once a proxy is declared, the address identifies nobody and
+        only an administrator token opens the report."""
+        from django.test import override_settings
+
+        from core.testing import client_for, make_admin
+        proxied = {**settings.REST_FRAMEWORK, "NUM_PROXIES": 1}  # over setUp's 0
+        with override_settings(REST_FRAMEWORK=proxied):
+            self.assertNotIn("system", self._get("/api/health/?full=1", remote="127.0.0.1").data)
+            self.assertFalse(self.PRIVATE_KEYS & set(self._get("/api/health/", remote="127.0.0.1").data["ai"]))
+            self.assertNotIn("system", self._get("/api/health/?full=1", remote="::1").data)
+            # The administrator keeps the report wherever the request comes from.
+            self.assertIn("system", self._get("/api/health/?full=1", client=client_for(make_admin()), remote="127.0.0.1").data)
+
     def test_admin_and_loopback_get_the_component_report(self):
+        """With nothing proxying in front (see setUp), a request from the machine
+        itself is the operator, and `curl` on the host needs no token."""
         from core.testing import client_for, make_admin
         self.assertIn("system", self._get("/api/health/?full=1", client=client_for(make_admin())).data)
         self.assertIn("system", self._get("/api/health/?full=1", remote="127.0.0.1").data)

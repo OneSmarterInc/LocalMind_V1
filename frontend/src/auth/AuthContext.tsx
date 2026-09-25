@@ -1,7 +1,11 @@
+import { clearDraftStash } from "@/hooks/draftStash";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import {prepareAppFiles} from "@/offline/appFiles";
+import {onConnectivityChange} from "@/offline/connectivity";
 import { AppState } from "react-native";
 import { ApiError, tokenStore } from "@/api/client";
 import { META, clearAll, readEntry, setOfflineScope, writeEntry } from "@/offline/store";
+import { clearSectionMemory } from "@/ui/sectionMemory";
 import { clearSessionExpired, markSessionExpired } from "./sessionNotice";
 import { startOfflineSync, stopOfflineSync, syncNow } from "@/offline/sync";
 import { auth as authApi } from "@/api/endpoints";
@@ -28,18 +32,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // person on this device must not see another student's lessons or scores.
   const clear = useCallback(async () => {
     // Drop the scope first: a download or request still in flight can no longer write.
-    setOfflineScope(null); stopOfflineSync(); await clearAll();
+    clearDraftStash(); clearSectionMemory(); setOfflineScope(null); stopOfflineSync(); await clearAll();
     await tokenStore.set(null); setUser(null); setMustChange(false); setSessionId(null);
   }, []);
 
-  /** Remember who this device's offline copy belongs to, and keep it fresh for students. */
+  /** Remember who this device's offline copy belongs to, and keep it fresh for every role. */
   const adopt = useCallback(async (me: User) => {
     const owner = await readEntry<string>(META.owner);
-    if (owner && owner !== me.id) { setOfflineScope(null); stopOfflineSync(); await clearAll(); }
+    if (owner && owner !== me.id) { clearDraftStash(); setOfflineScope(null); stopOfflineSync(); await clearAll(); }
     setOfflineScope(me.id);
     await writeEntry(META.owner, me.id);
     await writeEntry(META.me, me);
-    if (me.role === "student" && !me.must_change_password) void startOfflineSync(); else stopOfflineSync();
+    if (!me.must_change_password) void startOfflineSync(me.role); else stopOfflineSync();
   }, []);
 
   useEffect(() => {
@@ -48,20 +52,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const t = await tokenStore.load();
       if (t) {
         try {
-          const me = await authApi.me(); setUser(me); setMustChange(me.must_change_password); setSessionId(t.session_id ?? null);
-          void adopt(me);
+          const me = await authApi.me(); await adopt(me); setUser(me); setMustChange(me.must_change_password); setSessionId(t.session_id ?? null);
+
         } catch (e) {
           // No server: carry on with the saved profile so a student can keep
           // studying what was downloaded. Only a real rejection signs out.
-          const saved = e instanceof ApiError && e.code === "NETWORK" ? await readEntry<User>(META.me) : undefined;
-          if (saved) { setOfflineScope(saved.id); setUser(saved); setMustChange(false); setSessionId(t.session_id ?? null); if (saved.role === "student") void startOfflineSync(); }
-          else await clear();
+          const rejected = e instanceof ApiError && (e.status === 401 || e.status === 403);
+          const saved = !rejected ? await readEntry<User>(META.me) : undefined;
+          if (saved) { setOfflineScope(saved.id); setUser(saved); setMustChange(saved.must_change_password); setSessionId(t.session_id ?? null); if (!saved.must_change_password) void startOfflineSync(saved.role); }
+          else if (rejected) await clear();
         }
       }
       setReady(true);
     })();
     return () => tokenStore.setSessionLostHandler(null);
   }, [clear, adopt]);
+
+  // Install/update public offline assets for every role without a setup click.
+  useEffect(() => {
+    if (!ready || !user || mustChange) return;
+    const prepare = () => { void prepareAppFiles(); };
+    prepare();
+    const off = onConnectivityChange(online => { if (online) prepare(); });
+    const timer = setInterval(prepare, 60000);
+    const sub = AppState.addEventListener('change', state => { if (state === 'active') prepare(); });
+    return () => { off(); clearInterval(timer); sub.remove(); };
+  }, [ready, user, mustChange]);
 
   // Heartbeat while a user is signed in and the app is in the foreground.
   useEffect(() => {
@@ -71,7 +87,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const sub = AppState.addEventListener("change", (s) => {
       if (s === "active") {
         if (user) authApi.heartbeat(sessionId).catch(() => {});
-        if (user?.role === "student") void syncNow();  // back in the app: refresh the offline copy
+        if (user && !user.must_change_password) void syncNow();  // back in the app: refresh the offline copy
         start();
       } else stop();
     });
@@ -82,8 +98,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     clearSessionExpired();
     const res = await authApi.login(role, email, password);
     await tokenStore.set({ access: res.access, refresh: res.refresh, session_id: res.session_id });
+    await adopt({ ...res.user, must_change_password: res.must_change_password });
     setUser(res.user); setMustChange(res.must_change_password); setSessionId(res.session_id);
-    void adopt({ ...res.user, must_change_password: res.must_change_password });
     return res;
   }, [adopt]);
 
@@ -91,8 +107,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const res = await authApi.changePassword(current, next);
     const t = tokenStore.get();
     await tokenStore.set({ access: res.access, refresh: res.refresh, session_id: t?.session_id ?? null });
+    await adopt({ ...res.user, must_change_password: false });
     setUser(res.user); setMustChange(false);
-    void adopt({ ...res.user, must_change_password: false });
   }, [adopt]);
 
   const logout = useCallback(async () => {
@@ -101,7 +117,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await clear();
   }, [clear]);
 
-  const refreshUser = useCallback(async () => { const me = await authApi.me(); setUser(me); setMustChange(me.must_change_password); }, []);
+  // Write the fresh account to the device store too: that saved copy is what a
+  // person sees while offline, so an edit made here must not leave it stale.
+  const refreshUser = useCallback(async () => {
+    const me = await authApi.me();
+    await writeEntry(META.me, me).catch(() => {});
+    setUser(me); setMustChange(me.must_change_password);
+  }, []);
 
   const value = useMemo(() => ({ ready, user, mustChangePassword: mustChange, sessionId, login, completePasswordChange, logout, refreshUser }),
     [ready, user, mustChange, sessionId, login, completePasswordChange, logout, refreshUser]);

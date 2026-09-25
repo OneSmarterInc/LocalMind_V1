@@ -160,6 +160,17 @@ def extract_sections_from_markdown(markdown: str):
         )
 
     sections = []
+    if heading_rows:
+        before = lines[:heading_rows[0]["line_number"]]
+        preamble = _clean_source_text("\n".join(before))
+        if preamble:
+            nonblank = [i for i, line in enumerate(before) if line.strip()]
+            sections.append({
+                "index": -1, "level": min(h["level"] for h in heading_rows),
+                "title": "Introduction", "source_text": preamble, "own_text": preamble,
+                "start_page": line_pages[nonblank[0]] if nonblank else None,
+                "end_page": line_pages[nonblank[-1]] if nonblank else None,
+            })
 
     for position, heading in enumerate(heading_rows):
         boundary_line = len(lines)
@@ -183,6 +194,12 @@ def extract_sections_from_markdown(markdown: str):
             break
         own_text = _clean_source_text("\n".join(lines[heading["line_number"] + 1 : own_boundary]))
 
+        own_end_page = heading["start_page"]
+        if has_page_markers:
+            for line_index in range(own_boundary - 1, heading["line_number"], -1):
+                if lines[line_index].strip():
+                    own_end_page = line_pages[line_index]
+                    break
         end_page = heading["start_page"]
         if has_page_markers:
             # Walk back over the section's non-blank lines; the blank lines
@@ -199,6 +216,7 @@ def extract_sections_from_markdown(markdown: str):
                 "title": heading["title"],
                 "source_text": source_text,
                 "own_text": own_text,
+                "own_end_page": own_end_page,
                 "start_page": heading["start_page"],
                 "end_page": end_page,
             }
@@ -395,14 +413,14 @@ def _docx_is_numbered_paragraph(paragraph):
     return p_pr is not None and p_pr.find(f"{W}numPr") is not None
 
 
-def _docx_table_to_markdown(table):
+def _docx_table_to_markdown(table, numbering=None):
     rows = []
 
     for row in table.findall(f"./{W}tr"):
         cells = []
         for cell in row.findall(f"./{W}tc"):
             paragraphs = [
-                _docx_paragraph_text(p)
+                ((numbering.prefix(p) or "") if numbering is not None else "") + _docx_paragraph_text(p)
                 for p in cell.findall(f".//{W}p")
             ]
             value = " <br> ".join(p for p in paragraphs if p)
@@ -454,7 +472,9 @@ def _convert_docx(source: Path):
     """
     try:
         with ZipFile(source) as zip_file:
+            from .word_numbering import WordNumbering
             styles = _read_docx_style_map(zip_file)
+            numbering = WordNumbering(zip_file)
             document_root = ET.fromstring(zip_file.read("word/document.xml"))
     except (BadZipFile, KeyError, ET.ParseError) as exc:
         raise ValueError(f"Invalid or unreadable DOCX file: {exc}") from exc
@@ -471,20 +491,19 @@ def _convert_docx(source: Path):
             if not text:
                 continue
 
+            prefix = numbering.prefix(child)
             heading_level = _docx_paragraph_heading_level(child, styles)
             if heading_level is not None:
-                lines.append(f"{'#' * heading_level} {text}")
+                label = f"{(prefix or '').strip()} {text}".strip()
+                lines.append(f"{'#' * heading_level} {label}")
                 lines.append("")
                 continue
 
-            if _docx_is_numbered_paragraph(child):
-                lines.append(f"- {text}")
-            else:
-                lines.append(text)
+            lines.append((prefix or "") + text)
             lines.append("")
 
         elif child.tag == f"{W}tbl":
-            lines.extend(_docx_table_to_markdown(child))
+            lines.extend(_docx_table_to_markdown(child, numbering))
             lines.append("")
 
     return _split_inline_markdown_headings("\n".join(lines)).strip()
@@ -508,7 +527,7 @@ def _pdf_pipeline_options(use_ocr: bool, full_page_ocr: bool):
 
     options = PdfPipelineOptions()
     options.do_ocr = use_ocr
-    options.do_table_structure = False
+    options.do_table_structure = True
     if use_ocr and full_page_ocr:
         # Scanned pages carry no text layer (or a garbage one); OCR every
         # page in full instead of only the bitmap regions Docling detects.
@@ -587,7 +606,7 @@ def _convert_pdf(source: Path, use_ocr: bool, full_page_ocr: bool = False):
     )
 
 
-def _pdf_text_layer(source: Path, max_pages: int = 400):
+def _pdf_text_layer(source: Path, max_pages: int | None = None):
     """Read the PDF's own text layer with pypdfium2 (a Docling dependency).
 
     Returns (markdown_with_page_breaks, meaningful_chars). Cheap, needs no
@@ -604,7 +623,7 @@ def _pdf_text_layer(source: Path, max_pages: int = 400):
     try:
         pdf = pdfium.PdfDocument(str(source))
         try:
-            for page_index in range(min(len(pdf), max_pages)):
+            for page_index in range(min(len(pdf), max_pages) if max_pages is not None else len(pdf)):
                 page = pdf[page_index]
                 try:
                     text = page.get_textpage().get_text_range() or ""
@@ -851,6 +870,12 @@ def _parse_pdf(source: Path, original_name: str):
             "produced nothing. Check that the pages are not blank, rotated, or scanned at a very low resolution."
         )
 
+    if parse_mode == "text_layer":
+        try:
+            from .reading_outline import apply_layout_hints
+            markdown = apply_layout_hints(markdown, source)
+        except Exception as exc:
+            logger.warning("Layout hints unavailable for %s: %s", original_name, exc)
     if _count_markdown_headings(markdown) < MIN_STRUCTURED_HEADINGS:
         markdown, inferred = infer_pdf_headings(markdown)
         if inferred:
@@ -859,6 +884,13 @@ def _parse_pdf(source: Path, original_name: str):
         else:
             logger.info("LocalMind: no heading structure in %s; sections will follow page groups", original_name)
 
+    try:
+        from .reading_outline import apply_pdf_bookmarks
+        markdown, verified = apply_pdf_bookmarks(markdown, source)
+        if verified:
+            parse_mode = "pdf_bookmarks"
+    except Exception as exc:
+        logger.warning("Could not verify PDF bookmarks for %s: %s", original_name, exc)
     return markdown, parse_mode
 
 
@@ -893,6 +925,8 @@ def parse_document(document):
         )
 
     processed_dir = Path(settings.MEDIA_ROOT) / "processed" / str(document.id)
+    if getattr(document, "_processing_artifact_id", None):
+        processed_dir = processed_dir / str(document._processing_artifact_id)
     processed_dir.mkdir(parents=True, exist_ok=True)
 
     markdown_path = processed_dir / "document.md"

@@ -28,8 +28,8 @@ export default function Monitoring() {
       <PageTabs<Tab> value={tab} onChange={setTab} tabs={[{ key: "incidents", label: "Incidents", count: d?.open_incidents ?? null }, { key: "trends", label: "Trends & coverage" }, { key: "impact", label: "Subjects & user impact" }]} />
       <ErrorBanner message={overview.error ?? backlog.error} onRetry={overview.reload} />
       {notice ? <Notice tone="success" message={notice} /> : null}
-      {st && !st.enabled ? <Notice tone="warning" title="The AI monitor is switched off" message="Nothing is being evaluated (AI_MONITOR_ENABLED=false or AI_MONITOR_MODE=off)." /> : null}
-      {st && st.enabled && !st.judge_ready ? <Notice tone="warning" title="Judge model unavailable" message={`${st.judge_detail}. Deterministic checks still run; ambiguous cases are recorded as “abstain” until a judge is ready.`} /> : null}
+      {st && !st.enabled ? <Notice inline tone="warning" title="The AI monitor is switched off" message="Nothing is being evaluated (AI_MONITOR_ENABLED=false or AI_MONITOR_MODE=off)." /> : null}
+      {st && st.enabled && !st.judge_ready ? <Notice inline tone="warning" title="Judge model unavailable" message={`${st.judge_detail}. Deterministic checks still run; ambiguous cases are recorded as “abstain” until a judge is ready.`} /> : null}
       {st?.pending_backlog ? <Notice title={`${st.pending_backlog} interaction${st.pending_backlog === 1 ? " is" : "s are"} waiting for evaluation.`} message="Evaluate a batch now, or let the background checker work through them."
         action={<Button title={`Evaluate ${Math.min(25, st.pending_backlog)}`} small variant="secondary" icon="play-outline" busy={backlog.busy} onPress={() => backlog.run()} />} /> : null}
       {tab === "incidents" ? (

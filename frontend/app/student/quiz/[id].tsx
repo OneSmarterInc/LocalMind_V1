@@ -1,44 +1,84 @@
-import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useEffect, useRef, useState } from "react";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
+import {CourseQuizSubmitted,submittedCourseQuiz} from "@/offline/coursework";
 import { student } from "@/api/endpoints";
 import type { StartAttempt } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
 import { useAction, useAsync } from "@/hooks/useAsync";
 import { useUnsavedWarning } from "@/hooks/useDraft";
-import { clearLocalDraft, useLocalDraft } from "@/hooks/useLocalDraft";
+import { useLocalDraft } from "@/hooks/useLocalDraft";
 import { registerGuard } from "@/hooks/unsavedGuard";
 import { useOnline } from "@/offline/connectivity";
 import { alertAsync, Badge, Button, Card, CardHead, DetailList, ErrorBanner, Eyebrow, FormFooter, Loading, Notice, OptionCard, PageHeading, ProgressBar, Screen, Split, StepList, colors, confirmAsync, fmtDate, pct } from "@/ui";
+import { everyVisible } from "@/hooks/visibleInterval";
 
 const releaseText = (r?: string, at?: string | null) => (r === "held" ? "After faculty release" : r === "scheduled" ? `From ${fmtDate(at)}` : "Shown after submission");
 
 export default function StudentQuiz() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  return <StudentQuizEditor key={id} id={id} />;
+}
+function StudentQuizEditor({ id }: { id: string }) {
   const router = useRouter();
   const online = useOnline();
   const info = useAsync(async () => (await student.quizzes()).find((q) => q.id === id) ?? null, [id]);
+  const [checkingSubmission,setCheckingSubmission]=useState(true);
+  const [submissionError,setSubmissionError]=useState<string|null>(null);
+  const [finalized,setFinalized]=useState(false);
   const [attempt, setAttempt] = useState<StartAttempt | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [index, setIndex] = useState(0);
   const [remaining, setRemaining] = useState<number | null>(null);
   const [reviewing, setReviewing] = useState(false);
   const userId = useAuth().user?.id;
-  const start = useAction(async () => { const a = await student.startAttempt(id); setAnswers({}); setAttempt(a); setIndex(0); setReviewing(false); });
+  const start = useAction(async () => { try { const a = await student.startAttempt(id); setAnswers({}); setAttempt(a); setIndex(0); setReviewing(false); } catch(e) { if(e instanceof CourseQuizSubmitted){setFinalized(true);router.replace(`/student/attempt/${e.attemptId}`);return;}throw e;} });
+  // Navigation stacks may retain this screen after leaving it. Only the focused
+  // quiz may redirect; a background poll must never pull the student back here.
+  useFocusEffect(useCallback(() => {
+    let live = true;
+    let checking = false;
+    let redirected = false;
+    const check = async () => {
+      if (checking || redirected) return;
+      checking = true;
+      try {
+        const submitted = await submittedCourseQuiz(id);
+        if (!live) return;
+        if (submitted) {
+          redirected = true;
+          setFinalized(true);
+          setAttempt(null);
+          setAnswers({});
+          router.replace(`/student/attempt/${submitted}`);
+        }
+        setSubmissionError(null);
+        setCheckingSubmission(false);
+      } catch (e) {
+        if (live) {
+          setCheckingSubmission(true);
+          setSubmissionError(e instanceof Error ? e.message : "Unable to check your saved submission.");
+        }
+      } finally { checking = false; }
+    };
+    void check();
+    const stop = everyVisible(check, 1000);
+    return () => { live = false; stop(); };
+  }, [id, router]));
   const answersRef = useRef(answers); answersRef.current = answers;
   // Answers are kept on this device per user and attempt, so a refresh or a resumed attempt restores them.
-  const { restored, saving: draftSaving, flush: flushAnswers } = useLocalDraft([userId, "quiz", attempt?.attempt_id], answers, (saved) => setAnswers(saved));
+  const { restored, saving: draftSaving, flush: flushAnswers, discard: discardAnswers, error: draftError } = useLocalDraft([userId, "quiz", attempt?.attempt_id], answers, (saved) => setAnswers(saved));
   const restoredRef = useRef(restored); restoredRef.current = restored;
-  useUnsavedWarning(!!attempt && Object.values(answers).some((v) => v?.trim()));
+  useUnsavedWarning(!finalized && !!attempt && Object.values(answers).some((v) => v?.trim()));
   // Leaving on purpose writes the latest answers to the device first, so the last one is not lost.
   useEffect(() => {
-    if (!attempt || !Object.values(answers).some((v) => v?.trim())) return;
-    return registerGuard({ label: "your quiz answers", save: async () => { await flushAnswers(); return true; }, discard: () => {} });
-  }, [attempt, answers, flushAnswers]);
+    if (finalized || !attempt || !Object.values(answers).some((v) => v?.trim())) return;
+    return registerGuard({ label: "your quiz answers", save: flushAnswers, discard: async () => { await discardAnswers(); setAnswers({}); } });
+  }, [attempt, answers, flushAnswers, discardAnswers, finalized]);
 
   const submit = useAction(async (force = false) => {
-    if (!attempt) return;
+    if (!attempt || finalized) return;
     // Never submit before the answers saved on this device have been loaded: an empty set would be final.
     if (restoredRef.current === null) { await alertAsync("Still restoring your answers", "Your saved answers are being loaded. Try again in a moment."); return; }
     const current = answersRef.current;
@@ -48,7 +88,10 @@ export default function StudentQuiz() {
       if (!ok) return;
     }
     const res = await student.submitAttempt(attempt.attempt_id, current);
-    await clearLocalDraft([userId, "quiz", attempt.attempt_id]);
+    setFinalized(true);
+    setAttempt(null);
+    setAnswers({});
+    await discardAnswers();
     router.replace(`/student/attempt/${res.id}`);
   });
   const submitRef = useRef(submit.run); submitRef.current = submit.run;
@@ -76,6 +119,7 @@ export default function StudentQuiz() {
     return m ? `${m.document_title ?? ""} · Module ${m.module_number ?? m.order}`.toUpperCase() : null;
   }, [q?.module_id]);
   const eyebrow = ctx.data ?? undefined;
+  if(checkingSubmission||finalized)return <Screen>{submissionError?<ErrorBanner message={submissionError}/>:<Loading />}</Screen>;
   if (!attempt) {
     const used = q?.attempts_used ?? 0;
     const left = q?.max_attempts ? q.max_attempts - used : null;
@@ -83,7 +127,7 @@ export default function StudentQuiz() {
       <Screen refreshing={info.loading} onRefresh={info.reload}>
         <ErrorBanner message={info.error} onRetry={info.reload} />
         {info.loading && !q ? <Loading /> : null}
-        {!info.loading && !q && !info.error ? <Notice tone="warning" title="Quiz not available" message="This quiz is closed or not open to you any more." /> : null}
+        {!info.loading && !q && !info.error ? <Notice inline tone="warning" title="Quiz not available" message="This quiz is closed or not open to you any more." /> : null}
         {q ? (
           <>
             <PageHeading eyebrow={eyebrow} title={q.title} subtitle={q.instructions || "A short check of what you have learned."}
@@ -91,24 +135,23 @@ export default function StudentQuiz() {
             <Split
               main={
                 <Card>
-                  <View style={{ flexDirection: "row" }}><Badge value={left === 0 ? "No attempts left" : used ? "Ready to try again" : "Ready to start"} tone={left === 0 ? "neutral" : "green"} /></View>
+                  <View style={{ flexDirection: "row" }}><Badge value={left === 0 ? "No attempts left" : used ? "Previously attempted" : "Ready to start"} tone={left === 0 ? "neutral" : "green"} /></View>
                   <CardHead title="Before you begin" subtitle={`Answer ${q.question_count ?? "the"} question${q.question_count === 1 ? "" : "s"} about this module.`} />
                   <View style={{ borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.border, paddingVertical: 14 }}>
                     <DetailList items={[
                       ["Questions", String(q.question_count ?? "—")],
                       ["Time limit", q.time_limit_minutes ? `${q.time_limit_minutes} minutes` : "No time limit"],
                       ["Pass mark", `${q.pass_percentage}%`],
-                      ["Attempts", q.max_attempts ? `${q.max_attempts} allowed · ${used} used` : `Unlimited · ${used} used`],
                       ["Results", releaseText((q as { results_release?: string }).results_release, (q as { results_release_at?: string | null }).results_release_at)],
                       ...(q.due_at ? [["Due", fmtDate(q.due_at)] as [string, string]] : []),
                       ...(q.best_percentage != null ? [["Your best so far", pct(q.best_percentage)] as [string, string]] : (q.results_pending ?? 0) > 0 ? [["Your results", "Not released yet"] as [string, string]] : []),
                     ]} />
                   </View>
                   <StepList steps={[["Choose one answer for each question.", ""], ["You can move between questions before you submit.", ""], ["Review your answers before the final submission.", ""]]} />
-                  <Notice tone={online ? "info" : "warning"} title={online ? "Stay connected." : "You are offline."} message={online ? "Starting and submitting a quiz need the LocalMind server. Reading offline is supported; offline quiz submission is not." : "Reconnect to start this quiz."} />
+                  <Notice inline tone={online ? "info" : "warning"} title={online ? "Your work is saved on this device." : "You are offline."} message="Downloaded MCQ quizzes work offline. Immediate results are marked here; answers wait for synchronization and server validation. Held results remain hidden. Changed access, deadlines or attempt limits may require review when reconnecting." />
                   <ErrorBanner message={start.error} />
                   <FormFooter note={q.time_limit_minutes ? `The timer starts with the attempt. When the ${q.time_limit_minutes} minutes run out, your answers are submitted automatically.` : "Nothing is submitted until you confirm."}>
-                    <Button title="Start quiz" icon="arrow-forward" onPress={() => start.run()} busy={start.busy} disabled={!online || left === 0} />
+                    <Button title="Start quiz" icon="arrow-forward" onPress={() => start.run()} busy={start.busy} disabled={left === 0} />
                   </FormFooter>
                 </Card>
               }
@@ -131,7 +174,7 @@ export default function StudentQuiz() {
     return (
       <Screen>
         <PageHeading eyebrow={eyebrow} title="Review your answers" subtitle={`${attempt.questions.length - blank} of ${attempt.questions.length} answered. Change anything before you submit.`} right={remaining !== null ? <Badge value={`${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, "0")} left`} tone={remaining < 60 ? "red" : "blue"} /> : null} />
-        {blank ? <Notice tone="warning" title={`${blank} question${blank === 1 ? " is" : "s are"} not answered.`} message="Unanswered questions score nothing. You can still go back and answer them." /> : null}
+        {blank ? <Notice inline tone="warning" title={`${blank} question${blank === 1 ? " is" : "s are"} not answered.`} message="Unanswered questions score nothing. You can still go back and answer them." /> : null}
         <Card>
           {attempt.questions.map((x, i) => {
             const a = answers[x.id]?.trim();
@@ -146,7 +189,7 @@ export default function StudentQuiz() {
               </View>
             );
           })}
-          <ErrorBanner message={submit.error} />
+          <ErrorBanner message={submit.error ?? draftError} />
           <FormFooter note={remaining !== null ? "If the time runs out, your answers are submitted as they are." : "You cannot change answers after submitting."}>
             <Button title="Back to questions" variant="secondary" icon="arrow-back" onPress={() => setReviewing(false)} />
             <Button title="Submit answers" icon="checkmark" onPress={() => submit.run()} busy={submit.busy} disabled={restored === null} />
@@ -160,9 +203,9 @@ export default function StudentQuiz() {
   const total = attempt.questions.length;
   return (
     <Screen>
-      <PageHeading eyebrow={eyebrow} title={q?.title ?? "Quiz"} subtitle="Focus on one question at a time." right={<Badge value={`Attempt ${attempt.attempt_number}${q?.max_attempts ? ` of ${q.max_attempts}` : ""}`} tone="blue" />} />
-      {restored === null ? <Notice title="Restoring saved answers…" message="Your answers saved on this device are being loaded. Submitting waits until that is done." /> : null}
-      {attempt.resumed && restored !== null ? <Notice title="Resuming your open attempt" message={restored ? "Your answers saved on this device were restored. Check them before you submit." : "No answers were saved on this device for this attempt, so check each question."} /> : null}
+      <PageHeading eyebrow={eyebrow} title={q?.title ?? "Quiz"} subtitle="Focus on one question at a time." right={<Badge value={`Attempt ${attempt.attempt_number}`} tone="blue" />} />
+      {restored === null ? <Notice inline title="Restoring saved answers…" message="Your answers saved on this device are being loaded. Submitting waits until that is done." /> : null}
+      {attempt.resumed && restored !== null ? <Notice inline title="Resuming your open attempt" message={restored ? "Your answers saved on this device were restored. Check them before you submit." : "No answers were saved on this device for this attempt, so check each question."} /> : null}
       <Split sideWidth={265}
         main={
           <Card style={{ padding: 30 }}>
@@ -174,10 +217,10 @@ export default function StudentQuiz() {
             <Text style={{ fontSize: 18, fontWeight: "600", color: colors.ink, lineHeight: 26, marginTop: 10 }}>{question.question}</Text>
             <View style={{ gap: 10, marginTop: 14 }}>
               {question.type === "mcq" ? question.options?.map((o) => (
-                <OptionCard key={o.key} title={o.text} selected={answers[question.id] === o.key} onPress={() => setAnswers((a) => ({ ...a, [question.id]: o.key }))}
+                <OptionCard key={o.key} title={o.text} disabled={restored === null || submit.busy} selected={answers[question.id] === o.key} onPress={() => { if (restored !== null && !submit.busy) setAnswers((a) => ({ ...a, [question.id]: o.key })); }}
                   right={undefined} letter={o.key} />
               )) : (
-                <TextInput multiline value={answers[question.id] ?? ""} onChangeText={(v) => setAnswers((a) => ({ ...a, [question.id]: v }))} placeholder="Write your answer" placeholderTextColor={colors.faint} accessibilityLabel="Your answer"
+                <TextInput editable={restored !== null && !submit.busy} multiline value={answers[question.id] ?? ""} onChangeText={(v) => setAnswers((a) => ({ ...a, [question.id]: v }))} placeholder="Write your answer" placeholderTextColor={colors.faint} accessibilityLabel="Your answer"
                   style={{ minHeight: 160, borderWidth: 1, borderColor: "#D8E0D7", borderRadius: 7, padding: 12, fontSize: 13, color: colors.ink, textAlignVertical: "top", backgroundColor: "#FFFFFF" }} />
               )}
             </View>
@@ -188,7 +231,7 @@ export default function StudentQuiz() {
                 <Button title="Review & submit" variant={last ? "primary" : "secondary"} icon="checkmark" disabled={restored === null} onPress={() => setReviewing(true)} />
               </View>
             </View>
-            <ErrorBanner message={submit.error} />
+            <ErrorBanner message={submit.error ?? draftError} />
           </Card>
         }
         side={

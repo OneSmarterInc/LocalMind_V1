@@ -1,35 +1,43 @@
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import { useDraft } from "@/hooks/useDraft";
+import { useBackTo } from "@/hooks/useBackTo";
+import React, { useEffect, useMemo, useState } from "react";
 import { Text, View } from "react-native";
 import { admin } from "@/api/endpoints";
 import type { User } from "@/api/types";
 import { useAction, useAsync } from "@/hooks/useAsync";
-import { Avatar, Badge, Button, Card, CardHead, DangerZone, ErrorBanner, Grid, Input, ListRow, Loading, Notice, PageHeading, Screen, Split, colors, confirmAsync, confirmDeleteAsync } from "@/ui";
+import { Avatar, Badge, Button, Card, CardHead, DangerZone, ErrorBanner, Grid, Input, ListRow, Loading, Notice, PageHeading, Screen, Split, colors, confirmAsync, confirmDeleteAsync, phoneProblem } from "@/ui";
 import { IssuedCredential, OneTimeCredentials } from "@/ui/OneTimeCredentials";
 
-const STUDENT_FIELDS: [string, string][] = [["roll_number", "Roll number"], ["program", "Program"], ["batch", "Batch"], ["phone", "Phone number"]];
-const FACULTY_FIELDS: [string, string][] = [["employee_id", "Employee ID"], ["department", "Department"], ["designation", "Designation"], ["phone", "Phone number"]];
+// Key, label and the example shown in the empty field. The example is what
+// tells someone the shape the institution expects, which a label cannot.
+const STUDENT_FIELDS: [string, string, string][] = [["roll_number", "Roll number", "For example, 21CS047"], ["program", "Program", "For example, B.Tech Computer Science"], ["batch", "Batch", "For example, 2026"], ["phone", "Phone number", "Optional"]];
+const FACULTY_FIELDS: [string, string, string][] = [["employee_id", "Employee ID", "For example, EMP1043"], ["department", "Department", "For example, Computer Science"], ["designation", "Designation", "For example, Assistant Professor"], ["phone", "Phone number", "Optional"]];
 type Detail = User & { enrollments?: any[]; subjects?: any[] };
 
 export default function ManageAccount() {
   const { id, kind: k } = useLocalSearchParams<{ id: string; kind?: string }>();
   const router = useRouter();
+  const back = useBackTo();
   const navigation = useNavigation();
   const kind = k === "faculty" ? "faculty" : "students";
   const faculty = kind === "faculty";
-  const q = useAsync(() => admin.user(kind, id) as Promise<Detail>, [kind, id]);
-  const [f, setF] = useState<Record<string, string>>({});
+  const q = useAsync(() => { if (k !== "faculty" && k !== "students") throw new Error("Incomplete account link. Open this account from People."); return admin.user(kind, id) as Promise<Detail>; }, [kind, id, k]);
+  const source = useMemo(() => q.data ? { id: q.data.id, fields: { full_name: q.data.full_name, ...((q.data.profile ?? {}) as Record<string, string>) } as Record<string, string> } : null, [q.data]);
+  const { draft, edit, dirty, discard, markSaved } = useDraft(source, { label: () => "this profile", save: async () => (await save.run()) === true });
+  const f: Record<string, string> = draft?.fields ?? {};
+  const setF = (fn: (previous: Record<string, string>) => Record<string, string>) => edit(d => ({ ...d, fields: fn(d.fields) }));
   const [issued, setIssued] = useState<IssuedCredential | null>(null);
   const [saved, setSaved] = useState(false);
-  useEffect(() => { if (q.data) setF({ full_name: q.data.full_name, ...((q.data.profile ?? {}) as Record<string, string>) }); }, [q.data]);
   useEffect(() => { navigation.setOptions({ backTo: `/admin/users?kind=${kind}`, backLabel: "People", title: faculty ? "Faculty account" : "Student account" }); }, [navigation, kind, faculty]);
   const u = q.data;
-  const dirty = !!u && (f.full_name !== u.full_name || (faculty ? FACULTY_FIELDS : STUDENT_FIELDS).some(([key]) => (f[key] ?? "") !== String((u.profile as Record<string, string> | undefined)?.[key] ?? "")));
   const save = useAction(async () => {
+    if (!draft || draft.id !== id || !f.full_name?.trim()) return false;
+    const sent = draft;
     const { full_name, ...rest } = f;
     const keys = (faculty ? FACULTY_FIELDS : STUDENT_FIELDS).map(([key]) => key);
     await admin.updateUser(kind, id, { full_name: full_name?.trim(), profile: Object.fromEntries(keys.map((key) => [key, rest[key] ?? ""])) });
-    await q.reload(); setSaved(true);
+    markSaved(sent); await q.reload(); setSaved(true); return true;
   });
   const reset = useAction(async () => {
     if (!u || !(await confirmAsync("Reset the onboarding password?", `${u.full_name} will sign in with the initial password and must change it at the next sign-in. Their sessions are signed out.`, "Reset password", "Cancel", { tone: "warning" }))) return;
@@ -49,7 +57,7 @@ export default function ManageAccount() {
   });
   const remove = useAction(async () => {
     if (!u) return;
-    const ok = await confirmDeleteAsync(`Delete this ${faculty ? "faculty account" : "student account"}?`, "This permanently removes the account and everything tied to it: enrolments or subject assignments, quiz attempts, assignment submissions and learning progress. Use Discontinue when you only want to stop access.", { detail: `${u.full_name} · ${u.email}`, okLabel: "Delete account" });
+    const ok = await confirmDeleteAsync(`Delete this ${faculty ? "faculty account" : "student account"}?`, "This permanently removes the account and everything tied to it: enrollments or subject assignments, quiz attempts and learning progress. Use Discontinue when you only want to stop access.", { detail: `${u.full_name} · ${u.email}`, okLabel: "Delete account" });
     if (!ok) return;
     await admin.deleteUser(kind, id, "");
     router.replace({ pathname: "/admin/users", params: { kind, notice: `${u.full_name} was deleted.` } });
@@ -61,7 +69,7 @@ export default function ManageAccount() {
       {q.loading && !u ? <Loading /> : null}
       {u ? (
         <>
-          <PageHeading eyebrow={faculty ? "PEOPLE · FACULTY" : "PEOPLE · STUDENT"} title={u.full_name} subtitle={u.email} right={<Button title="Back to people" variant="secondary" icon="arrow-back" onPress={() => router.push({ pathname: "/admin/users", params: { kind } })} />} />
+          <PageHeading eyebrow={faculty ? "PEOPLE · FACULTY" : "PEOPLE · STUDENT"} title={u.full_name} subtitle={u.email} right={<Button title="Back to people" variant="secondary" icon="arrow-back" onPress={() => back({ pathname: "/admin/users", params: { kind } })} />} />
           {issued ? <OneTimeCredentials title="New one-time password" rows={[issued]} onDone={() => setIssued(null)} /> : null}
           <View style={{ flexDirection: "row", alignItems: "center", gap: 16, padding: 24, borderRadius: 14, backgroundColor: "#EAF1E5", borderWidth: 1, borderColor: "#D9E6D5" }}>
             <Avatar name={u.full_name} size={64} tone={faculty ? "blue" : "green"} />
@@ -79,16 +87,16 @@ export default function ManageAccount() {
             main={
               <Card>
                 <CardHead title="Profile details" />
-                <Input label="Full name" required value={f.full_name ?? ""} onChangeText={(v) => { setSaved(false); setF((x) => ({ ...x, full_name: v })); }} />
+                <Input label="Full name" required placeholder="First and last name" value={f.full_name ?? ""} onChangeText={(v) => { setSaved(false); setF((x) => ({ ...x, full_name: v })); }} />
                 <Input label="Email address" value={u.email} editable={false} hint="Email is the sign-in name and cannot be changed here." />
                 <Grid min={240} gap={16}>
-                  {(faculty ? FACULTY_FIELDS : STUDENT_FIELDS).map(([key, label]) => <Input key={key} label={label} value={f[key] ?? ""} onChangeText={(v) => { setSaved(false); setF((x) => ({ ...x, [key]: v })); }} />)}
+                  {(faculty ? FACULTY_FIELDS : STUDENT_FIELDS).map(([key, label, example]) => <Input key={key} label={label} placeholder={example} error={key === "phone" ? phoneProblem(f[key]) : null} value={f[key] ?? ""} onChangeText={(v) => { setSaved(false); setF((x) => ({ ...x, [key]: v })); }} />)}
                 </Grid>
                 <ErrorBanner message={save.error} />
                 {saved && !dirty ? <Notice tone="success" message="Profile saved." /> : null}
                 <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 9, paddingTop: 18, borderTopWidth: 1, borderTopColor: colors.border }}>
-                  <Button title="Cancel" variant="secondary" disabled={!dirty} onPress={() => setF({ full_name: u.full_name, ...((u.profile ?? {}) as Record<string, string>) })} />
-                  <Button title="Save profile" icon="checkmark" onPress={() => save.run()} busy={save.busy} disabled={!dirty || !f.full_name?.trim()} />
+                  <Button title="Cancel" variant="secondary" disabled={!dirty} onPress={discard} />
+                  <Button title="Save profile" icon="checkmark" onPress={() => save.run()} busy={save.busy} disabled={!dirty || !f.full_name?.trim() || !!phoneProblem(f.phone)} />
                 </View>
               </Card>
             }

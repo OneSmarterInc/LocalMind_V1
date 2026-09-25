@@ -1,0 +1,115 @@
+name: Private library real AI and native bundles
+on:
+  push:
+    branches: [feature/integrated-private-library]
+    paths:
+      - '.github/workflows/private-library-real-ai.yml'
+      - 'frontend/tests/private-real-model.spec.ts'
+      - 'frontend/tests/private-performance.spec.ts'
+      - 'frontend/tests/private.playwright.config.ts'
+      - 'backend/core/isolation.py'
+      - 'backend/config/settings.py'
+      - 'frontend/src/private/**'
+      - 'frontend/scripts/**'
+      - 'frontend/package*.json'
+  workflow_dispatch:
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+concurrency:
+  group: private-library-real-ai-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  real-ai:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CI: 'true'
+      LM_E2E_REAL_MODEL: '1'
+      # Ephemeral Chromium quota is a test fixture; production limits stay intact.
+      LM_E2E_STORAGE_QUOTA_MB: '5120'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies and build the actual browser runtime
+        run: |
+          mkdir -p verification
+          python - <<'PY'
+          from pathlib import Path
+          lines=Path('backend/requirements.txt').read_text().splitlines()
+          Path('/tmp/private-requirements.txt').write_text('\n'.join(s for s in lines if s.strip() and not s.lstrip().startswith('#') and not s.startswith(('docling','llama-cpp-python')))+'\n')
+          PY
+          python -m pip install -q -r /tmp/private-requirements.txt -r backend/requirements-dev.txt >verification/python-install.log 2>&1 || { tail -50 verification/python-install.log; exit 1; }
+          cd frontend
+          npm ci >../verification/npm-install.log 2>&1 || { tail -50 ../verification/npm-install.log; exit 1; }
+          npm run export:web >../verification/web-export.log 2>&1 || { tail -70 ../verification/web-export.log; exit 1; }
+          npx playwright install --with-deps chromium >../verification/browser-install.log 2>&1 || { tail -50 ../verification/browser-install.log; exit 1; }
+      - name: Real downloaded GGUF answers a new question with all network disabled
+        run: |
+          cd frontend
+          npm run test:private:web >../verification/real-ai.log 2>&1 || { tail -100 ../verification/real-ai.log; exit 1; }
+          tail -25 ../verification/real-ai.log
+      - name: Save real model verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: private-library-real-ai-evidence
+          path: |
+            verification/
+            frontend/test-results/
+          retention-days: 7
+  native-bundles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install integrated native dependencies
+        run: |
+          mkdir -p verification
+          cd frontend
+          npm ci >../verification/native-install.log 2>&1 || { tail -50 ../verification/native-install.log; exit 1; }
+      - name: Android production JavaScript export
+        id: android
+        continue-on-error: true
+        run: |
+          cd frontend
+          npx expo export --platform android --output-dir /tmp/private-android-export >../verification/android-export.log 2>&1 || { tail -100 ../verification/android-export.log; exit 1; }
+          tail -20 ../verification/android-export.log
+      - name: iOS production JavaScript export
+        id: ios
+        continue-on-error: true
+        run: |
+          cd frontend
+          npx expo export --platform ios --output-dir /tmp/private-ios-export >../verification/ios-export.log 2>&1 || { tail -100 ../verification/ios-export.log; exit 1; }
+          tail -20 ../verification/ios-export.log
+      - name: Require both exports
+        if: always()
+        env:
+          ANDROID: '${{ steps.android.outcome }}'
+          IOS: '${{ steps.ios.outcome }}'
+        run: |
+          test "$ANDROID" = success && test "$IOS" = success
+          echo 'Both JavaScript bundles exported. This does not build/install APK/IPA binaries or establish physical-device performance.'
+      - name: Save native bundle evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: private-library-native-bundle-evidence
+          path: verification/
+          retention-days: 7

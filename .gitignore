@@ -16,3 +16,33 @@ db.sqlite3-wal
 db.sqlite3-shm
 db-backup/
 *.exe
+
+# Never publish runtime data, private signing keys, installed models or generated assets.
+*.pem
+*.key
+*.gguf
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+.localmind-keys/
+**/node_modules/
+**/.expo/
+**/.venv/
+**/media/
+
+# Integrated private library
+backend/private-books/
+frontend/public/private-assets/
+frontend/src/private/generated/
+frontend/test-results/
+frontend/playwright-report/
+
+frontend/scripts/generated-ocr.mjs
+
+# Launcher build outputs and CI evidence
+launcher/build/
+launcher/dist/
+launcher/*.zip
+verification/
+.test-build/

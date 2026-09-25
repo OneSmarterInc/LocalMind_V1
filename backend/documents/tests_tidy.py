@@ -1,5 +1,5 @@
-"""New books: garbled titles repaired and textbook boxes folded into their
-sections. Existing books: the same on request, leaving student work alone."""
+"""Authored uploads preserve their headings and text. Explicit AI restructuring
+can repair titles and fold boxes; existing books can be tidied on request."""
 import shutil
 import tempfile
 from io import StringIO
@@ -116,19 +116,36 @@ class NewUploadTests(TestCase):
         assign(self.faculty, self.subject)
         self.fc = client_for(self.faculty)
 
-    def upload(self):
+    def upload(self, strategy=None):
+        from ai.gateway import AIResult
         from documents.tests import PDF_BYTES
-        with patch("documents.services.documents.parse_document", side_effect=ncert_parse):
-            res = self.fc.post("/api/faculty/documents/", {"subject_id": str(self.subject.id),
-                                                          "file": SimpleUploadedFile("jesc105.pdf", PDF_BYTES, content_type="application/pdf")},
-                               format="multipart")
+        from documents.services.outline_policy import source_hierarchy_outline
+
+        payload = {"subject_id": str(self.subject.id),
+                   "file": SimpleUploadedFile("jesc105.pdf", PDF_BYTES, content_type="application/pdf")}
+        if strategy is not None:
+            payload["outline_strategy"] = strategy
+        with patch("documents.services.documents.parse_document", side_effect=ncert_parse), \
+                patch("documents.services.outline.gateway") as model:
+            # A complete, valid model plan; validation and tidying still run.
+            model.return_value.generate.return_value = AIResult(
+                ok=True, model="test-only",
+                data=source_hierarchy_outline("jesc105.pdf", extract_sections_from_markdown(NCERT_MD)),
+            )
+            res = self.fc.post("/api/faculty/documents/", payload, format="multipart")
             self.assertEqual(res.status_code, 201, res.content)
             if res.data["status"] != "under_review":
-                self.fc.post(f"/api/faculty/documents/{res.data['id']}/process/")
+                processed = self.fc.post(f"/api/faculty/documents/{res.data['id']}/process/")
+                self.assertIn(processed.status_code, (200, 202), processed.content)
+            if strategy == "ai":
+                model.return_value.generate.assert_called_once()
+            else:
+                model.assert_not_called()
         return res.data["id"]
 
+    @override_settings(DEVICE_AUTHORING_ONLY=False)
     def test_boxes_are_folded_and_titles_repaired(self):
-        doc_id = self.upload()
+        doc_id = self.upload(strategy="ai")
         titles = list(Module.objects.filter(chapter__document_id=doc_id).order_by("chapter__order", "order").values_list("title", flat=True))
         self.assertEqual(titles, ["5.1 WHAT ARE LIFE PROCESSES?", "5.2.1 Autotrophic Nutrition", "5.2.2 Heterotrophic Nutrition"])
         first = Module.objects.get(chapter__document_id=doc_id, title="5.1 WHAT ARE LIFE PROCESSES?")
@@ -145,13 +162,32 @@ class NewUploadTests(TestCase):
         self.assertGreaterEqual(summary["titles_repaired"], 3)
 
     @override_settings(LOCALMIND={**settings.LOCALMIND, "OUTLINE_MERGE_SMALL": False})
+    @override_settings(DEVICE_AUTHORING_ONLY=False)
     def test_switched_off_keeps_every_heading_as_its_own_module(self):
-        doc_id = self.upload()
+        doc_id = self.upload(strategy="ai")
         self.assertEqual(Module.objects.filter(chapter__document_id=doc_id).count(), 7)
         # Titles are still repaired.
         self.assertTrue(Module.objects.filter(chapter__document_id=doc_id, title="QUESTIONS").exists())
 
 
+    @override_settings(LOCALMIND={**settings.LOCALMIND, "OUTLINE_MERGE_SMALL": True})
+    def test_default_upload_preserves_authored_titles_and_text(self):
+        doc_id = self.upload()
+        from .services.reading_outline import block_text
+        rows = extract_sections_from_markdown(NCERT_MD)
+        actual = "\n\n".join(Module.objects.filter(chapter__document_id=doc_id)
+                            .order_by("chapter__order", "order").values_list("source_text", flat=True))
+        self.assertEqual(actual, "\n\n".join(block_text(s) for s in rows))
+        from .models import Document
+        self.assertEqual(Document.objects.get(pk=doc_id).outline_quality["covered_sections"], len(rows))
+        from audit.models import AuditLog
+        summary = AuditLog.objects.filter(action="document.processed").latest("created_at").summary
+        self.assertEqual(summary["fragments_merged"], 0)
+        self.assertEqual(summary["titles_repaired"], 0)
+
+
+# Legacy server-generation compatibility coverage.
+@override_settings(DEVICE_AUTHORING_ONLY=False)
 class ExistingBookTests(TestCase):
     def setUp(self):
         self.faculty = make_faculty()

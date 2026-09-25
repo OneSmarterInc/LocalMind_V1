@@ -12,14 +12,16 @@
  * of the page on every platform, with a dimmed backdrop, an icon that matches
  * the tone, and Cancel / confirm buttons in a consistent order.
  */
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
   useWindowDimensions,
 } from "react-native";
@@ -38,6 +40,8 @@ export interface DialogOptions {
   detail?: string;
   /** Hides the cancel button; used by alertAsync. */
   acknowledge?: boolean;
+  /** Irreversible actions: the confirm button stays disabled until this exact text is typed. */
+  confirmText?: string;
 }
 
 interface DialogRequest extends DialogOptions {
@@ -91,6 +95,7 @@ export function confirmAsync(
       icon: options.icon,
       detail: options.detail,
       acknowledge: options.acknowledge,
+      confirmText: options.confirmText,
       resolve: (v) => resolve(v === true),
     });
   });
@@ -136,20 +141,23 @@ const TONE: Record<DialogTone, { color: string; icon: IconName }> = {
 /** Mounted once in the root layout. Renders whatever the queue holds. */
 export function DialogHost() {
   const [, force] = useState(0);
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   useEffect(() => {
     notify = () => force((n) => n + 1);
     return () => { notify = null; };
   }, []);
 
   const current = pending[0];
+  const [typed, setTyped] = useState("");
+  useEffect(() => { setTyped(""); }, [current?.id]);
+  const blocked = !!current?.confirmText && typed.trim() !== current.confirmText;
   const answer = useCallback((value: boolean | "extra") => {
     if (!current) return;
     current.resolve(value);
     dequeue(current.id);
   }, [current]);
 
-  // Keyboard shortcuts on the web build: Escape cancels, Enter confirms.
+  // Escape dismisses. Enter is handled by the focused button, never globally.
   const answerRef = useRef(answer);
   answerRef.current = answer;
   useEffect(() => {
@@ -158,7 +166,6 @@ export function DialogHost() {
     if (!doc) return;
     const onKey = (e: { key?: string; preventDefault?: () => void }) => {
       if (e.key === "Escape") { e.preventDefault?.(); answerRef.current(false); }
-      if (e.key === "Enter") { e.preventDefault?.(); answerRef.current(true); }
     };
     doc.addEventListener("keydown", onKey);
     return () => doc.removeEventListener("keydown", onKey);
@@ -174,7 +181,8 @@ export function DialogHost() {
     <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={() => answer(false)}>
       <Pressable style={s.backdrop} onPress={() => answer(false)}>
         {/* Stops a tap inside the card from reaching the backdrop. */}
-        <Pressable style={[s.dialog, { maxWidth: Math.min(460, width - 32) }]} onPress={() => {}}>
+        <Pressable style={[s.dialog, { maxWidth: Math.min(460, width - 32), maxHeight: height - 32 }]} onPress={() => {}}>
+          <ScrollView contentContainerStyle={{ gap: space.md }} keyboardShouldPersistTaps="handled">
           <View style={s.head}>
             <View style={[s.iconWrap, { backgroundColor: `${tone.color}1F`, borderColor: `${tone.color}55` }]}>
               <Ionicons name={icon} size={22} color={tone.color} />
@@ -185,6 +193,14 @@ export function DialogHost() {
           {current.detail ? (
             <View style={s.detail}>
               <Text style={s.detailText}>{current.detail}</Text>
+            </View>
+          ) : null}
+          {current.confirmText ? (
+            <View style={{ gap: 6 }}>
+              <Text style={{ ...font.small, color: colors.text }}>Type <Text style={{ fontWeight: "700", color: colors.ink }}>{current.confirmText}</Text> to confirm.</Text>
+              <TextInput value={typed} onChangeText={setTyped} autoCapitalize="none" autoCorrect={false} autoFocus
+                accessibilityLabel={`Type ${current.confirmText} to confirm`} placeholder={current.confirmText} placeholderTextColor={colors.faint}
+                style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radiusSm, paddingHorizontal: 12, paddingVertical: 9, fontSize: 14, color: colors.ink, backgroundColor: colors.surface2 }} />
             </View>
           ) : null}
           <View style={s.actions}>
@@ -203,13 +219,16 @@ export function DialogHost() {
               </Pressable>
             ) : null}
             <Pressable
-              onPress={() => answer(true)}
+              onPress={() => { if (!blocked) answer(true); }}
               accessibilityRole="button"
-              style={({ pressed }) => [s.btn, { backgroundColor: okColor }, pressed && { opacity: 0.85 }]}
+              accessibilityState={{ disabled: blocked }}
+              disabled={blocked}
+              style={({ pressed }) => [s.btn, { backgroundColor: okColor }, blocked && { opacity: 0.45 }, pressed && !blocked && { opacity: 0.85 }]}
             >
               <Text style={[s.btnText, { color: okText }]}>{current.okLabel}</Text>
             </Pressable>
           </View>
+          </ScrollView>
         </Pressable>
       </Pressable>
     </Modal>

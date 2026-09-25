@@ -1,6 +1,7 @@
 import * as DocumentPicker from "expo-document-picker";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useState } from "react";
+import { useBackTo } from "@/hooks/useBackTo";
+import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
+import React, { useEffect, useState } from "react";
 import { Platform, Text, View } from "react-native";
 import { admin } from "@/api/endpoints";
 import type { ImportReport } from "@/api/types";
@@ -13,11 +14,16 @@ type RowT = { row: number; name: string; email: string; outcome: "Created" | "Ac
 
 export default function ImportPeople() {
   const router = useRouter();
+  const navigation = useNavigation();
+  const back = useBackTo();
   const p = useLocalSearchParams<{ kind?: string }>();
-  const [kind, setKind] = useState<Kind>(p.kind === "faculty" ? "faculty" : "students");
+  const kind: Kind = p.kind === "faculty" ? "faculty" : "students";
+  useEffect(() => { navigation.setOptions({ backTo: `/admin/users?kind=${kind}`, backLabel: "People" }); }, [navigation, kind]);
+  const setKind = (next: Kind) => router.setParams({ kind: next });
   const [file, setFile] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
   const [report, setReport] = useState<ImportReport | null>(null);
   const [showColumns, setShowColumns] = useState(false);
+  useEffect(() => { setFile(null); setReport(null); }, [kind]);
   const spec = useAsync(() => admin.importTemplate(kind), [kind]);
   const pick = async () => {
     const r = await DocumentPicker.getDocumentAsync({ type: ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"], copyToCacheDirectory: true });
@@ -59,7 +65,7 @@ export default function ImportPeople() {
     return (
       <Screen>
         <PageHeading eyebrow="PEOPLE · IMPORT RESULTS" title="Review the import report" subtitle={file?.name ?? "Excel import"} right={<Button title="Go to people" icon="arrow-forward" onPress={done} />} />
-        <Notice tone={report.invalid || report.already_existing ? "warning" : "success"} title={`${report.created} row${report.created === 1 ? "" : "s"} accepted. ${report.invalid + report.already_existing} need${report.invalid + report.already_existing === 1 ? "s" : ""} attention.`}
+        <Notice inline tone={report.invalid || report.already_existing ? "warning" : "success"} title={`${report.created} row${report.created === 1 ? "" : "s"} accepted. ${report.invalid + report.already_existing} need${report.invalid + report.already_existing === 1 ? "s" : ""} attention.`}
           message="Rows that were created are not created twice. Correct the marked rows in the sheet and import it again." />
         {credentials.length ? <OneTimeCredentials title={`${credentials.length} one-time password${credentials.length === 1 ? "" : "s"}`} rows={credentials} filename={`localmind-${who}-one-time-passwords.csv`} /> : null}
         <Card flush><Table noun="row" columns={columns} rows={rows} keyOf={(r) => `${r.row}-${r.email}`} minWidth={820} /></Card>
@@ -73,7 +79,7 @@ export default function ImportPeople() {
   return (
     <Screen>
       <PageHeading eyebrow="PEOPLE · BULK IMPORT" title="Add people from Excel" subtitle="Prepare the file, check the columns, then review each row’s result."
-        right={<Button title="Back to people" variant="secondary" icon="arrow-back" onPress={() => router.push({ pathname: "/admin/users", params: { kind } })} />} />
+        right={<Button title="Back to people" variant="secondary" icon="arrow-back" onPress={() => back({ pathname: "/admin/users", params: { kind } })} />} />
       <Split
         main={
           <Card>
@@ -98,7 +104,7 @@ export default function ImportPeople() {
             </View>
             <ErrorBanner message={upload.error ?? download.error ?? spec.error} />
             <FormFooter note="File contents are not read or sent anywhere until you import.">
-              <Button title="Cancel" variant="secondary" onPress={() => router.push({ pathname: "/admin/users", params: { kind } })} />
+              <Button title="Cancel" variant="secondary" onPress={() => back({ pathname: "/admin/users", params: { kind } })} />
               <Button title={`Import ${who}`} icon="arrow-forward" onPress={() => upload.run()} busy={upload.busy} disabled={!file} />
             </FormFooter>
           </Card>

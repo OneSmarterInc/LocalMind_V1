@@ -1,3 +1,4 @@
+import { quizNeedsSubmission } from "@/screens/student/quizStatus";
 import { useRouter } from "expo-router";
 import React from "react";
 import { Text, View } from "react-native";
@@ -16,13 +17,11 @@ export default function StudentOverview() {
   const cat = useStudentCatalog();
   const ov = useAsync(() => student.overview(), []);
   const quizzes = useAsync(() => student.quizzes(), []);
-  const assignments = useAsync(() => student.assignments(), []);
   const first = user?.full_name.split(" ")[0] ?? "there";
-  const toTake = (quizzes.data ?? []).filter((q) => !q.passed && (!q.max_attempts || (q.attempts_used ?? 0) < q.max_attempts));
-  const toDo = (assignments.data ?? []).filter((a) => a.status === "published" && !a.my_submission);
+  const toTake = (quizzes.data ?? []).filter(quizNeedsSubmission);
   const next = cat.data ? nextModule(cat.data.subjects) : null;
   const d = ov.data;
-  const reload = () => { cat.reload(); ov.reload(); quizzes.reload(); assignments.reload(); };
+  const reload = () => { cat.reload(); ov.reload(); quizzes.reload(); };
   return (
     <Screen refreshing={cat.loading} onRefresh={reload}>
       <PageHeading eyebrow={today()} title={`${greeting()}, ${first}.`} subtitle="Ready for your next small step? Everything you need is right here."
@@ -60,13 +59,11 @@ export default function StudentOverview() {
           <>
             <Card>
               <CardHead title="Up next" subtitle="A few things to keep you moving" />
-              {toTake.length === 0 && toDo.length === 0 && quizzes.data && assignments.data ? <Text style={{ fontSize: 12, color: colors.muted }}>Nothing waiting. Nice work.</Text> : null}
+              {toTake.length === 0 && quizzes.data ? <Text style={{ fontSize: 12, color: colors.muted }}>Nothing waiting. Nice work.</Text> : null}
               {toTake.slice(0, 3).map((q) => (
                 <ListRow key={q.id} plain icon="help-circle-outline" title={q.title} subtitle={`${q.question_count ?? "?"} questions · Pass mark ${q.pass_percentage}%`} right={<><Badge value="Ready" tone="green" /></>} onPress={() => router.push(`/student/quiz/${q.id}`)} />
               ))}
-              {toDo.slice(0, 3).map((a) => (
-                <ListRow key={a.id} plain icon="create-outline" tone="amber" title={a.title} subtitle={`Assignment${a.due_at ? ` · Due ${new Date(a.due_at).toLocaleDateString(undefined, { day: "numeric", month: "short" })}` : ""}`} right={<Badge value="To do" tone="amber" />} onPress={() => router.push(`/student/assignment/${a.id}`)} />
-              ))}
+
             </Card>
             <Card>
               <Eyebrow>YOUR LEARNING, AT A GLANCE</Eyebrow>

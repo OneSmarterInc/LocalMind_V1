@@ -179,9 +179,13 @@ Unique on (`student`, `module`). `status` (`not_started`, `in_progress`, `comple
 
 Unique on (`assessment`, `student`, `attempt_number`). `assessment` FK PROTECT (an assessment with attempts is never deleted, only superseded or closed), `student` FK CASCADE, `status` (`in_progress`, `submitted`, `pending_evaluation`, `evaluated`), `started_at`, `submitted_at`, `time_taken_seconds` (server computed), `submitted_answers` JSON, `score` float, `total_questions`, `percentage` float, `passed` bool null, `detailed_results` JSON (per question: correct, awarded, feedback), `evaluation_notes` JSON (AI or faculty notes), `evaluated_by` FK User SET_NULL, `evaluated_at`. Rows are never updated after evaluation except through faculty re-evaluation, which is audited.
 
-## assignments
+## assignments (retired archive)
 
-### assignments
+These tables and their historical migrations are retained for existing-installation compatibility and foreign-key cleanup. There are no Assignment API routes, authoring services, or default model permissions. Migration 0005 removes legacy permissions without deleting historical records.
+
+### assignments (retired archive)
+
+These tables and their historical migrations are retained for existing-installation compatibility and foreign-key cleanup. There are no Assignment API routes, authoring services, or default model permissions. Migration 0005 removes legacy permissions without deleting historical records.
 
 `subject` FK PROTECT, optional `chapter` and `module` FK PROTECT, `created_by`, `title`, `description`, `instructions`, `rubric` JSON `[{"criterion", "points"}]` summing to `max_score`, `max_score` smallint, `generator`, `status` (`draft`, `published`, `closed`), `available_from`, `due_at`, `allow_late`, `allow_resubmission`, `max_attempts` (positive int, null; with resubmission allowed, the total number of submissions a student may make, null meaning no limit; added by `assignments/0004_assignment_max_attempts`), `published_at`, `closed_at`. Indexed on (`subject`, `status`).
 

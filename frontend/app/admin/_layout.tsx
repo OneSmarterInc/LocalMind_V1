@@ -1,5 +1,6 @@
-import { Ionicons } from "@expo/vector-icons";
-import { Tabs } from "expo-router";
+import { portalRouter } from "@/hooks/portalRouter";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { PortalTabs as Tabs } from "@/ui/PortalTabs";
 import React from "react";
 import { PortalMeta, shellScreen, useShell } from "@/ui/Shell";
 
@@ -12,6 +13,7 @@ const icon = (name: keyof typeof Ionicons.glyphMap) => {
 const META: PortalMeta = {
   name: "Administrator workspace",
   navLabel: "MANAGE PLATFORM",
+  homePath: "/admin",
   profilePath: "/admin/profile",
   links: [{ label: "Content workspace", icon: "book-outline", path: "/admin/content" }],
   finder: [
@@ -26,7 +28,7 @@ const META: PortalMeta = {
     { title: "AI monitoring policies", section: "AI monitoring", path: "/admin/monitor-policies" },
     { title: "Audit log", section: "Audit log", path: "/admin/audit" },
     { title: "System readiness", section: "System status", path: "/admin/system" },
-    { title: "Content workspace", section: "Books, quizzes and assignments", path: "/admin/content" },
+    { title: "Content workspace", section: "Books and quizzes", path: "/admin/content" },
     { title: "My profile", section: "Account", path: "/admin/profile" },
     { title: "Change password", section: "Account", path: "/change-password" },
   ],
@@ -40,13 +42,14 @@ const META: PortalMeta = {
 export default function AdminLayout() {
   const shell = useShell(META);
   return (
-    <Tabs screenOptions={shell.screenOptions} tabBar={shell.tabBar}>
+    <Tabs backBehavior="fullHistory" UNSTABLE_router={portalRouter} screenOptions={shell.screenOptions} tabBar={shell.tabBar}>
       <Tabs.Screen name="index" options={{ title: "Overview", tabBarIcon: icon("home-outline") }} />
       <Tabs.Screen name="users" options={{ title: "People", tabBarIcon: icon("people-outline") }} />
       <Tabs.Screen name="subjects" options={{ title: "Subjects", tabBarIcon: icon("library-outline") }} />
       <Tabs.Screen name="monitoring" options={{ title: "AI monitoring", tabBarIcon: icon("shield-checkmark-outline") }} />
       <Tabs.Screen name="audit" options={{ title: "Audit log", tabBarIcon: icon("receipt-outline") }} />
-      <Tabs.Screen name="system" options={{ title: "System status", tabBarIcon: icon("pulse-outline") }} />
+      <Tabs.Screen name="offline-ai" options={{ title: "Offline AI", tabBarIcon: icon("hardware-chip-outline") }} />
+      <Tabs.Screen name="system" options={shellScreen({ href: null, title: "System status" }, {})} />
       <Tabs.Screen name="profile" options={{ title: "My profile", tabBarIcon: icon("person-circle-outline") }} />
       <Tabs.Screen name="content" options={shellScreen({ href: null, title: "Content workspace" }, {})} />
       <Tabs.Screen name="subject/[id]" options={shellScreen({ href: null, title: "Subject" }, { backTo: "/admin/subjects", backLabel: "Subjects" })} />

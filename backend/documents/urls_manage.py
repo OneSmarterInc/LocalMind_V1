@@ -1,15 +1,25 @@
 """Mounted under both /api/admin/ and /api/faculty/; scoping happens in views."""
 from django.urls import path
 from . import views
+from .local_authoring import LocalAuthoringView, LocalQuizView
+from .local_books import LocalBookView
+from .book_transfers import BookTransferView, BookChunkView
 
 urlpatterns = [
+    path("local-quizzes/", LocalQuizView.as_view()),
+    path("local-books/transfers/", BookTransferView.as_view()),
+    path("local-books/transfers/<uuid:operation_id>/", BookChunkView.as_view()),
+    path("local-books/", LocalBookView.as_view()),
+    path("modules/<uuid:module_id>/local-authoring/", LocalAuthoringView.as_view()),
     path("documents/", views.DocumentListUploadView.as_view(), name="documents-list"),
     path("documents/<uuid:document_id>/", views.DocumentDetailView.as_view(), name="documents-detail"),
     path("documents/<uuid:document_id>/process/", views.ProcessView.as_view(), name="documents-process"),
     path("documents/<uuid:document_id>/outline/", views.OutlineView.as_view(), name="documents-outline"),
+    path("documents/<uuid:document_id>/pictures/", views.DocumentPicturesView.as_view(), name="documents-pictures"),
     path("documents/<uuid:document_id>/ready/", views.MarkReadyView.as_view(), name="documents-ready"),
     path("documents/<uuid:document_id>/publish/", views.PublishView.as_view(), name="documents-publish"),
     path("documents/<uuid:document_id>/unpublish/", views.UnpublishView.as_view(), name="documents-unpublish"),
+    path("documents/<uuid:document_id>/unarchive/", views.UnarchiveView.as_view(), name="documents-unarchive"),
     path("documents/<uuid:document_id>/archive/", views.ArchiveView.as_view(), name="documents-archive"),
     path("documents/<uuid:document_id>/lessons/", views.DocumentLessonsView.as_view(), name="documents-lessons"),
     path("documents/<uuid:document_id>/auto-quizzes/", views.DocumentAutoQuizzesView.as_view(), name="documents-auto-quizzes"),
@@ -18,5 +28,6 @@ urlpatterns = [
     path("modules/<uuid:module_id>/", views.ModuleEditView.as_view(), name="modules-edit"),
     path("modules/<uuid:module_id>/availability/", views.ModuleAvailabilityView.as_view(), name="modules-availability"),
     path("modules/<uuid:module_id>/lesson/", views.ModuleLessonView.as_view(), name="modules-lesson"),
+    path("modules/<uuid:module_id>/visuals/", views.ModuleVisualsView.as_view(), name="modules-visuals"),
     path("modules/<uuid:module_id>/auto-quiz/", views.ModuleAutoQuizView.as_view(), name="modules-auto-quiz"),
 ]

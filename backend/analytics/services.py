@@ -18,7 +18,6 @@ from academics.models import Enrollment, FacultySubject, Subject, faculty_manage
 from accounts.models import User
 from activity.models import ActivityEvent, ApplicationSession
 from assessments.models import Assessment, AssessmentAttempt
-from assignments.models import Assignment, AssignmentSubmission
 from core.exceptions import NotFound, ValidationFailed
 from core.utils import get_or_404
 from documents.models import Document
@@ -99,13 +98,9 @@ def _released_attempts(qs):
     return qs.filter(results_visible_q())
 
 
-def _released_submissions(qs):
-    return qs.filter(AssignmentSubmission.visible_q())
-
-
 def student_overview(student, window=(None, None), released_only=False):
     """``released_only`` is True when the student reads their own overview:
-    held quiz and assignment results then stay out of every count and average.
+    held quiz results then stay out of every count and average.
     Faculty and admins looking at a student see everything."""
     if released_only:
         from learning.services import settle_student_results
@@ -119,15 +114,11 @@ def student_overview(student, window=(None, None), released_only=False):
     completed = status_counts.get("completed", 0)
 
     attempts = _between(AssessmentAttempt.objects.filter(student=student, status="evaluated"), "submitted_at", window)
-    submissions = _between(AssignmentSubmission.objects.filter(student=student), "submitted_at", window)
     # Counts of what was submitted are the student's own knowledge; outcomes
     # (passed, averages, evaluated) come only from released results.
     scored_attempts = _released_attempts(attempts) if released_only else attempts
-    scored_submissions = _released_submissions(submissions) if released_only else submissions
     quiz_stats = {**attempts.aggregate(n=Count("id")),
                   **scored_attempts.aggregate(avg=Avg("percentage"), passed=Count("id", filter=Q(passed=True)))}
-    sub_stats = {**submissions.aggregate(n=Count("id"), late=Count("id", filter=Q(is_late=True))),
-                 **scored_submissions.aggregate(evaluated=Count("id", filter=Q(status="evaluated")), avg=Avg("score"))}
 
     events = _between(ActivityEvent.objects.filter(user=student), "occurred_at", window)
     time_by_kind = {row["kind"]: row["s"] for row in events.values("kind").annotate(s=Sum("seconds"))}
@@ -150,16 +141,9 @@ def student_overview(student, window=(None, None), released_only=False):
             "average_percentage": round(quiz_stats["avg"], 1) if quiz_stats["avg"] is not None else None,
             "pending_evaluation": AssessmentAttempt.objects.filter(student=student, status="pending_evaluation").count(),
         },
-        "assignments": {
-            "submitted": sub_stats["n"],
-            "evaluated": sub_stats["evaluated"],
-            "late": sub_stats["late"],
-            "average_score": round(sub_stats["avg"], 1) if sub_stats["avg"] is not None else None,
-        },
         "time": {
             "learning_seconds": time_by_kind.get("learning", 0),
             "quiz_seconds": time_by_kind.get("quiz", 0),
-            "assignment_seconds": time_by_kind.get("assignment", 0),
             "tutor_seconds": time_by_kind.get("tutor", 0),
             "session_seconds": _session_seconds(sessions),
             "sessions": sessions.count(),
@@ -182,6 +166,7 @@ def student_subject_detail(student, subject, window=(None, None), released_only=
         p = progress.get(m.id)
         rows.append({
             "module_id": str(m.id), "title": m.title, "chapter": m.chapter.title, "document": m.chapter.document.title,
+            "document_id": str(m.chapter.document_id),
             "availability": m.availability,
             "status": p.status if p else "not_started",
             "best_quiz_percentage": p.best_quiz_percentage if p else None,
@@ -190,9 +175,8 @@ def student_subject_detail(student, subject, window=(None, None), released_only=
             "last_viewed_at": p.last_viewed_at if p else None,
         })
     attempts = _between(AssessmentAttempt.objects.filter(student=student, assessment__subject=subject, status="evaluated"), "submitted_at", window)
-    subs = _between(AssignmentSubmission.objects.filter(student=student, assignment__subject=subject), "submitted_at", window)
     if released_only:
-        attempts, subs = _released_attempts(attempts), _released_submissions(subs)
+        attempts = _released_attempts(attempts)
     recent = []
     if not released_only:
         for att in (AssessmentAttempt.objects.filter(student=student, assessment__subject=subject).exclude(status="in_progress")
@@ -207,11 +191,9 @@ def student_subject_detail(student, subject, window=(None, None), released_only=
         "modules": rows,
         "quiz_attempts": recent,
         "quiz_average": round(attempts.aggregate(a=Avg("percentage"))["a"], 1) if attempts.exists() else None,
-        "assignment_average": round(subs.aggregate(a=Avg("score"))["a"], 1) if subs.filter(score__isnull=False).exists() else None,
         "time": {
             "learning_seconds": _seconds(_between(ActivityEvent.objects.filter(user=student, subject=subject, kind="learning"), "occurred_at", window)),
             "quiz_seconds": _seconds(_between(ActivityEvent.objects.filter(user=student, subject=subject, kind="quiz"), "occurred_at", window)),
-            "assignment_seconds": _seconds(_between(ActivityEvent.objects.filter(user=student, subject=subject, kind="assignment"), "occurred_at", window)),
         },
         "window": _window_out(window),
     }
@@ -230,8 +212,6 @@ def subject_summary(actor, subject, window=(None, None)):
 
     attempts = _between(AssessmentAttempt.objects.filter(assessment__subject=subject, status="evaluated"), "submitted_at", window)
     q = attempts.aggregate(n=Count("id"), avg=Avg("percentage"), passed=Count("id", filter=Q(passed=True)), students=Count("student", distinct=True))
-    subs = _between(AssignmentSubmission.objects.filter(assignment__subject=subject), "submitted_at", window)
-    s = subs.aggregate(n=Count("id"), avg=Avg("score"), late=Count("id", filter=Q(is_late=True)), pending=Count("id", filter=Q(status="submitted")))
 
     events = _between(ActivityEvent.objects.filter(subject=subject, user__in=students), "occurred_at", window)
     time_by_kind = {row["kind"]: row["s"] for row in events.values("kind").annotate(s=Sum("seconds"))}
@@ -256,15 +236,9 @@ def subject_summary(actor, subject, window=(None, None)):
             "average_percentage": round(q["avg"], 1) if q["avg"] is not None else None,
             "pending_evaluation": AssessmentAttempt.objects.filter(assessment__subject=subject, status="pending_evaluation").count(),
         },
-        "assignments": {
-            "published": Assignment.objects.filter(subject=subject, status="published").count(),
-            "submissions": s["n"], "late": s["late"], "awaiting_evaluation": s["pending"],
-            "average_score": round(s["avg"], 1) if s["avg"] is not None else None,
-        },
         "time": {
             "learning_seconds": time_by_kind.get("learning", 0),
             "quiz_seconds": time_by_kind.get("quiz", 0),
-            "assignment_seconds": time_by_kind.get("assignment", 0),
             "tutor_seconds": time_by_kind.get("tutor", 0),
         },
         "window": _window_out(window),
@@ -283,17 +257,15 @@ def subject_students(actor, subject, window=(None, None)):
     needs_review = {r["student"]: r["n"] for r in ModuleProgress.objects.filter(module__in=modules, status="needs_review").values("student").annotate(n=Count("id"))}
     attempts = _between(AssessmentAttempt.objects.filter(assessment__subject=subject, status="evaluated"), "submitted_at", window)
     quiz = {r["student"]: r for r in attempts.values("student").annotate(n=Count("id"), avg=Avg("percentage"), best=Max("percentage"), passed=Count("id", filter=Q(passed=True)))}
-    subs = _between(AssignmentSubmission.objects.filter(assignment__subject=subject), "submitted_at", window)
-    assign = {r["student"]: r for r in subs.values("student").annotate(n=Count("id"), avg=Avg("score"), late=Count("id", filter=Q(is_late=True)))}
     events = _between(ActivityEvent.objects.filter(subject=subject), "occurred_at", window)
-    time = {r["user"]: r for r in events.values("user").annotate(learning=Sum("seconds", filter=Q(kind="learning")), quiz=Sum("seconds", filter=Q(kind="quiz")), assignment=Sum("seconds", filter=Q(kind="assignment")), last=Max("occurred_at"))}
+    time = {r["user"]: r for r in events.values("user").annotate(learning=Sum("seconds", filter=Q(kind="learning")), quiz=Sum("seconds", filter=Q(kind="quiz")), last=Max("occurred_at"))}
     sessions = _between(ApplicationSession.objects.filter(logout_at__isnull=False, user__in=enrolled.values("student")), "login_at", window)
     app_time = {r["user"]: r for r in sessions.values("user").annotate(s=Sum("duration_seconds"), n=Count("id"), last=Max("login_at"))}
 
     rows = []
     for e in enrolled:
         sid = e.student_id
-        q, a, t = quiz.get(sid, {}), assign.get(sid, {}), time.get(sid, {})
+        q, t = quiz.get(sid, {}), time.get(sid, {})
         profile = getattr(e.student, "student_profile", None)
         rows.append({
             "student_id": str(sid), "email": e.student.email, "full_name": e.student.full_name,
@@ -303,9 +275,7 @@ def subject_students(actor, subject, window=(None, None)):
             "quiz_attempts": q.get("n", 0), "quiz_passed": q.get("passed", 0),
             "quiz_average": round(q["avg"], 1) if q.get("avg") is not None else None,
             "best_quiz_percentage": round(q["best"], 1) if q.get("best") is not None else None,
-            "assignments_submitted": a.get("n", 0), "assignments_late": a.get("late", 0),
-            "assignment_average": round(a["avg"], 1) if a.get("avg") is not None else None,
-            "learning_seconds": t.get("learning") or 0, "quiz_seconds": t.get("quiz") or 0, "assignment_seconds": t.get("assignment") or 0,
+            "learning_seconds": t.get("learning") or 0, "quiz_seconds": t.get("quiz") or 0,
             "session_seconds": app_time.get(sid, {}).get("s") or 0, "sessions": app_time.get(sid, {}).get("n") or 0,
             "last_login_at": app_time.get(sid, {}).get("last"),
             "last_activity_at": t.get("last"),
@@ -332,6 +302,10 @@ def subject_modules(actor, subject):
         started = sum(p.values())
         rows.append({
             "module_id": str(m.id), "title": m.title, "chapter": m.chapter.title, "document": m.chapter.document.title,
+            # The portal needs the owning book and chapter to open the outline editor
+            # on this module and to renumber the book after a module is deleted.
+            "document_id": str(m.chapter.document_id), "chapter_id": str(m.chapter_id),
+            "order": m.order,
             "availability": m.availability, "source_missing": m.source_missing,
             "students_started": started, "students_completed": p.get("completed", 0), "students_needs_review": p.get("needs_review", 0),
             "students_not_started": max(0, n_students - started),
@@ -376,16 +350,6 @@ def teaching_activity(actor, days=14, limit=8):
         n = g["count"]
         items.append({"kind": "quiz_attempts", "title": f"{n} quiz attempt{'s' if n != 1 else ''} {'evaluated' if g['evaluated'] == n else 'submitted'}",
                       "detail": g["title"], "subject": g["subject"], "at": g["at"], "target_id": g["id"]})
-    subs = {}
-    for sub in (AssignmentSubmission.objects.filter(assignment__subject__in=subjects, submitted_at__gte=since)
-                .select_related("assignment", "assignment__subject")):
-        key = (sub.assignment_id, day(sub.submitted_at))
-        g = subs.setdefault(key, {"count": 0, "at": sub.submitted_at, "title": sub.assignment.title, "subject": sub.assignment.subject.code, "id": str(sub.assignment_id)})
-        g["count"] += 1; g["at"] = max(g["at"], sub.submitted_at)
-    for g in subs.values():
-        n = g["count"]
-        items.append({"kind": "assignment_submissions", "title": f"{n} assignment submission{'s' if n != 1 else ''} received",
-                      "detail": g["title"], "subject": g["subject"], "at": g["at"], "target_id": g["id"]})
     labels = {"under_review": "Book ready for review", "ready": "Book marked ready", "published": "Book published", "error": "Book processing failed"}
     for doc in Document.objects.filter(subject__in=subjects, updated_at__gte=since, status__in=list(labels)).select_related("subject"):
         items.append({"kind": "document", "title": labels[doc.status], "detail": doc.title, "subject": doc.subject.code,
@@ -410,7 +374,6 @@ def admin_overview(window=(None, None)):
     for r in users:
         by_role.setdefault(r["role"], {})[r["status"]] = r["n"]
     attempts = _between(AssessmentAttempt.objects.filter(status="evaluated"), "submitted_at", window)
-    subs = _between(AssignmentSubmission.objects.all(), "submitted_at", window)
     sessions = _between(ApplicationSession.objects.filter(logout_at__isnull=False), "login_at", window)
     events = _between(ActivityEvent.objects.all(), "occurred_at", window)
     time_by_kind = {row["kind"]: row["s"] for row in events.values("kind").annotate(s=Sum("seconds"))}
@@ -429,18 +392,12 @@ def admin_overview(window=(None, None)):
             "average_percentage": round(attempts.aggregate(a=Avg("percentage"))["a"], 1) if attempts.exists() else None,
             "pending_evaluation": AssessmentAttempt.objects.filter(status="pending_evaluation").count(),
         },
-        "assignments": {
-            "published": Assignment.objects.filter(status="published").count(),
-            "submissions": subs.count(),
-            "awaiting_evaluation": AssignmentSubmission.objects.filter(status="submitted").count(),
-        },
         "activity": {
             "sessions": sessions.count(),
             "session_seconds": _session_seconds(sessions),
             "distinct_users_with_sessions": sessions.values("user").distinct().count(),
             "learning_seconds": time_by_kind.get("learning", 0),
             "quiz_seconds": time_by_kind.get("quiz", 0),
-            "assignment_seconds": time_by_kind.get("assignment", 0),
             "tutor_seconds": time_by_kind.get("tutor", 0),
         },
         "window": _window_out(window),
@@ -456,6 +413,7 @@ def admin_subjects(window=(None, None)):
         events = _between(ActivityEvent.objects.filter(subject=s), "occurred_at", window)
         rows.append({
             "subject_id": str(s.id), "code": s.code, "name": s.name, "status": s.status, "faculty": faculty,
+            "faculty_ids": [str(i) for i in FacultySubject.objects.filter(subject=s, status="active").values_list("faculty_id", flat=True)],
             "students_enrolled": Enrollment.objects.filter(subject=s, status="active").count(),
             "documents_published": Document.objects.filter(subject=s, status="published").count(),
             "modules_published": Module.objects.filter(chapter__document__subject=s, chapter__document__status="published", source_missing=False).count(),

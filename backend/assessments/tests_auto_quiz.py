@@ -30,6 +30,8 @@ def run_quizzes(fake=None):
         return auto_quiz.run_pending(wait_for_students=False)
 
 
+# Legacy server-generation compatibility coverage.
+@override_settings(DEVICE_AUTHORING_ONLY=False)
 class Base(TestCase):
     def setUp(self):
         self.faculty = make_faculty()
@@ -48,14 +50,18 @@ class Base(TestCase):
 
 
 @override_settings(MEDIA_ROOT=MEDIA)
+# Legacy server-generation compatibility coverage.
+@override_settings(DEVICE_AUTHORING_ONLY=False)
 class GeneratedOnUploadTests(TestCase):
     @classmethod
     def tearDownClass(cls):
         shutil.rmtree(MEDIA, ignore_errors=True)
         super().tearDownClass()
 
-    @override_settings(AUTO_QUIZ={**settings.AUTO_QUIZ, "MIN_CHARS": 0})
+    @override_settings(AUTO_QUIZ={**settings.AUTO_QUIZ, "ENABLED": True, "MIN_CHARS": 0, "MCQS": 1, "SUBJECTIVE": 0})
     def test_processing_queues_a_quiz_for_every_module_with_text(self):
+        # One question is supportable by every nonempty section in fake_parse.
+        # MIN_CHARS=0 no longer overrides the source budget for five questions.
         from documents.tests import PDF_BYTES, fake_parse
         faculty = make_faculty()
         subject = make_subject(code="UP")

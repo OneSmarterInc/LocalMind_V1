@@ -1,0 +1,210 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
+import {LocalLessonView} from '../LocalLessonView';
+import { useBackTo } from "@/hooks/useBackTo";
+import {generationJobs,DOUBTS_PAUSED_MESSAGE} from '../jobs';
+import {jobScope,useGenerationJobs,useDoubtsBlocked} from '../useGenerationJobs';
+import React,{useCallback,useEffect,useRef,useState} from 'react';
+import {Pressable,View} from 'react-native';
+import {useLocalSearchParams,useRouter} from 'expo-router';
+import {Screen,PageHeading,Card,Row,H2,P,Button,Badge,Notice,ErrorBanner,Loading,PageTabs,Input,Split,Dropdown,confirmAsync,colors,showToast} from '@/ui';
+import ChatThread from '../ChatThread';
+import {SourceVisuals} from '../SourceVisuals';
+import {SourceContent} from '@/ui/SourceContent';
+import {useAsync} from '@/hooks/useAsync';
+import {useLibrary} from '../useLibrary';
+import {useTask} from '../useTask';
+import type {QuizVersion,PrivateChat} from '../library';
+import {MAX_READING_CHARS, MAX_SECTION_CHARS, stripOptionLabel, type Section} from '../core';
+import {useUnsavedWarning} from '@/hooks/useDraft';
+import {confirmLeave,registerGuard} from '@/hooks/unsavedGuard';
+
+type Tab='read'|'lesson'|'quiz'|'ask';
+export default function PrivateBook(){
+ const {id,section:targetSection,tab:targetTab}=useLocalSearchParams<{id:string;section?:string;tab?:string}>(),library=useLibrary();
+ const back=useBackTo();
+ const book=useAsync(()=>{if(!library)throw Error('Open the library after signing in.');return library.book(id);},[id,library]);
+ const [sectionId,setSectionId]=useState(''),[query,setQuery]=useState('');
+ // Generate lesson sits under the source text, so the work it starts appears
+ // far above where the reader is standing. Moving this counter takes the page
+ // back to the top through the same mechanism a section change uses.
+ const [topTick,setTopTick]=useState(0);
+ const backToTop=useCallback(()=>setTopTick(t=>t+1),[]);
+ // The book opens to its module list; a link to a specific module opens it directly.
+ const [listing,setListing]=useState(!targetSection);
+ useEffect(()=>{setListing(!targetSection);},[id,targetSection]);
+ useEffect(()=>{let alive=true;if(library&&book.data)void library.viewState(id,'section').then(saved=>{if(alive)setSectionId(book.data!.sections.find(s=>s.id===(targetSection||saved))?.id||book.data!.sections[0].id);});return()=>{alive=false;};},[book.data,id,library,targetSection]);
+ const selectSection=(value:string)=>{setSectionId(value);setListing(false);void library?.saveViewState(id,'section',value).catch(()=>{});};
+ const b=book.data,s=b?.sections.find(x=>x.id===sectionId);
+ const needle=query.trim().toLowerCase();
+ const listed=(b?.sections||[]).map((x,i)=>({x,n:i+1})).filter(({x,n})=>!needle||`${x.title} module ${n}`.toLowerCase().includes(needle));
+ if(listing)return <Screen><PageHeading title={b?.title||'Private book'} subtitle={b?`${b.sections.length} modules · Personal study, saved only on this device`:'Personal study, saved only on this device'} right={<Button title="Back to library" variant="secondary" icon="arrow-back" onPress={()=>back('/student/private-library')}/>}/><ErrorBanner message={book.error} onRetry={book.reload}/>
+  {book.loading&&!b?<Loading/>:null}
+  {b?.warnings.length?<Notice inline tone="warning" title="About this import" message={b.warnings.join('\n')}/>:null}
+  {b?<Card flush>
+   <View style={{padding:16,flexDirection:'row',alignItems:'center',gap:12,flexWrap:'wrap',borderBottomWidth:1,borderColor:colors.border}}>
+    <Input icon="search" compact value={query} onChangeText={setQuery} placeholder="Search modules" accessibilityLabel="Search modules in this book" containerStyle={{flex:1,minWidth:220,maxWidth:420}}/>
+    <P muted>{needle?`${listed.length} of ${b.sections.length} modules`:'Choose a module to read, generate a lesson or practise.'}</P>
+   </View>
+   {listed.length?listed.map(({x,n})=><Pressable key={x.id} accessibilityRole="button" accessibilityLabel={`Open module ${n}: ${x.title}`} onPress={()=>selectSection(x.id)}
+     style={(st:any)=>({flexDirection:'row',alignItems:'center',gap:12,paddingHorizontal:16,paddingVertical:13,borderBottomWidth:1,borderColor:colors.rowLine,backgroundColor:st.hovered||st.pressed?colors.surface2:colors.surface})}>
+     <View style={{width:30,height:30,borderRadius:7,backgroundColor:colors.pale,alignItems:'center',justifyContent:'center'}}><P style={{fontWeight:'700',color:colors.primary}}>{n}</P></View>
+     <View style={{flex:1,minWidth:0}}><P style={{fontWeight:'600',color:colors.ink}} numberOfLines={1}>{x.title}</P>{x.id===sectionId?<P small muted>Last opened</P>:null}</View>
+     <Ionicons name="chevron-forward" size={16} color={colors.faint}/>
+    </Pressable>):<View style={{padding:24}}><P muted>{`No module matches “${query.trim()}”. Try a shorter word or a module number.`}</P></View>}
+  </Card>:null}
+ </Screen>;
+ return <Screen scrollTopOn={`${sectionId}:${topTick}`}><PageHeading title={b?.title||'Private book'} subtitle="Personal study · Saved only on this device" right={<Button title="All modules" variant="secondary" icon="list-outline" onPress={()=>{void confirmLeave().then(ok=>{if(ok)setListing(true);});}}/>}/><ErrorBanner message={book.error} onRetry={book.reload}/>
+  {book.loading&&!b?<Loading/>:null}
+  {b?.warnings.length?<Notice inline tone="warning" title="About this import" message={b.warnings.join('\n')}/>:null}
+  {b&&s&&library?<Split side={null} main={<ModuleLearning key={`${library.prefix}:${id}:${s.id}`} bookId={id} initialTab={targetTab} onSourceSaved={book.reload} backToTop={backToTop} section={s} hasNext={b.sections.findIndex(x=>x.id===s.id)<b.sections.length-1} next={()=>{const n=b.sections.findIndex(x=>x.id===s.id)+1;if(b.sections[n])void confirmLeave().then(ok=>{if(ok)selectSection(b.sections[n].id);});}}/>}/>:null}
+ </Screen>;
+}
+function ModuleLearning({bookId,section,next,hasNext,initialTab,onSourceSaved,backToTop}:{bookId:string;section:Section;next:()=>void;hasNext:boolean;initialTab?:string;onSourceSaved:()=>Promise<unknown>;backToTop:()=>void}){
+ const library=useLibrary()!,router=useRouter();
+ const doubtsBlocked=useDoubtsBlocked();
+ const jobs=useGenerationJobs(library.prefix).filter(j=>j.bookId===bookId&&j.sectionId===section.id);
+ const completed=jobs.filter(j=>j.state==='completed').map(j=>j.id).join(',');
+ const [tab,setTabState]=useState<Tab>('read'),[count,setCount]=useState('6');
+ const figures=useAsync(()=>library.visuals(bookId,section.id),[library,bookId,section.id]);
+ const lessons=useAsync(()=>library.lessons(bookId,section.id),[library,bookId,section.id,completed]);
+ const quizzes=useAsync(()=>library.quizzes(bookId,section.id),[library,bookId,section.id,completed]);
+ const chats=useAsync(()=>library.chats(bookId,section.id),[library,bookId,section.id,completed]);
+ const [lessonId,setLessonId]=useState(''),[quizId,setQuizId]=useState(''),[question,setQuestion]=useState('');
+ const [viewReady,setViewReady]=useState(false);const writes=useRef(Promise.resolve());
+ const saveView=(key:string,value:string)=>{writes.current=writes.current.catch(()=>{}).then(()=>library.saveViewState(bookId,key,value)).catch(e=>setLocalError(String(e)));};
+ const setTab=(value:Tab)=>{setTabState(value);saveView(`tab:${section.id}`,value);};
+ const changeQuestion=(value:string)=>{setQuestion(value);saveView(`question:${section.id}`,value);};
+ // The question is shown the moment it is asked, the way a chat does, rather
+ // than vanishing until the answer arrives half a minute later.
+ const [pending,setPending]=useState('');
+ useEffect(()=>{let alive=true;void Promise.all([library.viewState(bookId,`tab:${section.id}`),library.viewState(bookId,`question:${section.id}`)]).then(([saved,draft])=>{if(alive){const t=initialTab||saved;setTabState(['read','lesson','quiz','ask'].includes(t)?t as Tab:'read');setQuestion(draft);setViewReady(true);}}).catch(e=>{if(alive)setLocalError(String(e));});return()=>{alive=false;};},[library,bookId,section.id,initialTab]);
+ const lesson=lessons.data?.find(l=>l.id===lessonId)||lessons.data?.[0];
+ const quiz=quizzes.data?.find(q=>q.id===quizId)||quizzes.data?.[0];
+ useEffect(()=>{if(!quizId&&quizzes.data?.length)setQuizId(quizzes.data[0].id);},[quizId,quizzes.data]);
+ const currentKind=tab==='ask'?'doubt':tab;
+ const current=jobs.slice().reverse().find(j=>j.kind===currentKind);
+ const [localError,setLocalError]=useState('');
+ const [editing,setEditing]=useState(false),[sourceDraft,setSourceDraft]=useState(section.source),[savingSource,setSavingSource]=useState(false);
+ const sourceRef=useRef(sourceDraft);sourceRef.current=sourceDraft;
+ const sourceDirty=editing&&sourceDraft!==section.source;
+ const sourceDirtyRef=useRef(sourceDirty);sourceDirtyRef.current=sourceDirty;
+ const saveSource=async()=>{if(savingSource)return false;const sent=sourceRef.current;setSavingSource(true);try{await library.correctSource(bookId,section.id,sent);await onSourceSaved();if(sourceRef.current===sent){sourceDirtyRef.current=false;setEditing(false);return true;}return false;}catch(e){setLocalError(String(e));return false;}finally{setSavingSource(false);}};
+ const saveSourceRef=useRef(saveSource);saveSourceRef.current=saveSource;
+ useEffect(()=>{if(!sourceDirty)return;return registerGuard({label:'this source correction',save:()=>saveSourceRef.current(),isDirty:()=>sourceDirtyRef.current,discard:()=>{sourceDirtyRef.current=false;setSourceDraft(section.source);setEditing(false);}});},[sourceDirty,section.source]);
+ useUnsavedWarning(sourceDirty);
+ const task={busy:!!current&&['queued','running'].includes(current.state),note:current?.note||'',error:localError||current?.error||'',cancel:()=>{if(current)generationJobs.cancel(current.id);}};
+ const enqueue=(kind:string,run:(signal:AbortSignal,progress:(s:string)=>void)=>Promise<unknown>)=>{
+  try{setLocalError('');generationJobs.enqueue({scope:jobScope(library.prefix),bookId,sectionId:section.id,kind,label:`${section.title} · ${kind}`},run);}catch(e){setLocalError(String(e));}
+ };
+ const generateLesson=()=>{setLessonId('');backToTop();enqueue('lesson',(signal,progress)=>library.generateLesson(bookId,section.id,signal,progress));};
+ const generatedQuiz=useRef('');
+ useEffect(()=>{if(generatedQuiz.current&&quizzes.data?.some(q=>q.id===generatedQuiz.current)){setQuizId(generatedQuiz.current);generatedQuiz.current='';}},[quizzes.data]);
+ const generateQuiz=()=>{const total=Number(count);enqueue('quiz',async(signal,progress)=>{const result=await library.generateQuiz(bookId,section.id,total,signal,n=>progress(`Prepared question ${n} of ${total}`),progress);generatedQuiz.current=result.id;return result;});};
+ // The question box is saved per section so a half-typed question survives
+ // a reload. Asking has to clear both the box and that saved copy, or the
+ // question the student just asked is still sitting there waiting to be
+ // sent again.
+ const ask=()=>{const q=question.trim();if(!q)return;changeQuestion('');setPending(q);enqueue('doubt',(signal,progress)=>library.ask(bookId,section.id,q,signal,progress));};
+ // The saved answer replaces the pending bubble; a failure puts the question
+ // back in the box rather than making them retype it.
+ const answered=chats.data?.length??0;
+ const askFailed=current?.kind==='doubt'&&(current.state==='failed'||!!current.error);
+ useEffect(()=>{setPending('');},[answered]);
+ useEffect(()=>{if(askFailed)setPending(p=>{if(p)changeQuestion(p);return '';});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ },[askFailed]);
+ return <Card><Row><H2>{section.title}</H2><Badge value="All modules open" tone="green"/></Row>
+  <PageTabs value={tab} onChange={t=>{if(t!==tab)void confirmLeave().then(ok=>{if(ok)setTab(t);});}} tabs={[{key:'read',label:'Read'},{key:'lesson',label:'Lesson'},{key:'quiz',label:'Practice quiz'},{key:'ask',label:'Ask a doubt'}]}/>
+  <ErrorBanner message={task.error||figures.error||lessons.error||quizzes.error||chats.error}/>
+  {/* Preparation belongs to the section it prepares.
+      The Lesson and Practice quiz rows used to sit above every tab, so the
+      reading page carried two Generate buttons for content it does not show,
+      and the quiz tab carried the same control twice. Each tab now shows one
+      row: its own state and its own button, with the quiz's question count
+      beside the button it belongs to. */}
+  {tab==='lesson'||tab==='quiz'?(()=>{
+  const kind=tab as 'lesson'|'quiz';
+  const label=kind==='lesson'?'Lesson':'Practice quiz';
+  const has=kind==='lesson'?!!lessons.data?.length:!!quizzes.data?.length;
+  const start=kind==='lesson'?generateLesson:generateQuiz;
+  const j=jobs.slice().reverse().find(x=>x.kind===kind&&['queued','running'].includes(x.state));
+  const state=j?(j.state==='queued'?'Waiting to start':'Generating'):has?'Ready':'Not generated';
+  return <View style={{borderWidth:1,borderColor:colors.border,borderRadius:10,paddingHorizontal:14,paddingVertical:12,backgroundColor:colors.surface2,gap:8}} accessibilityLiveRegion="polite">
+   <View style={{flexDirection:'row',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+    <View style={{flex:1,minWidth:150}}><P style={{fontWeight:'600',color:colors.ink}}>{label}</P>{j?.note?<P small muted numberOfLines={2}>{j.note}</P>:null}</View>
+    <Badge value={state} tone={j?'blue':has?'green':'neutral'}/>
+   </View>
+   <View style={{flexDirection:'row',alignItems:'flex-end',gap:12,flexWrap:'wrap'}}>
+    {kind==='quiz'&&!j?<View style={{width:132,marginRight:14}}><Dropdown label="Questions" width="100%" value={count} onChange={v=>{if(!task.busy)setCount(v);}} options={Array.from({length:10},(_,i)=>({value:String(i+1),label:String(i+1)}))}/></View>:null}
+    {j?<Button title="Pause" variant="secondary" icon="pause-outline" accessibilityLabel={`Pause ${label.toLowerCase()} generation`} onPress={()=>{generationJobs.cancel(j.id);showToast({tone:'info',title:`${label} paused`,message:'Finished parts are saved.'});}}/>
+     :<Button title={has?`Regenerate ${kind==='lesson'?'lesson':'quiz'}`:`Generate ${kind==='lesson'?'lesson':'quiz'}`} icon={has?'refresh':'sparkles-outline'} disabled={task.busy} onPress={()=>{void confirmLeave().then(ok=>{if(ok)start();});}}/>}
+   </View>
+   <P small muted>Runs on this device. You can leave this page while it works; pausing keeps every finished part.</P>
+  </View>;
+ })():null}
+  {section.ocr?<Notice inline title="Text recognised on this device" message="Compare OCR text with the original image, especially numbers, formulas and tables."/>:null}
+  {!section.source.trim()?<Notice inline message="This page is available as an image. No usable text was recognised, so local AI cannot explain it."/>:null}
+  {tab==='read'?<>{editing?<><Input label="Correct extracted source" value={sourceDraft} onChangeText={setSourceDraft} multiline maxLength={section.readingUnit?MAX_READING_CHARS:MAX_SECTION_CHARS}/><P muted>Compare with the original page. Saving cancels unfinished jobs for this book; existing lessons and quizzes remain as earlier versions. Regenerate them to use the correction.</P><Row><Button title="Save source correction" onPress={()=>{void saveSource();}} busy={savingSource}/><Button title="Cancel correction" variant="secondary" disabled={savingSource} onPress={()=>setEditing(false)}/></Row></>:<><SourceContent text={section.source}/><Button title="Correct extracted text" variant="secondary" onPress={()=>{setSourceDraft(section.source);setEditing(true);}}/></>}<Row><Button title={hasNext?"Next module":"Final module"} variant="secondary" disabled={!hasNext} onPress={next}/></Row></>:null}
+  {tab==='lesson'?<>{lessons.data?.length?<Row><Dropdown label="Saved lesson" value={lesson?.id||''} onChange={setLessonId} options={lessons.data.map((l,i)=>({value:l.id,label:`Version ${lessons.data!.length-i} · ${new Date(l.createdAt).toLocaleString()}`}))}/></Row>:null}{lesson?<LocalLessonView lesson={lesson.lesson} visuals={figures.data||[]}/>:<P muted>Generate an explanation from this module with your local AI model.</P>}</>:null}
+  {tab==='quiz'?<>{quizzes.data?.length?<Row><Dropdown label="Saved quiz" value={quiz?.id||''} onChange={v=>{void confirmLeave().then(ok=>{if(ok)setQuizId(v);});}} options={quizzes.data.map((q,i)=>({value:q.id,label:`Version ${quizzes.data!.length-i} · ${q.questions.length} questions`}))}/></Row>:null}
+   {quiz?.requestedCount&&quiz.questions.length<quiz.requestedCount?<Notice inline tone="warning" title="Shorter quiz saved" message={`${quiz.questions.length} of ${quiz.requestedCount} requested questions could be grounded in this module. You can practise these questions or generate another version.`}/>:null}
+   {quiz?<QuizPractice key={quiz.id} quiz={quiz}/>:<P muted>Create a quiz to practise. If the source supports fewer questions than requested, a shorter quiz is saved and labelled with its question count.</P>}</>:null}
+  {tab==='ask'?<>{doubtsBlocked?<Notice inline title="Doubts temporarily unavailable" message={DOUBTS_PAUSED_MESSAGE}/>:null}<P muted>Your private doubts stay on this device.</P>
+   {/* The thread scrolls in its own pane so the question box stays put instead
+       of being pushed further down the page by every answer. */}
+   <ChatThread empty={<P muted>No questions yet. Ask anything about this section.</P>}>{[
+    ...(chats.data||[]).map(c=><Chat key={c.id} chat={c}/>),
+    ...(pending?[<Bubble key="pending" who="You" content={pending} mine/>]:[]),
+    ...(task.busy&&currentKind==='doubt'?[<View key="working" style={{padding:14}}><P small muted>{task.note||'Reading the module…'}</P></View>]:[]),
+   ]}</ChatThread>
+   <Input label="Your question" value={question} onChangeText={changeQuestion} multiline maxLength={1000} placeholder="What would you like to understand?" editable={viewReady&&!task.busy&&!doubtsBlocked} onEnter={()=>{if(viewReady&&!task.busy&&!doubtsBlocked&&question.trim())ask();}}/><Row><Button title="Ask local AI" icon="send-outline" onPress={ask} busy={task.busy&&currentKind==='doubt'} disabled={!viewReady||task.busy||doubtsBlocked||!question.trim()}/>{task.busy&&currentKind==='doubt'?<Button title="Stop" variant="secondary" icon="pause-outline" onPress={task.cancel}/>:null}</Row></>:null}
+  {(tab==='read'||tab==='lesson')&&<SourceVisuals bookId={bookId} sectionId={section.id} pagesOnly={tab==='lesson'}/>}
+  <Row><Button title="Offline AI setup" small variant="secondary" onPress={()=>{void confirmLeave().then(ok=>{if(ok)router.push('/student/offline-ai');});}}/></Row>
+ </Card>;
+}
+/** One turn of the thread. The question sits on the right in its own bubble
+ *  and the answer on the left, so a long conversation reads as a conversation
+ *  rather than as a column of identical grey blocks. */
+function Bubble({who,content,mine,quote}:{who:string;content:string;mine?:boolean;quote?:string}){
+ return <View style={{padding:14,borderRadius:10,backgroundColor:mine?'#EAF2ED':'#FFFFFF',borderWidth:mine?0:1,borderColor:'#E4EAE2',gap:6,alignSelf:mine?'flex-end':'stretch',maxWidth:mine?'88%':undefined}}>
+  <P small muted>{who}</P><P>{content}</P>{quote?<P small muted>From the book: {quote}</P>:null}</View>;
+}
+function Chat({chat}:{chat:PrivateChat}){return <>
+ <Bubble who="You" content={chat.question} mine/>
+ <Bubble who="Local AI · this device" content={chat.answer} quote={chat.quote||undefined}/>
+</>;}
+function QuizPractice({quiz}:{quiz:QuizVersion}){
+ const library=useLibrary()!,task=useTask();
+ const [answers,setAnswers]=useState<Record<string,number>>({}),[ready,setReady]=useState(false),[saved,setSaved]=useState(true);
+ const answersRef=useRef<Record<string,number>>({});answersRef.current=answers;
+ const [result,setResult]=useState<Awaited<ReturnType<typeof library.check>>|null>(null);
+ const serial=useRef(Promise.resolve()),sequence=useRef(0),alive=useRef(true);
+ const persisted=useRef<Record<string,number>>({}),dirty=useRef(false);
+ const history=useAsync(()=>library.attempts(quiz.bookId,quiz.id),[library,quiz.id]);
+ const {setError}=task;
+ useEffect(()=>{let current=true;alive.current=true;void library.draft(quiz.bookId,quiz.id).then(a=>{if(current){persisted.current=a;answersRef.current=a;setAnswers(a);setReady(true);}}).catch(e=>{if(current)setError(e.message);});return()=>{current=false;alive.current=false;};},[library,quiz.bookId,quiz.id,setError]);
+ useUnsavedWarning(!saved);
+ useEffect(()=>{if(saved)return;return registerGuard({label:'this private quiz',save:async()=>{const sent=answersRef.current;await serial.current;await library.saveDraft(quiz.bookId,quiz.id,sent);persisted.current=sent;const clean=sent===answersRef.current;if(clean&&alive.current){dirty.current=false;setSaved(true);}return clean;},discard:async()=>{const restore=persisted.current;++sequence.current;await serial.current;await library.saveDraft(quiz.bookId,quiz.id,restore);answersRef.current=restore;dirty.current=false;if(alive.current){setAnswers(restore);setSaved(true);}},isDirty:()=>dirty.current});},[saved,library,quiz.bookId,quiz.id]);
+ const choose=(id:string,value:number)=>{
+  if(!ready||result||task.busy)return;const next={...answersRef.current,[id]:value};answersRef.current=next;dirty.current=true;setAnswers(next);setSaved(false);const mine=++sequence.current;
+  // Writes are serialized. An older write cannot overwrite the latest answer.
+  serial.current=serial.current.catch(()=>{}).then(()=>library.saveDraft(quiz.bookId,quiz.id,next)).then(()=>{persisted.current=next;if(alive.current&&mine===sequence.current){dirty.current=false;setSaved(true);}}).catch(e=>{if(alive.current)task.setError(`Draft was not saved: ${e.message}`);});
+ };
+ const check=()=>task.run(async()=>{await serial.current;const sent=answersRef.current;await library.saveDraft(quiz.bookId,quiz.id,sent);persisted.current=sent;const r=await library.check(quiz,sent);if(alive.current){setResult(r);dirty.current=false;setSaved(true);await history.reload();}});
+ return <View style={{gap:16}}><P muted>{ready?(saved?'Answers saved on this device':'Saving your answers…'):'Restoring your saved answers…'}</P>
+ <ErrorBanner message={task.error}/>
+ {/* One option per row, with the letter in its own column.
+     The letter and the option text used to sit in a single run of text, so a
+     choice that wrapped put its second line underneath the letter instead of
+     lining up with the first word — the misalignment in this screen. The
+     letter now has a fixed column and the text flows in its own, so every
+     option starts on the same left edge however long it is.
+     ``stripOptionLabel`` runs on the way out as well as on the way in: quizzes
+     generated before the parser removed labels are stored with "A. " inside
+     the option, and would otherwise render "A. A. Cloud computing". */}
+ {quiz.questions.map((q,n)=><View key={q.id} style={{gap:8,paddingVertical:12,borderBottomWidth:1,borderColor:colors.border}}><H2>{n+1}. {q.question}</H2>{q.options.map((o,i)=><Pressable key={i} accessibilityRole="radio" accessibilityLabel={`${String.fromCharCode(65+i)}. ${stripOptionLabel(o)}`} aria-checked={answers[q.id]===i} aria-disabled={!ready||!!result||task.busy} accessibilityState={{checked:answers[q.id]===i,disabled:!ready||!!result||task.busy}} disabled={!ready||!!result||task.busy} onPress={()=>choose(q.id,i)} style={{flexDirection:'row',alignItems:'flex-start',gap:10,borderWidth:1,borderColor:answers[q.id]===i?colors.primary:colors.border,paddingHorizontal:12,paddingVertical:11,borderRadius:8,backgroundColor:answers[q.id]===i?'#EAF2ED':'white'}}><P style={{fontWeight:'700',minWidth:16}}>{String.fromCharCode(65+i)}</P><P style={{flex:1}}>{stripOptionLabel(o)}</P></Pressable>)}{result?<Notice inline tone={result.checks[n].correct?'success':'warning'} title={result.checks[n].correct?'Correct':`Correct answer: ${String.fromCharCode(65+q.answer)} — ${stripOptionLabel(q.options[q.answer])}`} message={`${q.explanation}\nFrom the book: ${q.quote}`}/>:null}</View>)}
+ {result?<Notice inline tone="success" title={`${result.correct} of ${result.total} correct`} message="Private practice only. This result is saved here, not sent to faculty and never locks another module."/>:<Button title="Check my answers" onPress={check} busy={task.busy} disabled={!ready||Object.keys(answers).length!==quiz.questions.length}/>}
+ <Button title="Start this quiz again" variant="secondary" disabled={!ready||task.busy} onPress={()=>task.run(async()=>{if(await confirmAsync('Start again?','Clear the current answers. Previous checked results remain in your history.','Start again','Keep answers')){await serial.current;await library.saveDraft(quiz.bookId,quiz.id,{});if(alive.current){persisted.current={};answersRef.current={};dirty.current=false;setAnswers({});setResult(null);setSaved(true);}}})}/>
+ {!!history.data?.length&&<><H2>Previous practice</H2>{history.data.map(r=><P key={r.id}>{new Date(r.createdAt).toLocaleString()} · {r.correct}/{r.total} correct</P>)}</>}
+ </View>;
+}

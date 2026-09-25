@@ -1,49 +1,59 @@
+import { SourceFigures } from "@/ui/SourceFigures";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { useBackTo } from "@/hooks/useBackTo";
+import { useTabParam } from "@/hooks/useTabParam";
+import { quizNeedsSubmission } from "@/screens/student/quizStatus";
+import {useIsFocused} from '@react-navigation/native';
+import {recordCourseWork} from '@/offline/coursework';
+import CourseAsk from "@/private/CourseAsk";
+import { SourceContent } from "@/ui/SourceContent";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
-import React, { useEffect, useRef, useState } from "react";
-import { AppState, ScrollView, Text, TextInput, View } from "react-native";
-import { ApiError } from "@/api/client";
+import React, { useEffect, useRef } from "react";
+import { AppState, Pressable, Text, View } from "react-native";
 import { student } from "@/api/endpoints";
-import type { Message, ModuleFull, Quiz } from "@/api/types";
-import { useAuth } from "@/auth/AuthContext";
-import { useAction, useAsync } from "@/hooks/useAsync";
-import { useOnline } from "@/offline/connectivity";
-import { Avatar, Badge, Button, Card, CardHead, Chip, DetailList, Empty, ErrorBanner, Eyebrow, FormFooter, Loading, Notice, PageHeading, PageTabs, Screen, Spinner, Split, StepList, TextLink, TileIcon, colors, pct } from "@/ui";
+import type { ModuleFull, ModuleNeighbour, Quiz } from "@/api/types";
+import { useAsync } from "@/hooks/useAsync";
+import { Badge, Button, Card, CardHead, DetailList, Empty, ErrorBanner, Eyebrow, FormFooter, Loading, Notice, PageHeading, PageTabs, Screen, Split, StepList, TextLink, colors, pct } from "@/ui";
 import { LessonView } from "@/ui/LessonView";
 
 type Tab = "read" | "lesson" | "ask";
 const statusLabel = (st?: string) => (st === "completed" ? "Completed" : st === "in_progress" ? "In progress" : st === "needs_review" ? "Needs review" : "Not started");
 
 export default function StudentModule() {
-  const { id, tab: tabParam } = useLocalSearchParams<{ id: string; tab?: string }>();
+  const { id } = useLocalSearchParams<{ id: string; tab?: string }>();
   const router = useRouter();
+  const back = useBackTo();
   const navigation = useNavigation();
-  const [tab, setTab] = useState<Tab>(tabParam === "lesson" || tabParam === "ask" ? tabParam : "read");
-  useEffect(() => { if (tabParam === "lesson" || tabParam === "ask" || tabParam === "read") setTab(tabParam); }, [tabParam, id]);
-  const [large, setLarge] = useState(false);
-  const mod = useAsync(() => student.module(id), [id]);
-  const quizzes = useAsync(() => student.quizzes({ module: id }), [id]);
+  const focused=useIsFocused();
+  const [tab, setTab] = useTabParam<Tab>("read", ["read", "lesson", "ask"]);
+  const mod = useAsync(() => student.module(id), [id], [id]);
+  const quizzes = useAsync(() => student.quizzes({ module: id }), [id], [id]);
   const m = mod.data;
   const context = useAsync(async () => {
     if (!m?.document_id) return null;
     const tree = await student.document(m.document_id);
     return (await student.subjects()).find((s) => s.id === tree.subject_id) ?? null;
   }, [m?.document_id]);
-  const teach = useAsync(() => student.teach(id), [id]);
+  const teach = useAsync(() => student.teach(id), [id], [id]);
+
+  useEffect(()=>{if(focused&&tab==='lesson'&&teach.data?.status==='ready')void recordCourseWork('lesson',id).catch(()=>{});},[focused,tab,id,teach.data?.status]);
 
   // The breadcrumb's section link goes back to the book this module belongs to.
   useEffect(() => {
-    if (m?.document_id) navigation.setOptions({ backTo: `/student/document/${m.document_id}` });
+    if (m?.document_id) navigation.setOptions({ backTo: `/student/document/${m.document_id}`, backLabel: "Back to book" });
   }, [navigation, m?.document_id]);
 
   // Reading time: foreground seconds, sent every minute and when leaving.
   const acc = useRef(0);
+  const moduleLoaded=!!m;
   useEffect(() => {
+    if(!focused||!moduleLoaded)return;
     let last = Date.now(); let active = true;
     const flush = () => { const sec = Math.round(acc.current); if (sec > 0) { acc.current = 0; student.reportTime(id, sec).catch(() => {}); } };
-    const tick = setInterval(() => { if (active) acc.current += (Date.now() - last) / 1000; last = Date.now(); if (acc.current >= 60) flush(); }, 5000);
+    const tick = setInterval(() => { if (active && (typeof document==='undefined'||document.visibilityState==='visible')) acc.current += (Date.now() - last) / 1000; last = Date.now(); if (acc.current >= 60) flush(); }, 5000);
     const sub = AppState.addEventListener("change", (st) => { active = st === "active"; last = Date.now(); if (!active) flush(); });
     return () => { clearInterval(tick); sub.remove(); flush(); };
-  }, [id]);
+  }, [id,focused,moduleLoaded]);
 
   // Lessons are prepared in the background; while one is queued, look again quietly.
   const { setData: setTeach } = teach;
@@ -69,18 +79,28 @@ export default function StudentModule() {
 
   const trail = m ? [...new Set([m.document_title, m.chapter_title].filter(Boolean))].join(" / ") : "";
   const number = m?.module_number ?? m?.order;
-  const side = m ? <ModuleSide module={m} quizzes={quizzes.data ?? []} onQuiz={(qid) => router.push(`/student/quiz/${qid}`)} onOffline={() => router.push("/student/offline")} /> : null;
+  // Replace rather than push: walking a book with Next should not build a
+  // twenty-deep back stack that the student then has to unwind.
+  // push, not replace: walking module 1 -> 2 -> 3 and pressing the browser Back
+  // button should return to module 2, not jump all the way out to the book.
+  const go = (moduleId: string) => router.push(`/student/module/${moduleId}`);
+  const side = m ? (
+    <>
+      <ModuleSide module={m} quizzes={quizzes.data ?? []} onQuiz={(qid) => router.push(`/student/quiz/${qid}`)} onOffline={() => router.push("/student/offline")} />
+    </>
+  ) : null;
   const lessonState = teach.data?.status;
   return (
-    <Screen refreshing={mod.loading} onRefresh={() => { mod.reload(); teach.reload(); }}>
+    <Screen scrollTopOn={id} refreshing={mod.loading} onRefresh={() => { mod.reload(); teach.reload(); }}>
+      {m?.progress?.sync_pending?<Notice inline message="This progress is saved on your device and awaits institution synchronization."/>:null}
       <ErrorBanner message={mod.error} onRetry={mod.reload} />
       {mod.loading && !m ? <Loading /> : null}
       {m ? (
         <>
           <PageHeading eyebrow={eyebrow} title={m.title} subtitle={`${trail ? `${trail} / ` : ""}Module ${number}`}
-            right={m.document_id ? <Button title="Back to book" variant="secondary" icon="arrow-back" onPress={() => router.push(`/student/document/${m.document_id}`)} /> : null} />
+            right={m.document_id ? <Button title="Back to book" variant="secondary" icon="arrow-back" onPress={() => back(`/student/document/${m.document_id}`)} /> : null} />
           <PageTabs<Tab> value={tab} onChange={setTab} tabs={[{ key: "read", label: "Read" }, { key: "lesson", label: "Lesson" }, { key: "ask", label: "Ask a doubt" }]} />
-          {tab === "read" ? <Split main={<ReadCard module={m} large={large} onToggleSize={() => setLarge((v) => !v)} onLesson={() => setTab("lesson")} />} side={side} /> : null}
+          {tab === "read" ? <Split main={<><ReadCard module={m} onLesson={() => setTab("lesson")} /><ModuleNav previous={m.previous_module} next={m.next_module} onGo={go} /></>} side={side} /> : null}
           {tab === "lesson" && teach.loading && !teach.data ? <Loading /> : null}
           {tab === "lesson" ? <ErrorBanner message={teach.error} onRetry={teach.reload} /> : null}
           {tab === "lesson" && lessonState === "preparing" ? (
@@ -95,11 +115,16 @@ export default function StudentModule() {
             </Card>
           ) : null}
           {tab === "lesson" && lessonState === "unavailable" ? (
-            <>
-              <Notice tone="warning" title="The guided lesson is not available right now." message="Here is the original module text, so you can keep learning. The lesson appears here once the tutor has written it."
-                action={<Button title="Try again" small variant="secondary" icon="refresh" onPress={() => teach.reload()} />} />
-              <ReadCard module={m} large={large} onToggleSize={() => setLarge((v) => !v)} />
-            </>
+            <Card>
+              <Empty icon="hourglass-outline" title="Your lesson isn't ready yet."
+                text="The guided lesson appears here once it has been generated. Read the module in the meantime, or check again in a moment — the source text stays on the Read tab."
+                action={
+                  <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap", justifyContent: "center" }}>
+                    <Button title="Read the module" icon="book-outline" variant="secondary" onPress={() => setTab("read")} />
+                    <Button title="Try again" icon="refresh" onPress={() => teach.reload()} />
+                  </View>
+                } />
+            </Card>
           ) : null}
           {tab === "lesson" && lessonState === "ready" && teach.data?.lesson ? (
             <Split side={side} main={
@@ -110,7 +135,8 @@ export default function StudentModule() {
               } />
             } />
           ) : null}
-          {tab === "ask" ? <Split main={<AskTab moduleId={id} />} side={<AskTips />} /> : null}
+          {tab === "lesson" && lessonState === "ready" && teach.data?.lesson ? <ModuleNav previous={m.previous_module} next={m.next_module} onGo={go} /> : null}
+          {tab === "ask" ? <Split main={<CourseAsk key={id} moduleId={id} />} side={<AskTips />} /> : null}
         </>
       ) : null}
     </Screen>
@@ -134,22 +160,16 @@ function LockedHeading({ moduleId }: { moduleId: string }) {
   return <PageHeading eyebrow="YOUR LEARNING PATH" title={f?.title ?? "Locked module"} subtitle={f ? `${f.book} · Module ${f.number}` : null} />;
 }
 
-function ReadCard({ module, large, onToggleSize, onLesson }: { module: ModuleFull; large: boolean; onToggleSize: () => void; onLesson?: () => void }) {
-  const blocks = module.source_text.split(/\n{2,}/).map((b) => b.trim()).filter(Boolean);
-  const size = large ? 18 : 15;
+function ReadCard({ module, onLesson }: { module: ModuleFull; onLesson?: () => void }) {
   return (
-    <Card style={{ paddingHorizontal: 36, paddingVertical: 28 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 6 }}>
-        <Text style={{ fontSize: 11, color: colors.muted }}>Reading view · Your faculty’s source material</Text>
-        <Button title={large ? "Normal text" : "Text size"} small variant="secondary" onPress={onToggleSize} accessibilityLabel={large ? "Use normal text size" : "Use larger text"} />
-      </View>
+    <Card style={{ paddingHorizontal: 20, paddingVertical: 24 }}>
+      <Text style={{ fontSize: 11, color: colors.muted, marginBottom: 6 }}>Reading view · Your faculty’s source material</Text>
       <View style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 18 }}>
         <Eyebrow>{`${module.document_title ?? "Module"} · Module ${String(module.module_number ?? module.order).padStart(2, "0")}`}</Eyebrow>
       </View>
       <View style={{ maxWidth: 750, gap: 15, marginTop: 6 }}>
-        {blocks.length === 0 ? <Text style={{ color: colors.muted }}>This module has no text yet.</Text> : blocks.map((b, i) => b.startsWith("#")
-          ? <Text key={i} style={{ fontSize: large ? 20 : 17, fontWeight: "600", color: colors.ink, marginTop: 10 }}>{b.replace(/^#+\s*/, "")}</Text>
-          : <Text key={i} style={{ fontSize: size, lineHeight: Math.round(size * 1.9), color: "#3F5045" }}>{b.replace(/\s*\n\s*/g, " ")}</Text>)}
+        <SourceContent text={module.source_text} />
+        <SourceFigures visuals={module.source_visuals ?? []} />
       </View>
       {onLesson ? <FormFooter note="Continue at your own pace."><Button title="Explore the lesson" icon="arrow-forward" onPress={onLesson} /></FormFooter> : null}
     </Card>
@@ -177,14 +197,14 @@ function ModuleSide({ module, quizzes, onQuiz, onOffline }: { module: ModuleFull
         <CardHead title="Ready to check yourself?" subtitle={q ? "Put your understanding into practice." : "No quiz has been set for this module yet."} />
         {q ? (
           <>
-            <DetailList items={[["Questions", String(q.question_count ?? "—")], ["Pass mark", `${q.pass_percentage}%`], ["Attempts allowed", q.max_attempts ? String(q.max_attempts) : "Unlimited"]]} />
-            <Button title={q.attempts_used ? "Open the quiz" : "Take the quiz"} icon="arrow-forward" full onPress={() => onQuiz(q.id)} />
+            <DetailList items={[["Questions", String(q.question_count ?? "—")], ["Pass mark", `${q.pass_percentage}%`]]} />
+            <Button title={quizNeedsSubmission(q) ? "Take the quiz" : "View submission"} icon="arrow-forward" full onPress={() => onQuiz(q.id)} />
             {quizzes.length > 1 ? quizzes.slice(1).map((x) => <TextLink key={x.id} title={x.title} onPress={() => onQuiz(x.id)} />) : null}
           </>
         ) : null}
       </Card>
       <Card>
-        <CardHead title="Keep learning offline" subtitle="Saved reading and ready lessons remain available when the server is unreachable. New questions and quiz submissions need a connection." />
+        <CardHead title="Keep learning offline" subtitle="Saved reading and ready lessons remain available offline. Download a local model in Offline AI to ask new doubts on this device. Downloaded MCQ quizzes are saved and marked locally when immediate results are permitted; submissions synchronize after reconnection." />
         <TextLink title="Offline availability" icon="download-outline" onPress={onOffline} />
       </Card>
     </>
@@ -192,96 +212,6 @@ function ModuleSide({ module, quizzes, onQuiz, onOffline }: { module: ModuleFull
 }
 
 const LESSON_POLL_MS = 8000;
-
-function AskTab({ moduleId }: { moduleId: string }) {
-  const online = useOnline();
-  const userName = useAuth().user?.full_name ?? "";
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [conversationId, setConversationId] = useState<string | undefined>();
-  const [question, setQuestion] = useState("");
-  const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [restoring, setRestoring] = useState(true);
-  const [failed, setFailed] = useState<string | null>(null);
-  const [slow, setSlow] = useState(false);
-  const scroll = useRef<ScrollView>(null);
-
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const latest = (await student.conversations(moduleId))[0];
-        if (!latest || !alive) return;
-        const full = await student.conversation(latest.id);
-        if (!alive) return;
-        setConversationId(full.id); setMessages(full.messages ?? []);
-      } catch { /* no history is fine */ } finally { if (alive) setRestoring(false); }
-    })();
-    return () => { alive = false; };
-  }, [moduleId]);
-
-  const ask = useAction(async (text: string) => {
-    setFailed(null); setQuestion(""); setSuggestions([]);
-    setMessages((cur) => {
-      const last = cur[cur.length - 1];
-      if (last && last.role === "user" && last.content === text) return cur;
-      return [...cur, { id: `local-${Date.now()}`, role: "user", content: text, grounded: true, source_reference: "", created_at: new Date().toISOString() }];
-    });
-    try {
-      const res = await student.ask(moduleId, text, conversationId);
-      setConversationId(res.conversation_id); setMessages((cur) => [...cur, res.message]); setSuggestions(res.follow_up_suggestions ?? []);
-    } catch (e) {
-      const conv = e instanceof ApiError ? (e.details?.conversation_id as string | undefined) : undefined;
-      if (conv) setConversationId(conv);
-      setFailed(text);
-      throw e;
-    }
-  });
-  useEffect(() => { if (!ask.busy) { setSlow(false); return; } const t = setTimeout(() => setSlow(true), 15000); return () => clearTimeout(t); }, [ask.busy]);
-  useEffect(() => { const t = setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 60); return () => clearTimeout(t); }, [messages.length, ask.busy]);
-  const send = (text: string) => { const v = text.trim(); if (v && online && !ask.busy) void ask.run(v); };
-
-  return (
-    <Card style={{ minHeight: 475 }}>
-      <ScrollView ref={scroll} style={{ maxHeight: 510 }} contentContainerStyle={{ gap: 22, paddingBottom: 12 }} keyboardShouldPersistTaps="handled">
-        {restoring ? <Spinner /> : null}
-        {!online ? <Notice tone="warning" title="You are offline" message="Earlier questions and answers are shown. Asking something new needs a connection to the LocalMind server." icon="cloud-offline-outline" /> : null}
-        {!restoring && messages.length === 0 ? (
-          <View style={{ flexDirection: "row", gap: 10 }}>
-            <TileIcon icon="sparkles-outline" size={32} />
-            <View style={styles.bubble}>
-              <Eyebrow>YOUR LOCALMIND TUTOR</Eyebrow>
-              <Text style={styles.bubbleText}>Ask anything about this module in your own words. My answers stay within the module and point back to the part of the text they use.</Text>
-            </View>
-          </View>
-        ) : null}
-        {messages.map((msg) => {
-          const mine = msg.role === "user";
-          const offTopic = !mine && msg.grounded === false;
-          return (
-            <View key={msg.id} style={{ flexDirection: mine ? "row-reverse" : "row", gap: 10, alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "90%" }}>
-              {mine ? <Avatar name={userName} size={32} /> : <TileIcon icon={offTopic ? "information-circle-outline" : "sparkles-outline"} tone={offTopic ? "amber" : "green"} size={32} />}
-              <View style={[styles.bubble, mine && styles.mine, offTopic && { backgroundColor: "#FFFAEC", borderColor: "#EBDFBD" }]}>
-                {!mine ? <Eyebrow color={offTopic ? colors.warning : undefined}>{offTopic ? "OUTSIDE THIS MODULE" : "YOUR LOCALMIND TUTOR"}</Eyebrow> : null}
-                <Text style={[styles.bubbleText, mine && { color: "#FFFFFF" }]} selectable>{msg.content}</Text>
-                {!mine && msg.source_reference ? <Text style={styles.source}>From the module: {msg.source_reference}</Text> : null}
-              </View>
-            </View>
-          );
-        })}
-        {ask.busy ? <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}><TileIcon icon="sparkles-outline" size={32} /><Text style={{ fontSize: 12, color: colors.muted }}>{slow ? "Still working on it. Answers can take a minute or two on this computer; you can keep reading meanwhile." : "Thinking…"}</Text></View> : null}
-        {ask.error ? <Notice tone="warning" title="The tutor could not answer" message={ask.error} action={failed ? <Button title="Ask again" small variant="secondary" icon="refresh" onPress={() => ask.run(failed)} /> : undefined} /> : null}
-      </ScrollView>
-      {suggestions.length ? <View style={{ flexDirection: "row", gap: 7, flexWrap: "wrap" }}>{suggestions.map((sg) => <Chip key={sg} label={sg} onPress={() => send(sg)} />)}</View> : null}
-      <View style={{ flexDirection: "row", gap: 10, paddingTop: 17, borderTopWidth: 1, borderTopColor: colors.border }}>
-        <TextInput value={question} onChangeText={setQuestion} placeholder={online ? "What would you like to understand?" : "Offline: asking needs a connection"} placeholderTextColor={colors.faint}
-          editable={online && !ask.busy} onSubmitEditing={() => send(question)} blurOnSubmit={false} accessibilityLabel="Your question"
-          style={{ flex: 1, borderWidth: 1, borderColor: "#D8E0D7", borderRadius: 7, paddingHorizontal: 12, minHeight: 41, fontSize: 13, color: colors.ink, backgroundColor: "#FFFFFF" }} />
-        <Button title="Ask" icon="send" onPress={() => send(question)} disabled={!question.trim() || !online} busy={ask.busy} />
-      </View>
-      <Text style={{ fontSize: 11, color: colors.muted }}>Answers stay within this module.</Text>
-    </Card>
-  );
-}
 
 function AskTips() {
   return (
@@ -297,9 +227,57 @@ function AskTips() {
   );
 }
 
-const styles = {
-  bubble: { flexShrink: 1, backgroundColor: "#F3F6F0", borderWidth: 1, borderColor: "#E3EADF", borderTopLeftRadius: 0, borderRadius: 12, paddingHorizontal: 19, paddingVertical: 16, gap: 7 },
-  mine: { backgroundColor: colors.primary, borderColor: colors.primary, borderTopLeftRadius: 12, borderTopRightRadius: 0 },
-  bubbleText: { fontSize: 13, lineHeight: 23, color: colors.text },
-  source: { fontSize: 11, paddingTop: 10, marginTop: 4, borderTopWidth: 1, borderTopColor: colors.border, color: colors.muted },
-} as const;
+
+/** Previous / Next across the whole book, in the order a student reads it.
+ *
+ * There was no way to move between modules from the reading view at all: you
+ * went back to the book and picked the next one by eye, every time. A locked
+ * neighbour is shown but not pressable, with the reason on it, so the control
+ * never navigates into a MODULE_LOCKED page — which is what "make sure not to
+ * move to the next module if the next module is closed" has to mean in
+ * practice.
+ */
+function ModuleNav({ previous, next, onGo }: { previous?: ModuleNeighbour | null; next?: ModuleNeighbour | null; onGo: (id: string) => void }) {
+  if (!previous && !next) return null;
+  const step = (n: ModuleNeighbour | null | undefined, side: "previous" | "next") => {
+    if (!n) return <View style={{ flex: 1 }} />;
+    const locked = n.availability !== "open";
+    const body = (
+      <View style={{ flex: 1, gap: 3, alignItems: side === "next" ? "flex-end" : "flex-start" }}>
+        <Text style={{ fontSize: 12, color: colors.muted }}>
+          {side === "next" ? "Next module" : "Previous module"} {n.number}
+        </Text>
+        <Text numberOfLines={1} style={{ fontSize: 14, fontWeight: "600", color: locked ? colors.muted : colors.ink, textAlign: side === "next" ? "right" : "left" }}>
+          {n.title}
+        </Text>
+        {locked ? <Text style={{ fontSize: 11, color: colors.muted }}>Not open yet</Text> : null}
+      </View>
+    );
+    const inner = (
+      <View style={{ flexDirection: side === "next" ? "row-reverse" : "row", alignItems: "center", gap: 10, flex: 1 }}>
+        <Ionicons name={side === "next" ? "chevron-forward" : "chevron-back"} size={18} color={locked ? colors.faint : colors.primary} />
+        {body}
+      </View>
+    );
+    if (locked) {
+      return (
+        <View accessibilityLabel={`${n.title} is not open yet`} style={{ flex: 1, opacity: 0.55, borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, backgroundColor: "#F7F8F6" }}>
+          {inner}
+        </View>
+      );
+    }
+    return (
+      <Pressable accessibilityRole="button" accessibilityLabel={`Go to module ${n.number}: ${n.title}`} onPress={() => onGo(n.id)}
+        style={(st: any) => [{ flex: 1, minHeight: 64, borderWidth: 1, borderColor: st.hovered ? colors.borderStrong : colors.border, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, backgroundColor: st.pressed || st.hovered ? "#F1F5EF" : colors.surface }]}>
+        {inner}
+      </Pressable>
+    );
+  };
+  return (
+    <View style={{ flexDirection: "row", gap: 12, marginTop: 4 }}>
+      {step(previous, "previous")}
+      {step(next, "next")}
+    </View>
+  );
+}
+

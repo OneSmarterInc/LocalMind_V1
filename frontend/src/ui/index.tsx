@@ -1,4 +1,7 @@
-import { Ionicons } from "@expo/vector-icons";
+import { enterHandler } from "./enterKey";
+import { keyboardList } from "./keyboardList";
+import { PageMessagesProvider, showToast, usePageMessages, useTimedMessage } from "./Toast";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import React from "react";
 import {
   ActivityIndicator, Keyboard, Modal, Platform, Pressable, PressableStateCallbackType, RefreshControl, ScrollView, StyleProp, StyleSheet, Text,
@@ -14,6 +17,7 @@ export type { Tone };
 // Every popup in the product goes through this one centred dialog, so nothing
 // falls back to the browser's own confirm box.
 export { DialogHost, alertAsync, choiceAsync, confirmAsync, confirmDeleteAsync } from "./Confirm";
+export { phoneProblem } from "./phone";
 export type { DialogOptions, DialogTone } from "./Confirm";
 
 type IconName = keyof typeof Ionicons.glyphMap;
@@ -43,21 +47,45 @@ export function useWide(min = 900) {
 /* Layout                                                              */
 /* ------------------------------------------------------------------ */
 
-export function Screen({ children, scroll = true, refreshing, onRefresh, padded = true, wide, toolbar, actions }: {
+export function Screen({ children, scroll = true, refreshing, onRefresh, padded = true, wide, toolbar, actions, scrollTopOn }: {
   children: React.ReactNode; scroll?: boolean; refreshing?: boolean; onRefresh?: () => void; padded?: boolean; wide?: boolean;
   toolbar?: React.ReactNode; actions?: React.ReactNode;
+  /** Return to the top of the page whenever this value changes.
+   *
+   * Moving to the next module kept the previous scroll position, so a reader
+   * who pressed Next at the foot of a long module arrived halfway down the
+   * next one, below its title and tabs. The screen stays mounted across that
+   * navigation, so the reset has to be explicit. */
+  scrollTopOn?: string | number | null;
 }) {
   const gutter = useGutter();
+  const scroller = React.useRef<ScrollView>(null);
+  React.useEffect(() => {
+    if (scrollTopOn === undefined) return;
+    const top = () => {
+      scroller.current?.scrollTo({ y: 0, animated: false });
+      // The web build scrolls the document, not the view, when the page is short.
+      if (Platform.OS === "web") (globalThis as unknown as { scrollTo?: (x: number, y: number) => void }).scrollTo?.(0, 0);
+    };
+    top();
+    // Once more after layout. Navigation restores the previous offset of a
+    // screen that stays mounted, and it does so after this effect, so a single
+    // reset left the reader where they had been on the module before.
+    const again = requestAnimationFrame(top);
+    return () => cancelAnimationFrame(again);
+  }, [scrollTopOn]);
   const bar = toolbar || actions ? <Toolbar right={actions}>{toolbar}</Toolbar> : null;
   const inner = (
+    <PageMessagesProvider>
     <View style={[padded && { paddingHorizontal: gutter, paddingTop: 28, gap: space.lg }, { maxWidth: wide ? 1600 : CONTENT_MAX + gutter * 2, width: "100%", alignSelf: "center" }, !scroll && { flex: 1, minHeight: 0 }]}>
       {bar}
       {children}
     </View>
+    </PageMessagesProvider>
   );
   if (!scroll) return <View style={{ flex: 1, minHeight: 0, backgroundColor: colors.bg }}>{inner}</View>;
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={{ paddingBottom: 48 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={Platform.OS === "web"}
+    <ScrollView ref={scroller} style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={{ paddingBottom: 48 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={Platform.OS === "web"}
       refreshControl={onRefresh ? <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} /> : undefined}>
       {inner}
     </ScrollView>
@@ -80,7 +108,7 @@ export function Card({ children, style, onPress, accent, flush }: { children: Re
 
 /** Equal-width columns that wrap on narrow screens. */
 export function Grid({ children, min = 300, gap = 20 }: { children: React.ReactNode; min?: number; gap?: number }) {
-  return <View style={{ flexDirection: "row", flexWrap: "wrap", gap }}>{React.Children.map(children, (c) => (c ? <View style={{ flex: 1, minWidth: min }}>{c}</View> : null))}</View>;
+  return <View style={{ flexDirection: "row", flexWrap: "wrap", gap }}>{React.Children.map(children, (c) => (c ? <View style={{ flexGrow: 1, flexShrink: 1, flexBasis: min, minWidth: 0, maxWidth: "100%" }}>{c}</View> : null))}</View>;
 }
 
 /** As many equal columns as the window holds, at least `min` wide each. */
@@ -103,6 +131,7 @@ export function CardGrid({ children, min = 300, gap = 20, max, fill }: { childre
 /** Main column plus a narrower side column; stacks below `min`. */
 export function Split({ main, side, sideWidth = 320, min = 980, gap = 24 }: { main: React.ReactNode; side: React.ReactNode; sideWidth?: number; min?: number; gap?: number }) {
   const wide = useWide(min);
+  if (!side) return <View style={{ gap }}>{main}</View>;
   if (!wide) return <View style={{ gap }}>{main}{side}</View>;
   return (
     <View style={{ flexDirection: "row", gap, alignItems: "flex-start" }}>
@@ -167,6 +196,12 @@ export function TextLink({ title, onPress, icon, iconLeft }: { title: string; on
 /** Page title block: optional eyebrow, the title, one line of lead text, actions on the right. */
 export function PageHeading({ title, subtitle, eyebrow, icon, right }: { title: string; subtitle?: string | null; eyebrow?: string; icon?: IconName; right?: React.ReactNode }) {
   const wide = useWide(760);
+  const page = usePageMessages();
+  const about = page?.list.length ? (
+    <Button title="About this page" small variant="secondary" icon="information-circle-outline"
+      onPress={() => page.list.forEach((m) => showToast(m.input))} />
+  ) : null;
+  const actions = about || right ? <>{about}{right}</> : null;
   return (
     <View>
     <View style={[s.heading, !wide && { flexDirection: "column", alignItems: "stretch" }]}>
@@ -178,7 +213,7 @@ export function PageHeading({ title, subtitle, eyebrow, icon, right }: { title: 
           {subtitle ? <Text style={s.headingSub}>{subtitle}</Text> : null}
         </View>
       </View>
-      {right ? <View style={[s.actions, wide && { paddingTop: 9 }]}>{right}</View> : null}
+      {actions ? <View style={[s.actions, wide && { paddingTop: 9 }]}>{actions}</View> : null}
     </View>
       <OfflineBanner />
     </View>
@@ -203,8 +238,8 @@ export function CardHead({ title, subtitle, action, icon }: { title: string; sub
 /* Controls                                                            */
 /* ------------------------------------------------------------------ */
 
-export function Button({ title, onPress, variant = "primary", disabled, busy, small, icon, full, accessibilityLabel }: {
-  title: string; onPress: () => void; variant?: "primary" | "secondary" | "danger" | "ghost"; disabled?: boolean; busy?: boolean; small?: boolean; icon?: IconName; full?: boolean; accessibilityLabel?: string;
+export function Button({ title, onPress, variant = "primary", disabled, busy, small, icon, full, accessibilityLabel, iconPosition = "left" }: {
+  iconPosition?: "left" | "right"; title: string; onPress: () => void; variant?: "primary" | "secondary" | "danger" | "ghost"; disabled?: boolean; busy?: boolean; small?: boolean; icon?: IconName; full?: boolean; accessibilityLabel?: string;
 }) {
   const off = disabled || busy;
   const fg = variant === "primary" ? "#FFFFFF" : variant === "danger" ? colors.danger : variant === "ghost" ? colors.primary : colors.ink;
@@ -212,7 +247,7 @@ export function Button({ title, onPress, variant = "primary", disabled, busy, sm
     <Pressable onPress={onPress} disabled={off} accessibilityRole="button" accessibilityLabel={accessibilityLabel ?? title} accessibilityState={{ disabled: !!off, busy: !!busy }} style={full ? { alignSelf: "stretch" } : undefined}>
       {(st: PressState) => (
         <View style={[
-          s.btn, small && s.btnSmall,
+          s.btn, small && s.btnSmall, iconPosition === "right" && { flexDirection: "row-reverse" },
           variant === "primary" && { backgroundColor: st.hovered ? colors.primaryDark : colors.primary, borderColor: colors.primary },
           variant === "secondary" && { backgroundColor: st.hovered ? "#F4F7F1" : "#FFFFFF", borderColor: st.hovered ? "#BDCDBF" : colors.border },
           variant === "danger" && { backgroundColor: st.hovered ? "#FFF6F4" : "#FFFFFF", borderColor: "#EBC9C5" },
@@ -239,17 +274,18 @@ export function IconButton({ icon, onPress, label, disabled }: { icon: IconName;
   );
 }
 
-export function Input(props: TextInputProps & { label?: string; error?: string | null; hint?: string; required?: boolean; containerStyle?: StyleProp<ViewStyle>; compact?: boolean; icon?: IconName }) {
-  const { label, error, hint, required, style, containerStyle, compact, icon, ...rest } = props;
+export function Input(props: TextInputProps & { label?: string; error?: string | null; hint?: string; required?: boolean; containerStyle?: StyleProp<ViewStyle>; compact?: boolean; icon?: IconName; endAdornment?: React.ReactNode; onEnter?: () => void }) {
+  const { label, error, hint, required, style, containerStyle, compact, icon, endAdornment, onEnter, onKeyPress, ...rest } = props;
   return (
     <View style={[{ gap: 7 }, containerStyle]}>
       {label ? <Text style={s.fieldLabel}>{label}{required ? <Text style={{ color: colors.danger, fontWeight: "400" }}> *</Text> : null}</Text> : null}
       <View>
         {icon ? <Ionicons name={icon} size={17} color={colors.muted} style={{ position: "absolute", left: 12, top: compact ? 10 : 12, zIndex: 1 }} /> : null}
-        <TextInput placeholderTextColor={colors.faint} selectionColor={colors.primary} accessibilityLabel={label} {...rest}
-          style={[s.input, compact && s.inputCompact, icon && { paddingLeft: 38 }, rest.multiline && { minHeight: 116, textAlignVertical: "top", lineHeight: 21 }, error && { borderColor: colors.danger }, style]} />
+        <TextInput placeholderTextColor={colors.faint} selectionColor={colors.primary} accessibilityLabel={label} {...rest} onKeyPress={enterHandler(onEnter, onKeyPress, Platform.OS === "web")}
+          style={[s.input, compact && s.inputCompact, icon && { paddingLeft: 38 }, rest.multiline && { minHeight: 116, textAlignVertical: "top", lineHeight: 21 }, error && { borderColor: colors.danger }, !!endAdornment && { paddingRight: 48 }, style]} />
+        {endAdornment ? <View style={{ position: "absolute", right: 0, top: 0, bottom: 0, justifyContent: "center" }}>{endAdornment}</View> : null}
       </View>
-      {error ? <Text style={{ color: colors.danger, fontSize: 11 }}>{error}</Text> : hint ? <Text style={s.hint}>{hint}</Text> : null}
+      {error ? <Text style={{ color: colors.danger, fontSize: 11 }}>{error}</Text> : hint ? <Text style={s.hint}>{hint}</Text> : onEnter && Platform.OS === "web" ? <Text style={s.hint}>Press Enter to send · Shift+Enter for a new line</Text> : null}
     </View>
   );
 }
@@ -293,6 +329,17 @@ export function Pills<T extends string>({ options, value, onChange }: { options:
   return <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>{options.map((o) => <Chip key={o.value} label={o.label} count={o.count} selected={o.value === value} onPress={() => onChange(o.value)} />)}</View>;
 }
 
+/** A small checkbox, used to select rows for a bulk action. */
+export function Checkbox({ on, onPress, label, mixed }: { on: boolean; onPress: () => void; label: string; mixed?: boolean }) {
+  const filled = on || mixed;
+  return (
+    <Pressable onPress={onPress} accessibilityRole="checkbox" accessibilityLabel={label} accessibilityState={{ checked: mixed ? "mixed" : on }} hitSlop={10}
+      style={{ width: 18, height: 18, borderRadius: 4, borderWidth: 1.5, borderColor: filled ? colors.primary : "#9AAA9D", backgroundColor: filled ? colors.primary : "#FFFFFF", alignItems: "center", justifyContent: "center" }}>
+      {filled ? <Ionicons name={mixed ? "remove" : "checkmark"} size={12} color="#FFFFFF" /> : null}
+    </Pressable>
+  );
+}
+
 /** A selectable card with a radio or checkbox mark. */
 export function OptionCard({ title, text, selected, onPress, multi, disabled, right, letter }: { title: string; text?: string | null; selected?: boolean; onPress: () => void; multi?: boolean; disabled?: boolean; right?: React.ReactNode; letter?: string }) {
   return (
@@ -318,11 +365,11 @@ export function OptionCard({ title, text, selected, onPress, multi, disabled, ri
 export function PageTabs<T extends string>({ tabs, value, onChange }: { tabs: { key: T; label: string; icon?: IconName; count?: number | null }[]; value: T; onChange: (k: T) => void }) {
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ flexGrow: 1 }}>
-      <View style={s.tabs} accessibilityRole="tablist">
+      <View style={s.tabs} accessibilityRole="tablist" {...keyboardList("tab")}>
         {tabs.map((tb) => {
           const on = tb.key === value;
           return (
-            <Pressable key={tb.key} onPress={() => onChange(tb.key)} accessibilityRole="tab" accessibilityLabel={tb.label} accessibilityState={{ selected: on }} aria-selected={on}>
+            <Pressable key={tb.key} tabIndex={on ? 0 : -1} onPress={() => onChange(tb.key)} accessibilityRole="tab" accessibilityLabel={tb.label} accessibilityState={{ selected: on }} aria-selected={on}>
               {(st: PressState) => (
                 <View style={[s.tab, on && s.tabOn]}>
                   <Text style={{ fontSize: 12, color: on || st.hovered ? colors.primary : colors.muted, fontWeight: on ? "600" : "400" }}>{tb.label}</Text>
@@ -346,7 +393,16 @@ export function ErrorBanner({ message, onRetry }: { message?: string | null; onR
   return <Notice tone="danger" title="Something went wrong" message={message} action={onRetry ? <Button title="Try again" small variant="secondary" icon="refresh" onPress={onRetry} /> : undefined} />;
 }
 
-export function Notice({ message, tone = "info", title, action, icon }: { message: string; tone?: "info" | "warning" | "success" | "danger"; title?: string; action?: React.ReactNode; icon?: IconName }) {
+/**
+ * A message about the page. Information, success and warning messages without
+ * a button appear as timed messages in the corner instead of a banner that
+ * pushes the page down. Errors, messages with an action button, and anything
+ * marked `inline` (a live state the person must keep seeing) stay on the page.
+ */
+export function Notice({ message, tone = "info", title, action, icon, inline }: { message: string; tone?: "info" | "warning" | "success" | "danger"; title?: string; action?: React.ReactNode; icon?: IconName; inline?: boolean }) {
+  const timed = !inline && !action && tone !== "danger";
+  useTimedMessage({ tone, title, message }, timed);
+  if (timed) return null;
   const t = tone === "warning" ? { bg: "#FFFAEC", border: "#EBDFBD", fg: "#866028" } : tone === "success" ? { bg: "#F0F7F1", border: "#DBE9DE", fg: "#336655" } : tone === "danger" ? { bg: "#FFF3F1", border: "#EDD5D0", fg: "#923C35" } : { bg: "#F1F6FC", border: "#DAE5F1", fg: "#3B5E7E" };
   const ic: IconName = icon ?? (tone === "warning" ? "warning-outline" : tone === "success" ? "checkmark-circle-outline" : tone === "danger" ? "alert-circle-outline" : "information-circle-outline");
   return (
@@ -430,20 +486,20 @@ export function ProgressBar({ value, height = 6, tone = "green" }: { value: numb
 
 /** A pressable row with an icon tile, two lines of text and something on the right. */
 export function ListRow({ title, subtitle, right, onPress, badge, icon, tone, plain }: { title: string; subtitle?: string | null; right?: React.ReactNode; onPress?: () => void; badge?: string; icon?: IconName; tone?: Tone; plain?: boolean }) {
-  const inner = (hovered: boolean) => (
-    <View style={[plain ? s.listItem : s.listCard, hovered && onPress && { backgroundColor: "#FCFDFB", borderColor: "#C6D6C7" }]}>
-      {icon ? <TileIcon icon={icon} tone={tone} /> : null}
-      <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
-        <Text style={s.listTitle} numberOfLines={2}>{title}</Text>
-        {subtitle ? <Text style={s.listSub} numberOfLines={2}>{subtitle}</Text> : null}
-      </View>
-      {badge ? <Badge value={badge} /> : null}
-      {right}
-      {onPress ? <Ionicons name="chevron-forward" size={17} color={colors.muted} /> : null}
+  const content = <>
+    {icon ? <TileIcon icon={icon} tone={tone} /> : null}
+    <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+      <Text style={s.listTitle} numberOfLines={2}>{title}</Text>
+      {subtitle ? <Text style={s.listSub} numberOfLines={2}>{subtitle}</Text> : null}
     </View>
-  );
-  if (!onPress) return inner(false);
-  return <Pressable onPress={onPress} accessibilityRole="button">{(st: PressState) => <View style={st.pressed ? { opacity: 0.9 } : null}>{inner(!!st.hovered)}</View>}</Pressable>;
+    {badge ? <Badge value={badge} /> : null}
+  </>;
+  return <View style={plain ? s.listItem : s.listCard}>
+    {onPress ? <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={title} style={{ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 12 }}>
+      {content}<Ionicons name="chevron-forward" size={17} color={colors.muted} />
+    </Pressable> : content}
+    {right}
+  </View>;
 }
 
 export type Column<T> = { key: string; label: string; flex?: number; width?: number; align?: "left" | "right" | "center"; render: (row: T) => React.ReactNode };
@@ -454,17 +510,28 @@ export function Table<T>({ columns, rows, keyOf, onRowPress, empty, minWidth = 6
   /** false hides the footer; a node replaces it. Default: "Showing N records". */
   footer?: React.ReactNode | false; noun?: string;
 }) {
+  // How wide the table is allowed to insist on being. A fixed minWidth made a
+  // 980-wide table scroll sideways on a tablet even when the content would have
+  // fitted; the floor now follows the window, so the columns tighten first and
+  // only scroll once they genuinely cannot fit.
+  const { width: windowWidth } = useWindowDimensions();
+  const room = Math.max(320, windowWidth - (windowWidth >= bp.desktop ? SIDEBAR_WIDTH : 0) - 96);
+  const floor = Math.min(minWidth, Math.max(560, room));
+  const gutter = room < 900 ? 10 : room < 1200 ? 14 : 18;
   // A column without a heading holds the row's buttons. As in the design it sits
   // right after the data, left-aligned, instead of being pushed to the far edge.
   const cell = (c: Column<T>): ViewStyle => {
     const action = !c.label;
     // Wider than its buttons, so the buttons start right after the data, as an HTML table would place them.
-    return { flex: c.width ? undefined : action ? (c.flex ?? 1.1) * 1.7 : c.flex ?? 1, width: c.width, paddingHorizontal: 18, minWidth: 0,
+    // The horizontal padding narrows with the table: at 18 a side, eight columns
+    // spend nearly 300px on gutters alone, which is what pushed neighbouring
+    // cells into each other on a tablet.
+    return { flex: c.width ? undefined : action ? (c.flex ?? 1.1) * 1.7 : c.flex ?? 1, width: c.width, paddingHorizontal: gutter, minWidth: 0,
       alignItems: action ? "flex-start" : c.align === "right" ? "flex-end" : c.align === "center" ? "center" : "flex-start" };
   };
   // Real table semantics for screen readers: table, rows, column headers and cells.
   const body = (
-    <View style={{ minWidth, flex: 1 }} role="table">
+    <View style={{ minWidth: floor, flex: 1 }} role="table">
       <View style={s.thead} role="row">
         {columns.map((c) => <View key={c.key} style={cell(c)} role="columnheader" aria-label={c.label || "Actions"}><Text style={s.th} numberOfLines={1}>{c.label}</Text></View>)}
       </View>
@@ -552,9 +619,37 @@ export function DetailList({ items }: { items: [string, React.ReactNode][] }) {
   );
 }
 
+/** A ring that actually shows the score.
+ *
+ * This used to be a plain circle with a pale border and one dark segment at the
+ * top, fixed in the stylesheet. It looked like a gauge and behaved like
+ * decoration: 12% and 100% drew exactly the same quarter-green ring, and a
+ * student reading a full score saw a quarter-full dial. The number in the
+ * middle was the only thing that ever changed.
+ *
+ * It is drawn from the value now, as a ring of short segments laid around the
+ * circle and filled clockwise from twelve o'clock. Segments rather than a true
+ * arc because this project has no SVG or charting library, and rotated-mask
+ * tricks behave differently on web and native — a ring of ticks renders
+ * identically on both and is honest at every value, including solid at 100%.
+ */
 export function ScoreRing({ value, caption }: { value: string; caption?: string }) {
+  const parsed = parseFloat(String(value).replace(/[^0-9.]/g, ""));
+  const percent = Math.max(0, Math.min(100, Number.isFinite(parsed) ? parsed : 0));
+  const SEGMENTS = 48, size = 126, radius = size / 2;
+  // Round up so any non-zero score lights at least one segment, and only a
+  // genuine 100% fills the last one.
+  const lit = percent >= 100 ? SEGMENTS : Math.min(SEGMENTS - 1, Math.ceil(percent / 100 * SEGMENTS));
   return (
     <View style={s.scoreRing}>
+      <View style={{ position: "absolute", width: size, height: size, alignItems: "center", justifyContent: "center" }}
+        accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+        {Array.from({ length: SEGMENTS }, (_, i) => (
+          <View key={i} style={{ position: "absolute", width: 7, height: 11, borderRadius: 3,
+            backgroundColor: i < lit ? colors.primary : "transparent",
+            transform: [{ rotate: `${i * (360 / SEGMENTS)}deg` }, { translateY: -(radius - 5.5) }] }} />
+        ))}
+      </View>
       <Text style={{ fontSize: 30, letterSpacing: -1, color: colors.ink, fontWeight: "600" }}>{value}</Text>
       {caption ? <Text style={{ color: colors.muted, fontSize: 10 }}>{caption}</Text> : null}
     </View>
@@ -596,7 +691,7 @@ export function IncompleteNote({ rows, noun = "records" }: { rows: unknown; noun
   const info = (rows as { incomplete?: { loaded: number; total: number | null; reason: "offline" | "limit" } } | null)?.incomplete;
   if (!info) return null;
   return (
-    <Notice tone="warning" title={`Showing ${info.loaded}${info.total ? ` of ${info.total}` : ""} ${noun}.`}
+    <Notice inline tone="warning" title={`Showing ${info.loaded}${info.total ? ` of ${info.total}` : ""} ${noun}.`}
       message={info.reason === "offline" ? "Only the records saved on this device are shown while you are offline. The rest appear when the LocalMind server can be reached." : "This list is too long to load at once. Use search or filters to narrow it."} />
   );
 }
@@ -649,7 +744,7 @@ export function Dropdown<T extends string>({ value, options, onChange, label, pl
       <Modal visible={open} transparent animationType="none" onRequestClose={() => setOpen(false)}>
         <Pressable style={StyleSheet.absoluteFill} onPress={() => setOpen(false)} accessibilityLabel="Close list" />
         {box ? (
-          <View style={[s.menu, { left: box.left, top: box.top, width: box.width }]}>
+          <View style={[s.menu, { left: box.left, top: box.top, width: box.width }]} {...keyboardList("menuitem", () => setOpen(false))}>
             <ScrollView style={{ maxHeight: box.maxHeight - 8 }}>
               {options.map((o) => (
                 <Pressable key={o.value || "_"} onPress={() => { onChange(o.value); setOpen(false); }} accessibilityRole="menuitem" accessibilityState={{ selected: o.value === value }}>
@@ -719,6 +814,14 @@ export function TableToolbar({ children, right }: { children?: React.ReactNode; 
 
 export const fmtSeconds = (sec: number | null | undefined) => { const t = Math.max(0, Math.round(sec ?? 0)); const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60); return h ? `${h}h ${m}m` : m ? `${m}m ${t % 60}s` : `${t}s`; };
 export const fmtDate = (iso?: string | null) => (iso ? new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—");
+/** Human file size: B, KB, MB or GB, never "0.0 MB" for small files. */
+export function fmtSize(bytes?: number | null) {
+  if (!bytes || bytes < 0) return "";
+  const units = ["B", "KB", "MB", "GB"];
+  let n = bytes, i = 0;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  return `${n >= 10 || i === 0 ? Math.round(n) : n.toFixed(1)} ${units[i]}`;
+}
 export const fmtDay = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—");
 export const pct = (v: number | null | undefined) => (v === null || v === undefined ? "—" : `${Math.round(v)}%`);
 
@@ -782,7 +885,8 @@ const s = StyleSheet.create({
   danger: { borderWidth: 1, borderColor: "#EAD1CD", backgroundColor: "#FFFCFB", borderRadius: 10, padding: 18 },
   tableFooter: { paddingHorizontal: 20, paddingVertical: 13, borderTopWidth: 1, borderTopColor: colors.border, flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" },
   stepNum: { width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
-  scoreRing: { width: 126, height: 126, borderRadius: 63, borderWidth: 9, borderColor: "#BED8B8", borderTopColor: colors.primary, alignItems: "center", justifyContent: "center" },
+  scoreRing: { width: 126, height: 126, borderRadius: 63, borderWidth: 9, borderColor: "#BED8B8", alignItems: "center", justifyContent: "center" },
   bookShape: { width: 104, height: 138, borderTopLeftRadius: 3, borderBottomLeftRadius: 3, borderTopRightRadius: 9, borderBottomRightRadius: 9, backgroundColor: "#37694C", transform: [{ rotate: "-10deg" }], padding: 14, justifyContent: "space-between" },
   hero: { flexDirection: "row", alignItems: "center", gap: 24, paddingHorizontal: 30, paddingVertical: 28, borderRadius: 14, backgroundColor: "#EAF1E5", borderWidth: 1, borderColor: "#D9E6D5", overflow: "hidden" },
 });
+export { ToastHost, showToast, useToast } from "./Toast";

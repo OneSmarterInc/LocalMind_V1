@@ -1,6 +1,6 @@
 import Constants from "expo-constants";
 import { Platform } from "react-native";
-import { configurePing, reportOffline, reportOnline } from "@/offline/connectivity";
+import { configurePing, reportConnectionFailure, reportOnline } from "@/offline/connectivity";
 import { offlineScope, readEntry, writeEntry } from "@/offline/store";
 import { getItem, migrateLegacy, setItem } from "./storage";
 
@@ -71,16 +71,24 @@ async function refreshTokens(): Promise<boolean> {
     const started = tokens;
     let promise: Promise<boolean> | null = null;
     promise = (async () => {
+      const renew = new AbortController();
+      const renewTimer = setTimeout(() => renew.abort(), 15000);
       try {
-        const res = await fetch(`${BASE_URL}/api/auth/refresh/`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refresh: started.refresh }) });
+        const res = await fetch(`${BASE_URL}/api/auth/refresh/`, { method: "POST", signal: renew.signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refresh: started.refresh }) });
         // Signed out, or someone else signed in, while this was on its way: drop it.
         if (session !== mine || tokens !== started) return false;
+        if ([502,503,504].includes(res.status)) { reportConnectionFailure(); throw new ApiError(0, "NETWORK", "The institution server is temporarily unreachable. Local data is retained."); }
         if (!res.ok) return false;
         const data = await res.json();
         if (session !== mine || tokens !== started) return false;
         await writeTokens({ ...started, access: data.access, refresh: data.refresh ?? started.refresh });
         return true;
-      } catch { return false; } finally { if (refreshing?.promise === promise) refreshing = null; }
+      } catch (e) {
+        if (session !== mine) throw new SessionChangedError();
+        if (e instanceof ApiError) throw e;
+        reportConnectionFailure();
+        throw new ApiError(0, "NETWORK", "The server disconnected while renewing the session. Your local study data is retained.");
+      } finally { clearTimeout(renewTimer); if (refreshing?.promise === promise) refreshing = null; }
     })();
     refreshing = { session: mine, promise: promise! };
   }
@@ -93,13 +101,16 @@ export class SessionChangedError extends Error {
 
 interface Options {
   method?: string; body?: unknown; form?: FormData; query?: Record<string, string | number | undefined | null>; auth?: boolean; retry?: boolean;
-  /** Store a successful GET and answer it from the device when offline. Defaults to on for student reads. */
+  /** Store a successful GET and answer it from the device when offline. Defaults to on for authorized learning and teaching reads. */
   cacheOffline?: boolean;
+  signal?: AbortSignal;
+  timeoutMs?: number;
 }
 
-// Student reads that work offline: answered from the device store when the
+// Learning and teaching reads are answered from the account’s device store when the
 // server cannot be reached (see src/offline). Writes never are.
-const OFFLINE_READABLE = /^\/(student\/|auth\/me\/$)/;
+const OFFLINE_READABLE = /^\/(student\/|faculty\/|admin\/(subjects\/|analytics\/)|meta\/choices\/$|auth\/me\/$)/;
+export const isOfflineReadable = (path: string) => OFFLINE_READABLE.test(path);
 configurePing(`${BASE_URL}/api/health/`);
 
 /** The key the server's offline bundle uses: path plus sorted, non-empty query. */
@@ -107,6 +118,18 @@ export function offlineKey(path: string, query?: Options["query"]): string {
   const items = Object.entries(query ?? {}).filter(([, v]) => v !== undefined && v !== null && v !== "")
     .map(([k, v]) => [k, String(v)] as const).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   return items.length ? `${path}?${items.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&")}` : path;
+}
+
+/** Known teaching-list filters applied to a complete authorized offline list. */
+async function savedResponse<T>(path: string, query?: Options["query"]): Promise<T | undefined> {
+  const exact = await readEntry<T>(offlineKey(path, query));
+  if (exact !== undefined) return exact;
+  if (!['/faculty/documents/', '/faculty/quizzes/'].includes(path)) return undefined;
+  const filters = Object.entries(query ?? {}).filter(([, v]) => v !== undefined && v !== null && v !== "");
+  if (!filters.every(([k]) => ['subject', 'status', 'module', 'chapter'].includes(k))) return undefined;
+  const all = await readEntry<Record<string, unknown>[]>(path);
+  if (!Array.isArray(all)) return undefined;
+  return all.filter(row => filters.every(([k, v]) => String(row[k === 'status' ? k : `${k}_id`]) === String(v))) as T;
 }
 
 export async function api<T = unknown>(path: string, opts: Options = {}): Promise<T> {
@@ -124,19 +147,39 @@ export async function api<T = unknown>(path: string, opts: Options = {}): Promis
   if (!form) headers["Content-Type"] = "application/json";
   if (auth && tokens?.access) headers.Authorization = `Bearer ${tokens.access}`;
   let res: Response;
-  try { res = await fetch(url, { method, headers, body: form ?? (body !== undefined ? JSON.stringify(body) : undefined) }); }
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  opts.signal?.addEventListener("abort", cancel);
+  if (opts.signal?.aborted) cancel();
+  // A slow endpoint is not proof that the entire server is offline.
+  let timedOut=false;
+  const timeout = setTimeout(()=>{timedOut=true;cancel();}, opts.timeoutMs ?? (method === "GET" ? 45000 : 120000));
+  try { res = await fetch(url, { method, headers, signal: controller.signal, body: form ?? (body !== undefined ? JSON.stringify(body) : undefined) }); }
   catch {
-    reportOffline();
+    if (session !== mine || offlineScope() !== owner) throw new SessionChangedError();
+    if (opts.signal?.aborted) throw new ApiError(0, "CANCELLED", "Request cancelled.");
+    reportConnectionFailure();
     if (cacheable) {
-      const saved = await readEntry<T>(offlineKey(path, query));
+      const saved = await savedResponse<T>(path, query);
+      if (session !== mine || offlineScope() !== owner) throw new SessionChangedError();
       if (saved !== undefined) return saved;
     }
+    if(timedOut)throw new ApiError(0,"TIMEOUT","The server took too long to respond. Retry this request; your saved work is unchanged.");
     throw new ApiError(0, "NETWORK", method === "GET"
-      ? "You are offline and this page has not been saved on this device yet. It will load once the server can be reached."
-      : "You are offline. This needs a connection to the LocalMind server; try again when you are back online.");
+      ? "This request could not reach the server and no saved copy is available. Please retry."
+      : "This request could not reach the LocalMind server. Please retry; it has not been confirmed as saved.");
+  } finally { clearTimeout(timeout); opts.signal?.removeEventListener("abort", cancel); }
+  if (session !== mine) throw new SessionChangedError();
+  if ([502,503,504].includes(res.status) && method === "GET") {
+    reportConnectionFailure();
+    if (cacheable) {
+      const saved = await savedResponse<T>(path, query);
+      if (session !== mine || offlineScope() !== owner) throw new SessionChangedError();
+      if (saved !== undefined) return saved;
+    }
+    throw new ApiError(0, "NETWORK", "The institution server is temporarily unreachable. This page is not saved on this device.");
   }
   reportOnline();
-  if (session !== mine) throw new SessionChangedError();
   if (res.status === 401 && auth && retry && tokens) {
     if (await refreshTokens()) {
       if (session !== mine) throw new SessionChangedError();
@@ -154,14 +197,33 @@ export async function api<T = unknown>(path: string, opts: Options = {}): Promis
     throw new ApiError(res.status, err.code ?? "HTTP_ERROR", err.message ?? `Request failed (${res.status})`, err.details);
   }
   if (session !== mine) throw new SessionChangedError();
-  if (cacheable) void writeEntry(offlineKey(path, query), data, owner).catch(() => {});
+  if (cacheable) await writeEntry(offlineKey(path, query), data, owner).catch(() => {});
+  if (session !== mine || offlineScope() !== owner) throw new SessionChangedError();
   return data as T;
+}
+
+/** Every sentence inside a validation-error payload, in order.
+ *
+ * A nested serializer reports one object per item — ``{"questions": [{"options":
+ * ["..."]}, {}, {}]}`` — and joining that list gave the reader
+ * "questions: [object Object], [object Object]". Walk it instead, keeping the
+ * field name of the innermost object that actually carries a message, and drop
+ * the empty entries that stand for the items which were fine.
+ */
+function messagesIn(value: unknown, field = ""): string[] {
+  if (value === null || value === undefined) return [];
+  if (typeof value === "string") return [field ? `${field}: ${value}` : value];
+  if (Array.isArray(value)) return value.flatMap((v) => messagesIn(v, field));
+  if (typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>).flatMap(([k, v]) => messagesIn(v, /^\d+$/.test(k) ? field : k));
+  }
+  return [field ? `${field}: ${String(value)}` : String(value)];
 }
 
 export function errorMessage(e: unknown): string {
   if (e instanceof ApiError) {
     if (e.code === "VALIDATION_ERROR" && e.details) {
-      const parts = Object.entries(e.details).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : String(v)}`);
+      const parts = [...new Set(messagesIn(e.details))];
       if (parts.length) return parts.join("\n");
     }
     return e.message;

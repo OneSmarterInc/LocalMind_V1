@@ -13,6 +13,7 @@ from documents.services import retrieval
 from assessments.models import AssessmentAttempt, AttemptStatus
 from audit import services as audit
 from core.exceptions import AIUnavailable, Forbidden, NotFound, ValidationFailed
+from core.generation_policy import require_server_authoring
 from learning import services as learning
 
 from . import lessons
@@ -31,6 +32,132 @@ REMEDIATION_SCHEMA = {"type": "object", "properties": {
         "question": {"type": "string"}, "misconception": {"type": "string"}, "explanation": {"type": "string"}, "source_reference": {"type": "string"}},
         "required": ["question", "misconception", "explanation", "source_reference"]}}},
     "required": ["overview", "items"]}
+
+# A quotation shorter than this carries no evidence ("the", "villi"), and one
+# window of this many words has to occur verbatim in the section the prompt was
+# built from. Six words tolerates a trimmed start or end without letting an
+# invented sentence through.
+MIN_REFERENCE_WORDS = 3
+REFERENCE_WINDOW_WORDS = 6
+# Tuning for the two checks below. Raise them to refuse more questions, lower
+# them to allow more through. A small model will claim an answer is grounded
+# and then answer from its own training data, so these are the only real gate;
+# the system prompt is a request, not an enforcement.
+MIN_QUESTION_TERMS = 2
+
+
+def _normalized(text):
+    """Lowercase words only, single-spaced, so punctuation and spacing differences
+    between the model's quotation and the stored text do not matter."""
+    return " ".join(re.sub(r"[^0-9a-z]+", " ", (text or "").lower()).split())
+
+
+# Words that ask for a different treatment of what was just said rather than
+# for something new. A question built only from these has no subject of its own.
+# Keep in step with FOLLOW_UP_WORDS in frontend/src/private/core.ts.
+FOLLOW_UP_WORDS = frozenset("""
+above this that it these those them previous last again short shorter brief briefly concise
+summarise summarize summary simpler simple simply easier easy clear clearer clarify elaborate
+detail details expand more less point points bullet bullets line lines word words rephrase
+reword restate repeat instead example examples meaning thing things make made one two three
+me my answer answers response reply version way sentence sentences paragraph para text put
+say said write wrote ok okay just bit little in on at to of as by or an be do not no yes
+all only very too than then still what which where when who why how does did the with from
+have has are is was were and for please tell give some can could would should explain
+describe list name mean means
+""".split())
+
+
+def _is_follow_up(question):
+    """Whether the question is about the answer before it rather than the module."""
+    words = re.findall(r"[0-9a-z]+", (question or "").lower())
+    words = [w for w in words if len(w) > 1]
+    return not words or all(w in FOLLOW_UP_WORDS for w in words)
+
+
+def _off_topic(module):
+    """One wording for every refusal, wherever it was decided."""
+    return (f'This module is about "{module.title}", and its text does not cover that. '
+            "Ask about something in this module, or open the Read tab to see what it covers. "
+            "For anything else, your faculty is the right place to go.")
+
+
+def _cannot_rework(module):
+    """A follow-up the model could not ground. The student asked about the
+    answer before it, so pointing them back at the module is the wrong
+    instruction."""
+    return ("I could not rework that answer using this module's text. Ask the question again in your own "
+            f'words, or ask something else about "{module.title}".')
+
+
+def _content_terms(text):
+    """Distinct meaningful words, stemmed the same way the search index stems
+    them, so the question, the answer and the book meet on the same word."""
+    from documents.services.chunking import tokenize
+    return {retrieval.stem(t) for t in tokenize(text or "")}
+
+
+def _question_is_about(question, module_text):
+    """Whether the question is even about this module.
+
+    Checked against the whole module, not the retrieved passages, so a question
+    about a part that did not score well is not refused. A question with almost
+    no content words of its own ("why?", "explain more") is a follow-up and is
+    left to the conversation.
+    """
+    asked = _content_terms(question)
+    if len(asked) < MIN_QUESTION_TERMS:
+        return True
+    return bool(asked & _content_terms(module_text))
+
+
+def _invented_specifics(answer, module_text):
+    """Names, places and numbers in the answer that the module never mentions.
+
+    An earlier version measured how much of the answer's vocabulary came from
+    the section and refused below a share of it. That refused honest
+    paraphrase: "Villi soak up digested food" is a correct answer to a book
+    that says villi absorb nutrients, and shares almost no words with it.
+
+    What outside knowledge actually brings in is specifics — a person, a place,
+    a year, a product — and those are exactly what a student cannot check and
+    must not be told. A capital letter inside a sentence, or a digit, marks
+    one; the first word of a sentence is capitalised for its position, so it is
+    skipped.
+    """
+    known = _content_terms(module_text)
+    found = []
+    for sentence in re.split(r"(?<=[.!?])\s+", answer or ""):
+        for word in sentence.split()[1:]:
+            bare = word.strip(" \t\"'()[],;:.!?-")
+            if len(bare) < 2 or not (bare[0].isupper() or any(c.isdigit() for c in bare)):
+                continue
+            if retrieval.stem(bare.lower()) in known:
+                continue
+            found.append(bare)
+    return found
+
+
+def _reference_supported(reference, source):
+    """Whether the model's quotation actually occurs in the text it was given.
+
+    The offline tutor constrains the quotation at decode time and validates it
+    afterwards (``frontend/src/private/courseDoubt.ts``). The server had no
+    equivalent: ``grounded`` was whatever the model said it was, so a small
+    model could answer a question this module does not cover, from its own
+    training data, and be believed.
+    """
+    ref, body = _normalized(reference), _normalized(source)
+    if not ref or not body:
+        return False
+    words = ref.split()
+    if len(words) < MIN_REFERENCE_WORDS:
+        return False
+    if ref in body:
+        return True
+    window = min(len(words), REFERENCE_WINDOW_WORDS)
+    return any(" ".join(words[i:i + window]) in body for i in range(len(words) - window + 1))
+
 
 GROUNDING = (
     "You are a friendly teacher helping a student with one module of their textbook. Follow every rule.\n"
@@ -126,6 +253,7 @@ def ask(student, module_id, question, conversation_id=None, request=None):
     """Not wrapped in a transaction on purpose: the student's question must
     survive even when the model call fails."""
     module = _module(student, module_id)
+    require_server_authoring()
     question = (question or "").strip()
     if not question:
         raise ValidationFailed(details={"question": "A question is required."})
@@ -183,6 +311,23 @@ def ask(student, module_id, question, conversation_id=None, request=None):
             audit.record(student, "tutor.ask", module, {"conversation": str(conv.id), "cached": True}, request)
             return conv, msg, cached.get("follow_up_suggestions", [])
 
+    # A follow-up asks for a different treatment of the answer before it, so its
+    # own words are the wrong thing to judge against the module: "explain the
+    # above in short" mentions nothing the module contains, and would otherwise
+    # be refused as off-topic.
+    if not _is_follow_up(question) and not _question_is_about(question, module.source_text):
+        # Not a question about this module at all. Refusing here, before the
+        # model is asked, is both cheaper and safer than asking a small model
+        # to refuse on our behalf and hoping it does.
+        logger.info("tutor.ask question outside module %s; refused without generating", module.id)
+        msg = Message.objects.create(conversation=conv, role="assistant", content=_off_topic(module),
+                                     grounded=False, source_reference="", model_name="", latency_ms=0)
+        conv.last_message_at = timezone.now()
+        conv.save(update_fields=["last_message_at", "updated_at"])
+        audit.record(student, "tutor.ask", module, {"conversation": str(conv.id), "grounded": False,
+                                                    "refused": "off_topic"}, request)
+        return conv, msg, []
+
     started = time.monotonic()
     user_prompt = (f"MODULE: {module.title}\n\nTEXTBOOK SECTION:\n\"\"\"{source}\"\"\"\n\n"
                    f"RECENT CONVERSATION:\n{history_text}\n\nSTUDENT QUESTION:\n{question}")
@@ -211,17 +356,32 @@ def ask(student, module_id, question, conversation_id=None, request=None):
         raise AIUnavailable(details={"conversation_id": str(conv.id), "reason": result.error_code,
                                      "fallback": "The module text is available for reading while the tutor is offline."})
     grounded = bool(result.data["grounded"])
+    reference = result.data.get("source_reference", "")
+    if grounded and not _reference_supported(reference, source):
+        # The model claimed the section supports this, but the phrase it quoted
+        # is not in the section. Answering anyway would put content from outside
+        # this module in front of the student.
+        logger.info("tutor.ask quotation not found in module %s; answer treated as ungrounded", module.id)
+        grounded = False
     answer = _clean_answer(result.data.get("answer", ""))
+    invented = _invented_specifics(answer, module.source_text)
+    if grounded and invented:
+        # A real phrase quoted from the section, with facts around it that the
+        # module never mentions. This is what a small model does with a question
+        # it recognises from its own training data.
+        logger.info("tutor.ask answer names %s, absent from module %s; treated as ungrounded",
+                    ", ".join(invented[:3]), module.id)
+        grounded = False
     if not grounded:
         # The model's own wording for an off-topic question is unhelpful to a
         # student ("The source text does not cover physics"), and a small model
         # tends to spill the schema field into it as well. Replace it with a
-        # sentence that says what to do next.
-        answer = (f'This module is about "{module.title}", and its text does not cover that. '
-                  "Ask about something in this module, or open the Read tab to see what it covers. "
-                  "For anything else, your faculty is the right place to go.")
+        # sentence that says what to do next. A follow-up gets its own wording:
+        # telling someone their module does not cover "make it shorter" is
+        # nonsense, since they were asking about the answer, not the module.
+        answer = _cannot_rework(module) if _is_follow_up(question) else _off_topic(module)
     msg = Message.objects.create(conversation=conv, role="assistant", content=answer, grounded=grounded,
-                                 source_reference=result.data.get("source_reference", "") if grounded else "",
+                                 source_reference=reference if grounded else "",
                                  model_name=result.model, latency_ms=latency)
     audit.record(student, "tutor.ask", module, {"conversation": str(conv.id), "grounded": msg.grounded,
                                                 "latency_ms": latency, "chunks": len(hits)}, request)
@@ -245,6 +405,7 @@ def remediation(student, attempt_id, request=None):
     # retaken with the answers in hand.
     if not attempt.results_visible:
         raise Forbidden("Results for this quiz have not been released yet.", code="RESULTS_NOT_RELEASED")
+    require_server_authoring()
     wrong = [r for r in attempt.detailed_results if r.get("is_correct") is False]
     if not wrong:
         return {"overview": "Every answered question was correct. Nothing to remediate.", "items": [], "generator": "rule"}

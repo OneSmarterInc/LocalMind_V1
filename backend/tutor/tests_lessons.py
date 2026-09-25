@@ -33,6 +33,8 @@ def ok(tag="T"):
     return AIResult(ok=True, data=lesson_json(tag), model="qwen3:1.7b")
 
 
+# Legacy server-generation compatibility coverage.
+@override_settings(DEVICE_AUTHORING_ONLY=False)
 class LessonTestBase(TestCase):
     def setUp(self):
         self.faculty = make_faculty()
@@ -111,6 +113,8 @@ class StudentReadsStoredLessonsTests(LessonTestBase):
 
 
 @override_settings(MEDIA_ROOT=MEDIA)
+# Legacy server-generation compatibility coverage.
+@override_settings(DEVICE_AUTHORING_ONLY=False)
 class LessonsQueuedWhenContentArrivesTests(TestCase):
     @classmethod
     def tearDownClass(cls):
@@ -171,10 +175,27 @@ class LessonsQueuedWhenContentArrivesTests(TestCase):
         payload["chapters"][0]["modules"].append({"title": "Added by hand", "source_heading_index": None,
                                                   "source_text": "Hand-written notes on the working set model."})
         payload["chapters"][0]["modules"].append({"title": "Forgot the text", "source_heading_index": None, "source_text": ""})
+        # An empty new module now rejects the entire edit. Check rollback,
+        # not silent deletion, then retry with a valid outline.
+        from documents.models import Document
+        before_modules = list(Module.objects.filter(chapter__document_id=doc_id)
+                              .order_by("id").values_list("id", "title", "source_text", "order"))
+        before_lessons = list(ModuleLesson.objects.order_by("id").values_list("id", "status", "version"))
+        before_version = Document.objects.get(pk=doc_id).content_version
+        with self.captureOnCommitCallbacks(execute=True):
+            rejected = self.fc.put(f"/api/faculty/documents/{doc_id}/outline/", payload, format="json")
+        self.assertEqual(rejected.status_code, 400, rejected.content)
+        self.assertEqual(rejected.data["error"]["code"], "EMPTY_SOURCE_TEXT")
+        self.assertEqual(list(Module.objects.filter(chapter__document_id=doc_id)
+                              .order_by("id").values_list("id", "title", "source_text", "order")), before_modules)
+        self.assertEqual(list(ModuleLesson.objects.order_by("id").values_list("id", "status", "version")), before_lessons)
+        self.assertEqual(Document.objects.get(pk=doc_id).content_version, before_version)
+        self.assertFalse(Module.objects.filter(title="Added by hand").exists())
+        self.assertFalse(Module.objects.filter(title="Forgot the text").exists())
+        payload["chapters"][0]["modules"].pop()
         with self.captureOnCommitCallbacks(execute=True):
             res = self.fc.put(f"/api/faculty/documents/{doc_id}/outline/", payload, format="json")
         self.assertEqual(res.status_code, 200, res.content)
-        self.assertEqual([m["title"] for m in res.data["outline_report"]["removed_empty_modules"]], ["Forgot the text"])
         self.assertFalse(Module.objects.filter(title="Forgot the text").exists())
         added = Module.objects.get(title="Added by hand")
         self.assertEqual(ModuleLesson.objects.get(module=added).status, LessonStatus.PENDING)
@@ -371,3 +392,16 @@ class OlderClientsTests(LessonTestBase):
         self.assertEqual(older.data["generator"], "fallback")
         self.assertTrue(older.data["lesson"]["title"])
         self.assertTrue(older.data["lesson"]["sections"])
+
+
+@override_settings(DEVICE_AUTHORING_ONLY=True)
+class DeviceReadinessCountsTests(TestCase):
+    def test_source_without_generated_lesson_is_counted_as_not_generated(self):
+        from core.testing import make_subject, make_published_document
+        from tutor.lessons import summary_for_document
+        doc = make_published_document(make_subject(), modules=(("Readable module", "Source material for a lesson."),))
+        summary = summary_for_document(doc)
+        self.assertEqual(summary["total"], 1)
+        self.assertEqual(summary["ready"], 0)
+        self.assertEqual(summary["not_generated"], 1)
+        self.assertEqual(summary["pending"], 0)

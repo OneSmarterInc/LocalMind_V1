@@ -1,5 +1,6 @@
 """Subjective answer evaluation via the AI gateway. Auditable and re-runnable."""
 from ai.gateway import gateway, trim_source
+from core.generation_policy import device_authoring_only
 
 SCHEMA = {"type": "object", "properties": {
     "is_correct": {"type": "boolean"}, "score_awarded": {"type": "number"},
@@ -11,6 +12,8 @@ def evaluate_subjective(source_text, question, expected_rubric, student_answer):
     """Returns (result_dict, ok). When ok is False the item must stay pending."""
     if not (student_answer or "").strip():
         return {"is_correct": False, "score_awarded": 0.0, "feedback": "No answer was provided.", "missing_points": ["Question left blank."], "evaluator": "rule"}, True
+    if device_authoring_only():
+        return {"error": "FACULTY_REVIEW_REQUIRED: This legacy written answer needs faculty grading; central AI grading is disabled in device-first mode."}, False
     system = (
         "You grade one exam answer. Follow every rule.\n"
         "1. Compare the STUDENT ANSWER only with the EXPECTED RUBRIC and the SOURCE TEXT. Ignore outside knowledge.\n"

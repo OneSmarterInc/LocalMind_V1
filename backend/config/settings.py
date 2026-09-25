@@ -23,6 +23,7 @@ if TESTING:
     ALLOWED_HOSTS.append("testserver")
 
 INSTALLED_APPS = [
+    "private_library",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -41,15 +42,22 @@ INSTALLED_APPS = [
     "documents",
     "learning",
     "assessments",
-    "assignments",
+    "assignments",  # Historical records/migrations only; no active feature routes.
     "tutor",
     "activity",
     "analytics",
     "ai_monitor",
+    "study",
+    "jobs",
 ]
 
 MIDDLEWARE = [
+    "core.isolation.BrowserIsolationMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    # Compresses the built web client. WhiteNoise only compresses collected
+    # static files; the SPA bundle is served by core.webapp as a FileResponse,
+    # so without this the 2.35 MB entry chunk crosses the tunnel uncompressed.
+    "django.middleware.gzip.GZipMiddleware",
     # Serves collected static files without nginx so the standalone/offline
     # launcher is a single process.
     "whitenoise.middleware.WhiteNoiseMiddleware",
@@ -203,6 +211,12 @@ SPECTACULAR_SETTINGS = {
     "TAGS": [{"name": "auth"}, {"name": "admin"}, {"name": "faculty"}, {"name": "student"}],
 }
 
+# Content-Security-Policy sent in report-only mode on HTML pages (see
+# core/isolation.py). Report-only never blocks: it logs would-be violations in
+# the browser console. Empty string turns it off; unset uses the default policy.
+from core.isolation import DEFAULT_CSP as _DEFAULT_CSP  # noqa: E402
+CSP_REPORT_ONLY = env_str("CSP_REPORT_ONLY", _DEFAULT_CSP)
+
 CORS_ALLOWED_ORIGINS = env_list("DJANGO_CORS_ALLOWED_ORIGINS", "http://localhost:8081")
 CORS_ALLOW_CREDENTIALS = False
 
@@ -251,6 +265,11 @@ LOCALMIND = {
     "OUTLINE_MERGE_SMALL": env_bool("OUTLINE_MERGE_SMALL", True),
     "OUTLINE_MERGE_MIN_CHARS": env_int("OUTLINE_MERGE_MIN_CHARS", 500),
     "OUTLINE_MERGE_MAX_CHARS": env_int("OUTLINE_MERGE_MAX_CHARS", 16000),
+    # Reading-unit outline (device authoring): merge a module below the floor
+    # into a neighbour, split one above the ceiling at its own sub-headings.
+    # Word-based, so they track lesson and five-question-quiz feasibility.
+    "OUTLINE_MIN_MODULE_WORDS": env_int("OUTLINE_MIN_MODULE_WORDS", 220),
+    "OUTLINE_MAX_MODULE_WORDS": env_int("OUTLINE_MAX_MODULE_WORDS", 1500),
     "LOGIN_MAX_FAILURES": env_int("LOGIN_MAX_FAILURES", 10),
     "LOGIN_LOCKOUT_MINUTES": env_int("LOGIN_LOCKOUT_MINUTES", 15),
     "FACULTY_CAN_PUBLISH": env_bool("FACULTY_CAN_PUBLISH", True),
@@ -339,7 +358,9 @@ LESSONS = {
     # Queue a lesson for every module when a book is processed and whenever a
     # module's text changes. false: lessons are generated only when faculty
     # press Generate lessons (students see a plain lesson from the text until then).
-    "AUTO_GENERATE": env_bool("LESSON_AUTO_GENERATE", True),
+    # Pinned on under the test runner: a developer's .env must not decide which
+    # path the suite exercises. Tests that want it off use override_settings.
+    "AUTO_GENERATE": True if TESTING else env_bool("LESSON_AUTO_GENERATE", True),
     # A reply the model cannot shape into a lesson is retried this many times,
     # with growing gaps, before the module waits for faculty to ask again.
     "MAX_ATTEMPTS": env_int("LESSON_MAX_ATTEMPTS", 3),
@@ -400,9 +421,12 @@ AI_MONITOR = {
     "MIN_JUDGE_CONFIDENCE": env_int("AI_MONITOR_MIN_JUDGE_CONFIDENCE", 60) / 100,
     # Character cap on the evidence stored with an evaluation and sent to the
     # judge (data minimisation: a bounded excerpt, never a whole conversation).
-    "MAX_EVIDENCE_CHARS": env_int("AI_MONITOR_MAX_EVIDENCE_CHARS", 6000),
+    # Smaller default than before: on a CPU-only laptop the judge's cost is
+    # dominated by prefilling this evidence, so a leaner excerpt roughly halves
+    # each check while keeping the shared 1.7B judge on. Raise it on a GPU host.
+    "MAX_EVIDENCE_CHARS": env_int("AI_MONITOR_MAX_EVIDENCE_CHARS", 2500),
     # Retrieval depth when rebuilding the reference passages for a tutor answer.
-    "EVIDENCE_CHUNKS": env_int("AI_MONITOR_EVIDENCE_CHUNKS", 4),
+    "EVIDENCE_CHUNKS": env_int("AI_MONITOR_EVIDENCE_CHUNKS", 2),
     # Evaluations and closed incidents older than this are removed by
     # `manage.py monitor_ai --purge` (the maintenance timer runs it).
     "RETENTION_DAYS": env_int("AI_MONITOR_RETENTION_DAYS", 180),
@@ -429,3 +453,19 @@ LOGGING = {
         "localmind": {"level": env_str("LOG_LEVEL", "INFO"), "propagate": True},
     },
 }
+
+# Private study publishing is separate from classroom grades and authentication.
+# Jobs run inline under the test runner whatever the environment says, so the
+# suite never waits on a worker that is not running.
+DURABLE_JOBS = not TESTING and env_bool("DURABLE_JOBS", True)
+JOB_LEASE_SECONDS = max(30, env_int("JOB_LEASE_SECONDS", 300))
+STUDY_SIGNING_KEY_PATH = env_str("STUDY_SIGNING_KEY_PATH", "")
+STUDY_SIGNING_KEY_ID = env_str("STUDY_SIGNING_KEY_ID", "")
+STUDY_AUTHOR_MODEL_PATH = env_str("STUDY_AUTHOR_MODEL_PATH", "")
+STUDY_AUTHOR_OLLAMA_MODEL = env_str("STUDY_AUTHOR_OLLAMA_MODEL", "")
+STUDY_AUTHOR_OLLAMA_URL = env_str("STUDY_AUTHOR_OLLAMA_URL", "http://127.0.0.1:11434")
+STUDY_OBSERVATIONS_ENABLED = env_bool("STUDY_OBSERVATIONS_ENABLED", False)
+STUDY_MIN_AGGREGATE_EVENTS = env_int("STUDY_MIN_AGGREGATE_EVENTS", 5)
+
+# Institutional book lessons and quizzes are generated on user devices.
+DEVICE_AUTHORING_ONLY = env_bool("DEVICE_AUTHORING_ONLY", True)

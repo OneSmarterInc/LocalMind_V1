@@ -2,7 +2,19 @@ from rest_framework import serializers
 from .models import Assessment, AssessmentAttempt
 
 
-class AssessmentSerializer(serializers.ModelSerializer):
+class QuizBookFields(serializers.ModelSerializer):
+    document_ids = serializers.SerializerMethodField()
+
+    def get_document_ids(self, a) -> list:
+        ids = {str(m.chapter.document_id) for m in a.source_modules.all()}
+        if a.module_id:
+            ids.add(str(a.module.chapter.document_id))
+        if a.chapter_id:
+            ids.add(str(a.chapter.document_id))
+        return sorted(ids)
+
+
+class AssessmentSerializer(QuizBookFields):
     """Faculty/admin view: includes answers."""
     subject_id = serializers.UUIDField(read_only=True)
     source_module_ids = serializers.SerializerMethodField()
@@ -17,7 +29,7 @@ class AssessmentSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Assessment
-        fields = ["id", "subject_id", "chapter_id", "module_id", "kind", "title", "instructions", "questions", "generator", "status",
+        fields = ["id", "document_ids", "subject_id", "chapter_id", "module_id", "kind", "title", "instructions", "questions", "generator", "status",
                   "pass_percentage", "max_attempts", "time_limit_minutes", "available_from", "due_at", "version", "supersedes",
                   "created_by_name", "published_at", "closed_at", "question_count", "attempt_count", "created_at", "updated_at",
                   "source_module_ids", "results_release", "results_release_at", "results_released_at", "pending_release_count",
@@ -83,7 +95,7 @@ class AssessmentSerializer(serializers.ModelSerializer):
         return svc.pending_release_count(a)
 
 
-class AssessmentStudentSerializer(serializers.ModelSerializer):
+class AssessmentStudentSerializer(QuizBookFields):
     """Student view: no answers."""
     subject_id = serializers.UUIDField(read_only=True)
     module_id = serializers.UUIDField(read_only=True)
@@ -92,9 +104,9 @@ class AssessmentStudentSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Assessment
-        fields = ["id", "subject_id", "module_id", "chapter_id", "kind", "title", "instructions", "pass_percentage", "max_attempts",
+        fields = ["id", "document_ids", "subject_id", "module_id", "chapter_id", "kind", "title", "instructions", "pass_percentage", "max_attempts",
                   "time_limit_minutes", "available_from", "due_at", "question_count", "version",
-                  "results_release", "results_release_at", "auto_generated"]
+                  "results_release", "results_release_at", "auto_generated", "created_at"]
 
 
 class AttemptSerializer(serializers.ModelSerializer):
@@ -109,6 +121,13 @@ class AttemptSerializer(serializers.ModelSerializer):
         fields = ["id", "assessment_id", "assessment_title", "student_id", "student_email", "student_name", "attempt_number", "status",
                   "started_at", "submitted_at", "time_taken_seconds", "score", "total_questions", "percentage", "passed",
                   "detailed_results", "evaluation_notes", "evaluated_at", "results_released_at"]
+
+
+    def to_representation(self, instance):
+        result = super().to_representation(instance)
+        if instance.status == "submitted":
+            result.update(score=None, percentage=None, passed=None)
+        return result
 
 
 class QuestionInSerializer(serializers.Serializer):

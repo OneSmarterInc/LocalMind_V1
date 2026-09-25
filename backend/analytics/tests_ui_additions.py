@@ -66,24 +66,6 @@ class UiAdditionsTests(TestCase):
         self.assertFalse(any(i["detail"] == "Feed quiz" for i in theirs))
         self.assertEqual(self.sc.get("/api/faculty/analytics/activity/").status_code, 403)
 
-    def test_assignment_max_attempts_limits_resubmissions(self):
-        res = self.fc.post("/api/faculty/assignments/", {"module_id": str(self.module.id), "title": "Essay", "max_score": 10,
-                                                        "allow_resubmission": True, "max_attempts": 2,
-                                                        "rubric": [{"criterion": "A", "points": 10}]}, format="json")
-        self.assertEqual(res.status_code, 201, res.content)
-        aid = res.data["id"]
-        self.assertEqual(res.data["max_attempts"], 2)
-        self.fc.post(f"/api/faculty/assignments/{aid}/status/", {"status": "published"}, format="json")
-        for text in ("one", "two"):
-            self.assertEqual(self.sc.post(f"/api/student/assignments/{aid}/submissions/", {"content": text}, format="json").status_code, 201)
-        third = self.sc.post(f"/api/student/assignments/{aid}/submissions/", {"content": "three"}, format="json")
-        self.assertEqual(third.status_code, 409)
-        self.assertEqual(third.data["error"]["code"], "ATTEMPT_LIMIT")
-        cleared = self.fc.patch(f"/api/faculty/assignments/{aid}/", {"max_attempts": None}, format="json")
-        self.assertEqual(cleared.status_code, 200, cleared.content)
-        self.assertIsNone(cleared.data["max_attempts"])
-        self.assertEqual(self.sc.post(f"/api/student/assignments/{aid}/submissions/", {"content": "three"}, format="json").status_code, 201)
-
     def test_admin_subject_snapshot_counts_published_modules(self):
         from core.testing import make_admin
         rows = client_for(make_admin()).get("/api/admin/analytics/platform/subjects/").data["subjects"]
@@ -91,7 +73,7 @@ class UiAdditionsTests(TestCase):
         published = Module.objects.filter(chapter__document=self.doc, source_missing=False).count()
         self.assertEqual(os_row["modules_published"], published)
 
-    def test_attempts_and_submissions_carry_the_student_name(self):
+    def test_attempts_carry_the_student_name(self):
         self.student.full_name = "Aditi Sharma"; self.student.save(update_fields=["full_name"])
         quiz = self.fc.post("/api/faculty/quizzes/", {"module_id": str(self.module.id), "title": "Named", "questions": [
             {"type": "mcq", "question": "Q?", "options": [{"key": k, "text": k} for k in "ABCD"], "correct_answer": "A"}]}, format="json").data
@@ -101,10 +83,4 @@ class UiAdditionsTests(TestCase):
         attempts = self.fc.get(f"/api/faculty/quizzes/{quiz['id']}/attempts/").data
         attempts = attempts["results"] if isinstance(attempts, dict) else attempts
         self.assertEqual(attempts[0]["student_name"], "Aditi Sharma")
-        a = self.fc.post("/api/faculty/assignments/", {"module_id": str(self.module.id), "title": "Essay", "max_score": 10, "rubric": [{"criterion": "A", "points": 10}]}, format="json").data
-        self.fc.post(f"/api/faculty/assignments/{a['id']}/status/", {"status": "published"}, format="json")
-        self.sc.post(f"/api/student/assignments/{a['id']}/submissions/", {"content": "text"}, format="json")
-        subs = self.fc.get(f"/api/faculty/assignments/{a['id']}/submissions/").data
-        subs = subs["results"] if isinstance(subs, dict) else subs
-        self.assertEqual(subs[0]["student_name"], "Aditi Sharma")
 

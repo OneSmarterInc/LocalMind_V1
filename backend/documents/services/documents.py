@@ -72,10 +72,12 @@ def file_digest(uploaded_file) -> str:
 
 
 @transaction.atomic
-def upload_document(actor, subject, uploaded_file, title="", request=None):
+def upload_document(actor, subject, uploaded_file, title="", request=None, *, outline_strategy="source"):
     _require_manage(actor, subject)
     if subject.status != SubjectStatus.ACTIVE:
         raise Conflict("Books can only be uploaded to active subjects.", code="SUBJECT_INACTIVE")
+    if outline_strategy not in ("source", "ai"):
+        raise ValidationFailed("Choose source headings or AI suggestions.", code="INVALID_OUTLINE_STRATEGY")
     ext = validate_upload(uploaded_file)
     digest = file_digest(uploaded_file)
     # The same book must not sit on a subject twice: it would be parsed twice,
@@ -97,7 +99,7 @@ def upload_document(actor, subject, uploaded_file, title="", request=None):
     document = Document(
         subject=subject, uploaded_by=actor,
         original_name=Path(uploaded_file.name).name[:300],
-        title=(title or Path(uploaded_file.name).stem)[:300],
+        title=(title.strip() or Path(uploaded_file.name).stem)[:300], title_is_custom=bool(title.strip()), outline_strategy=outline_strategy,
         file_type=ext.lstrip("."), file_size=uploaded_file.size, content_hash=digest,
     )
     document.file = uploaded_file  # upload_to uses document.id, which exists already
@@ -125,6 +127,11 @@ def claim_for_processing(document):
     changed and step aside. ``select_for_update`` alone was not enough, because SQLite ignores it and both
     transactions could read the same "not processing yet" row.
     """
+    from jobs.services import enabled
+    if enabled():
+        from jobs.models import Job
+        if Job.objects.filter(kind="document_parse", target=str(document.pk), status__in=("pending", "running", "retry")).exists():
+            return False
     with transaction.atomic():
         locked = Document.objects.select_for_update().get(pk=document.pk)
         now = timezone.now()
@@ -176,7 +183,7 @@ def clear_progress(document_id):
     )
 
 
-def run_processing(document_id):
+def run_processing(document_id, *, guard=None, run_id=None, raise_errors=False):
     """The unit of work a background worker executes. Safe to call from a
     thread, a process, or (later) a Celery task.
 
@@ -185,6 +192,8 @@ def run_processing(document_id):
     itself is shared per process and is never unloaded here.
     """
     document = Document.objects.get(pk=document_id)
+    if run_id:
+        document._processing_artifact_id = run_id
     try:
         set_progress(document_id, 1, "queued", "Waiting for the parser to be free")
         with _processing_lock:
@@ -200,15 +209,28 @@ def run_processing(document_id):
         set_progress(document_id, 4, "structure",
                      f"Creating {module_count} module{'' if module_count == 1 else 's'} across {len(chapters)} chapter{'' if len(chapters) == 1 else 's'}")
         with transaction.atomic():
+            if guard: guard()
+            locked = Document.objects.select_for_update().get(pk=document_id)
+            if locked.processing_started_at != document.processing_started_at:
+                from jobs.services import LeaseLost
+                raise LeaseLost("A newer processing run owns this document")
             report = outline_service.persist_outline(document, outline, parsed["sections"], user_edited=False)
             document.processed_markdown_path = parsed["markdown_path"]
             document.extracted_headings = parsed["headings"]
+            document.outline_quality = outline.get("_quality", {})
             document.outline_source = source
             document.parse_mode = parsed["parse_mode"]
             document.status = DocumentStatus.UNDER_REVIEW
             document.processed_at = timezone.now()
             document.error_message = ""
             document.save()
+        # Optional source imagery is independent of the established text/outline pipeline.
+        # A damaged picture must not discard a successfully imported book.
+        try:
+            from .visual_delivery import prepare_visuals
+            prepare_visuals(document)
+        except Exception:
+            logger.exception("Source image extraction failed for document %s", document_id)
         clear_progress(document_id)
         audit.record(None, "document.processed", document, {
             "outline_source": source, "chapters": document.chapters.count(),
@@ -225,22 +247,31 @@ def run_processing(document_id):
         lessons.on_content_changed(processed, reason="document.processed")
         # And a quiz for every module, generated after its lesson.
         auto_quiz.on_content_changed(processed, reason="document.processed")
+        return True
     except NoExtractableContent as exc:
         # Expected outcome for blank or unreadable files: a clear message, no traceback.
         logger.warning("Processing of document %s produced no content: %s", document_id, exc)
-        Document.objects.filter(pk=document_id).update(
+        if guard:
+            with transaction.atomic(): guard()
+        Document.objects.filter(pk=document_id, processing_started_at=document.processing_started_at).update(
             status=DocumentStatus.ERROR, error_message=str(exc)[:2000], updated_at=timezone.now(),
         )
         clear_progress(document_id)
         audit.record(None, "document.processing_failed", document, {"error": str(exc)[:300], "code": exc.code})
+        if raise_errors: raise
+        return False
     except Exception as exc:
         logger.exception("Processing failed for document %s", document_id)
-        Document.objects.filter(pk=document_id).update(
+        if guard:
+            with transaction.atomic(): guard()
+        Document.objects.filter(pk=document_id, processing_started_at=document.processing_started_at).update(
             status=DocumentStatus.ERROR, error_message=(str(exc) or "Document processing failed.")[:2000],
             updated_at=timezone.now(),
         )
         clear_progress(document_id)
         audit.record(None, "document.processing_failed", document, {"error": str(exc)[:300]})
+        if raise_errors: raise
+        return False
 
 
 def _launch(document_id):
@@ -255,13 +286,19 @@ def _launch(document_id):
 
 def start_processing(actor, document, request=None):
     _require_manage(actor, document.subject)
-    if not claim_for_processing(document):
-        raise Conflict("This document is already being processed.", code="ALREADY_PROCESSING")
-    audit.record(actor, "document.processing_started", document, {}, request)
-    if settings.TESTING or getattr(settings, "PROCESS_DOCUMENTS_INLINE", False):
-        run_processing(document.id)
-    else:
-        _launch(document.id)
+    from jobs.services import enabled, enqueue
+    with transaction.atomic():
+        if not claim_for_processing(document):
+            raise Conflict("This document already has queued or running processing work.", code="ALREADY_PROCESSING")
+        audit.record(actor, "document.processing_started", document, {}, request)
+        if enabled() and not getattr(settings, "PROCESS_DOCUMENTS_INLINE", False):
+            enqueue("document_parse", str(document.id), {"document_id": str(document.id), "actor_id": str(actor.id)},
+                    unique=f"document:{document.id}:{document.processing_started_at.isoformat()}")
+    if not enabled() or getattr(settings, "PROCESS_DOCUMENTS_INLINE", False):
+        if settings.TESTING or getattr(settings, "PROCESS_DOCUMENTS_INLINE", False):
+            run_processing(document.id)
+        else:
+            _launch(document.id)
     document.refresh_from_db()
     return document
 
@@ -290,6 +327,10 @@ def _outline_fingerprint(document):
 @transaction.atomic
 def replace_outline(actor, document, outline, request=None):
     _require_manage(actor, document.subject)
+    document = Document.objects.select_for_update().get(pk=document.pk)
+    expected = outline.get("expected_content_version")
+    if expected is not None and expected != document.content_version:
+        raise Conflict("The book changed since this outline was loaded. Reload it before saving.", code="OUTLINE_CHANGED")
     if document.status not in EDITABLE_STATUSES:
         raise Conflict(f"The outline cannot be edited while the document is '{document.status}'.", code="INVALID_STATE")
     # A published book stays editable. Structure changes reach students on
@@ -300,9 +341,10 @@ def replace_outline(actor, document, outline, request=None):
     before = _outline_fingerprint(document)
     report = outline_service.persist_outline(document, outline, sections, user_edited=True)
     document.outline_source = "edited"
+    document.outline_quality = {}
     if document.status == DocumentStatus.READY:
         document.status = DocumentStatus.UNDER_REVIEW
-    document.save(update_fields=["outline_source", "status", "updated_at"])
+    document.save(update_fields=["outline_source", "outline_quality", "status", "updated_at"])
     # The content version keys every cached lesson, tutor answer and chunk set
     # for the book. A save that changed nothing students read must not throw
     # all of that away: on a CPU host each lesson costs tens of seconds to
@@ -343,6 +385,7 @@ def edit_chapter(actor, chapter, title=None, source_text=None, request=None):
         changes["title"] = [chapter.title, outline_service.clean_title(title)]
         chapter.title = outline_service.clean_title(title)
     if source_text is not None:
+        Document.objects.filter(pk=document.pk).update(outline_quality={})
         changes["source_text"] = True
         chapter.source_text = source_text
     if changes:
@@ -370,6 +413,7 @@ def edit_module(actor, module, title=None, source_text=None, request=None):
             # here rather than stored.
             raise ValidationFailed("A module needs source text. To take it out of the book, remove the module instead.",
                                    code="EMPTY_SOURCE_TEXT")
+        Document.objects.filter(pk=document.pk).update(outline_quality={})
         changes["source_text"] = True
         module.source_text = source_text
         module.source_missing = False
@@ -471,6 +515,10 @@ def delete_document(actor, document, request=None):
     from assignments.models import Assignment, AssignmentSubmission
 
     _require_manage(actor, document.subject)
+    from study.models import ContentBlock, StudyAsset, StudyPackage, StudyQuestion
+    if (ContentBlock.objects.filter(module__chapter__document=document).exists() or StudyAsset.objects.filter(document=document).exists()
+            or StudyPackage.objects.filter(document=document).exists() or StudyQuestion.objects.filter(document=document).exists()):
+        raise Conflict("This book has versioned study material. Archive it instead of deleting its source history.", code="STUDY_HISTORY_IN_USE")
     if document.status == DocumentStatus.PROCESSING:
         raise Conflict("Wait for processing to finish before deleting this book.", code="INVALID_STATE")
 
@@ -503,13 +551,26 @@ def delete_document(actor, document, request=None):
 def archive(actor, document, request=None):
     _require_manage(actor, document.subject)
     if document.status == DocumentStatus.ARCHIVED:
-        raise Conflict("Already archived.", code="INVALID_STATE")
+        return document
     if document.status == DocumentStatus.PROCESSING:
         raise Conflict("Wait for processing to finish before archiving.", code="INVALID_STATE")
     document.status = DocumentStatus.ARCHIVED
     document.archived_at = timezone.now()
     document.save(update_fields=["status", "archived_at", "updated_at"])
     audit.record(actor, "document.archived", document, {}, request)
+    return document
+
+
+@transaction.atomic
+def unarchive(actor, document, request=None):
+    _require_manage(actor, document.subject)
+    document = type(document).objects.select_for_update().get(pk=document.pk)
+    if document.status != DocumentStatus.ARCHIVED:
+        raise Conflict("Only archived books can be unarchived.", code="INVALID_STATE")
+    document.status = DocumentStatus.UNPUBLISHED
+    document.archived_at = None
+    document.save(update_fields=["status", "archived_at", "updated_at"])
+    audit.record(actor, "document.unarchived", document, {}, request)
     return document
 
 

@@ -1,5 +1,7 @@
-import { useLocalSearchParams, useRouter } from "expo-router";
-import React from "react";
+import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
+import React, { useEffect } from "react";
+import { useBackTo } from "@/hooks/useBackTo";
+import { useAuth } from "@/auth/AuthContext";
 import { Text, View } from "react-native";
 import { manage } from "@/api/endpoints";
 import { useAction, useAsync } from "@/hooks/useAsync";
@@ -10,13 +12,18 @@ const STATUS: Record<string, { label: string; tone: "green" | "blue" | "amber" |
 };
 
 export default function FacultyStudent() {
-  const { id, subject } = useLocalSearchParams<{ id: string; subject?: string }>();
+  const { id, subject, workspace } = useLocalSearchParams<{ id: string; subject?: string; workspace?: string }>();
   const router = useRouter();
-  const q = useAsync(() => manage.studentAnalytics(id), [id]);
+  const q = useAsync(() => manage.studentAnalytics(id), [id], [id]);
   const detail = useAsync(() => (subject ? manage.studentSubjectAnalytics(id, subject) : Promise.resolve(null)), [id, subject]);
   const row = useAsync(async () => (subject ? (await manage.subjectStudentsAnalytics(subject)).students.find((r: any) => r.student_id === id) ?? null : null), [id, subject]);
   const d = q.data; const r = row.data; const sd = detail.data;
-  const back = () => router.push({ pathname: "/manage/subject/[id]", params: { id: subject!, tab: "students" } });
+  const { user } = useAuth();
+  const goBack = useBackTo();
+  const navigation = useNavigation();
+  const parent = subject ? `/${user?.role === "admin" && workspace === "admin" ? "admin" : "manage"}/subject/${subject}?tab=students` : `/${user?.role === "admin" && workspace === "admin" ? "admin" : "manage"}/subjects`;
+  useEffect(() => { navigation.setOptions({ backTo: parent, backLabel: "Back to students" }); }, [navigation, parent]);
+  const back = () => goBack(parent);
   const drop = useAction(async () => {
     if (!subject) return;
     const ok = await confirmAsync("Discontinue enrollment?", `${d?.student.full_name ?? "This student"} will no longer see this subject. Earlier attempts and progress are kept.`, "Discontinue", "Cancel", { tone: "danger" });
@@ -65,7 +72,7 @@ export default function FacultyStudent() {
               <View style={{ flexDirection: "row" }}><Button title="Discontinue enrollment" variant="danger" small icon="person-remove-outline" onPress={() => drop.run()} busy={drop.busy} /></View>
               <ErrorBanner message={drop.error} />
             </>
-          ) : <Notice message="Open a student from a subject to see module progress and quiz attempts for that subject." />}
+          ) : <Notice inline message="Open a student from a subject to see module progress and quiz attempts for that subject." />}
         </>
       ) : null}
     </Screen>

@@ -1,4 +1,4 @@
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import React from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { Notice, PageTabs } from "./index";
@@ -9,7 +9,7 @@ import { colors, radius, radiusSm, space } from "./theme";
  *
  * A workspace is a fixed header, a scrolling list or tree on the left, and one
  * selected thing filling the right. The book outline, the quizzes and the
- * assignments all use it, so the parts live here rather than being written
+ * editors all use it, so the parts live here rather than being written
  * three times with three sets of paddings.
  */
 

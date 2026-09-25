@@ -19,11 +19,15 @@ export function DateTimeField({ label, value, onChange, hint, dateOnly = false, 
   const invalid = !!text && !parseLocalText(text, dateOnly);
   const zone = timeZoneLabel();
   const box = { borderWidth: 1, borderColor: invalid ? colors.danger : "#D8E0D7", borderRadius: 7, backgroundColor: disabled ? "#F3F5F0" : "#FFFFFF", paddingHorizontal: 11, height: 40, fontSize: 13, color: colors.ink } as const;
+  // The browser's own datetime-local control has an intrinsic width: below roughly
+  // this, the calendar button starts overlapping the digits and the text clips.
+  // Without a floor the field collapses whenever it shares a narrow grid cell.
+  const webFloor = dateOnly ? 150 : 200;
   const id = `dt-${label.replace(/\W+/g, "-").toLowerCase()}`;
   return (
     <View style={{ gap: 7, width: "100%", maxWidth: width, minWidth: 0 }}>
       <Text nativeID={id} style={{ fontSize: 12, fontWeight: "600", color: colors.ink }}>{label}{required ? <Text style={{ color: colors.danger }}> *</Text> : null}</Text>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0, flexWrap: "wrap" }}>
         {Platform.OS === "web"
           ? React.createElement("input", {
               type: dateOnly ? "date" : "datetime-local", value: text, disabled, "aria-labelledby": id, "aria-label": label,
@@ -31,7 +35,7 @@ export function DateTimeField({ label, value, onChange, hint, dateOnly = false, 
                 setText(e.target.value);
                 if (!e.target.value) onChange(null); else { const iso = parseLocalText(e.target.value, dateOnly); if (iso) onChange(iso); }
               },
-              style: { ...box, flex: 1, fontFamily: "inherit", outline: "none", minWidth: 0, width: "100%", boxSizing: "border-box" },
+              style: { ...box, borderStyle: "solid", flex: 1, fontFamily: "inherit", outline: "none", minWidth: webFloor, width: "100%", boxSizing: "border-box", paddingRight: 6 },
             })
           : (
             <Pressable disabled={disabled} accessibilityRole="button" accessibilityLabel={`${label}: ${value ? formatLocal(value, dateOnly) : "not set"}`}

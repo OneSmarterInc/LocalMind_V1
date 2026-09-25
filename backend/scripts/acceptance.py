@@ -59,12 +59,8 @@ s,d=call("GET",f"/student/quizzes/?module={smods[0]['id']}",tok=stok); q=L(d)[0]
 s,d=call("POST",f"/student/quizzes/{q['id']}/attempts/",tok=stok); att=d["attempt_id"]; print("start",s,"answers hidden:",all("correct_answer" not in x for x in d["questions"]))
 s,d=call("POST",f"/student/quiz-attempts/{att}/submit/",{"submitted_answers":{"q1":"A","q2":"B"}},tok=stok); print("submit",s,d["percentage"],d["passed"])
 s,d=call("POST",f"/student/quiz-attempts/{att}/submit/",{"submitted_answers":{"q1":"A","q2":"B"}},tok=stok); print("resubmit ->",s,d["error"]["code"])
-s,d=call("GET","/student/assignments/",tok=stok); a=L(d)[0]
-s,d=call("POST",f"/student/assignments/{a['id']}/submissions/",{"content":"Round robin gives each process a time slice; priority runs the highest priority first."},tok=stok); print("assignment submit",s,d["status"])
 s,d=call("GET","/student/analytics/overview/",tok=stok); print("student overview",s,d["modules"],d["quizzes"]["average_percentage"],d["time"]["learning_seconds"])
 s,d=call("POST","/auth/logout/",{"session_id":sess},tok=stok); print("logout",s)
 s,d=call("GET",f"/faculty/quizzes/{quiz['id']}/attempts/",tok=tok); print("faculty attempts",s,len(L(d)))
-s,d=call("GET",f"/faculty/assignments/{a['id']}/submissions/",tok=tok); sub=L(d)[0]
-s,d=call("POST",f"/faculty/assignment-submissions/{sub['id']}/evaluate/",{"score":8,"feedback":"Good."},tok=tok); print("evaluate",s,d.get("status") or d)
-s,d=call("GET",f"/faculty/analytics/subjects/{os_id}/students/",tok=tok); r=d["students"][0]; print("cohort row",s,r["quiz_average"],r["learning_seconds"],r["assignment_average"])
+s,d=call("GET",f"/faculty/analytics/subjects/{os_id}/students/",tok=tok); r=d["students"][0]; print("cohort row",s,r["quiz_average"],r["learning_seconds"])
 s,d=call("GET",f"/faculty/analytics/users/{r['student_id']}/sessions/",tok=atok); print("admin session log",s,d["sessions"][0]["ended_by"],d["sessions"][0]["duration_seconds"])

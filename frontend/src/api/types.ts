@@ -1,3 +1,19 @@
+/** One cropped figure, chart, diagram or table from the uploaded source. */
+export type SourceVisual = {
+  id: string; kind?: string; page?: number | null; caption?: string; caption_origin?: string;
+  width?: number | null; height?: number | null; context_text?: string; heading_path?: string[];
+  data_url?: string; module_id?: string; module_title?: string; reason?: string;
+};
+
+/** Where every extracted picture in a book sits, without the image bytes. */
+export type PictureIndex = {
+  document_id: string; title: string; total: number; assigned: number; needs_review: number;
+  warnings: string[];
+  chapters: { id: string; title: string; order: number;
+    modules: { id: string; title: string; order: number; start_page: number | null; end_page: number | null; count: number }[] }[];
+  review: SourceVisual[];
+};
+
 export type Role = "admin" | "faculty" | "student";
 
 export interface Profile {
@@ -23,6 +39,7 @@ export interface Subject {
 export type ModuleAvailability = "locked" | "open";
 export type ProgressStatus = "not_started" | "in_progress" | "completed" | "needs_review";
 export interface Progress {
+  sync_pending?: boolean;
   status: ProgressStatus; best_quiz_percentage: number | null; quiz_attempts: number; learning_seconds: number;
 }
 export interface ModuleBrief {
@@ -30,14 +47,22 @@ export interface ModuleBrief {
   start_page?: number | null; end_page?: number | null; progress?: Progress | null;
 }
 export interface ModuleFull extends ModuleBrief {
-  chapter_id: string; source_text: string; source_heading_index?: number | null; is_user_edited?: boolean;
+  chapter_id: string; source_text: string; source_visuals?: import("@/ui/SourceFigures").Figure[]; source_heading_index?: number | null; is_user_edited?: boolean;
   document_id?: string; document_title?: string; chapter_title?: string;
   /** Position in the book and who teaches it (student module detail). */
   module_number?: number | null; module_count?: number; faculty_names?: string[];
+  /** The modules either side of this one, in book order (student module detail).
+   * ``availability`` travels with them so the reader can disable a locked
+   * neighbour and say why, rather than navigating into an error page. */
+  previous_module?: ModuleNeighbour | null; next_module?: ModuleNeighbour | null;
 }
+export interface ModuleNeighbour { id: string; title: string; availability: ModuleAvailability; number: number }
 export interface Chapter { id: string; title: string; order: number; modules: ModuleBrief[]; status?: string }
 export type DocumentStatus = "uploaded" | "processing" | "under_review" | "ready" | "published" | "unpublished" | "archived" | "error";
 export interface Document {
+  background_job?: { id: string; status: string; attempts: number; error: string } | null;
+  outline_quality?: {content_chapters?:number; introductory_group?:boolean; source_sections?:number; covered_sections?:number; coverage_note?:string; warnings?:string[]};
+  outline_strategy?: "source" | "ai";
   id: string; title: string; original_name: string; subject_id: string; subject_code?: string; status: DocumentStatus;
   file_type: string; file_size?: number; error_message?: string; content_version: number;
   chapter_count?: number; module_count?: number; outline_source?: string;
@@ -58,14 +83,19 @@ export interface Document {
 export interface DocumentTree { id: string; title: string; subject_id: string; content_version: number; chapters: Chapter[] }
 export interface Heading { index: number; level: number; title: string; start_page?: number; end_page?: number }
 export interface OutlineModule {
+  start_page?: number | null; end_page?: number | null;
   id?: string; title: string; order: number; source_heading_index: number | null; source_text?: string;
   source_missing?: boolean; availability?: ModuleAvailability; lesson_status?: LessonStatus;
   /** The module's automatic quiz: ready, checking (waiting for the AI monitor), held (flagged; needs review), pending,
    * generating, failed, dismissed (deleted by faculty), short (module too short), none or off. */
   quiz_status?: string; auto_quiz_id?: string | null;
+  /** Newest non-automatic quiz on this module (for example one synchronized from a faculty device), and who made it. */
+  shared_quiz_id?: string | null; shared_quiz_status?: string | null; shared_quiz_by?: string | null;
+  /** Who last synchronized this module's lesson from a device, when known. */
+  lesson_synced_by?: string | null;
 }
 export interface OutlineChapter { id?: string; title: string; order: number; source_heading_index?: number | null; modules: OutlineModule[] }
-export interface Outline { document_id: string; status: DocumentStatus; content_version: number; headings: Heading[]; outline_source?: string; document_title: string; chapters: OutlineChapter[] }
+export interface Outline { outline_quality?: Document["outline_quality"]; document_id: string; status: DocumentStatus; content_version: number; headings: Heading[]; outline_source?: string; document_title: string; chapters: OutlineChapter[] }
 
 export interface QuizOption { key: string; text: string }
 export interface Question {
@@ -75,6 +105,7 @@ export interface Question {
   source_module_id?: string | null;
 }
 export interface Quiz {
+  document_ids?: string[];
   id: string; title: string; instructions?: string; kind: "module" | "chapter" | "selection"; subject_id: string; module_id: string | null;
   chapter_id: string | null; status: "draft" | "published" | "closed" | "superseded"; generator: "ai" | "fallback" | "manual";
   pass_percentage: number; max_attempts: number | null; time_limit_minutes: number | null; available_from: string | null; due_at: string | null;
@@ -94,10 +125,15 @@ export interface Quiz {
   results_release_at?: string | null;
   results_released_at?: string | null;
   pending_release_count?: number;
+  offline_pending?: number;
   attempts_used?: number; results_pending?: number; best_percentage?: number | null; passed?: boolean | null; created_by_name?: string; created_at: string;
 }
 export interface DetailedResult {
   question_id: string; type: "mcq" | "subjective"; question: string; selected_option?: string; correct_option?: string;
+  /** Option wording that goes with the letters above. Older attempts graded
+   * before these were stored have only the letters, so both are optional and
+   * every screen falls back to the letter alone. */
+  selected_option_text?: string; correct_option_text?: string; options?: QuizOption[];
   student_answer?: string; is_correct: boolean | null; score_awarded: number | null; explanation?: string; feedback?: string; missing_points?: string[];
 }
 export interface Attempt {
@@ -111,27 +147,8 @@ export interface Attempt {
 export interface StartAttempt { attempt_id: string; attempt_number: number; started_at: string; resumed: boolean; time_limit_minutes: number | null; questions: Question[] }
 
 export interface RubricItem { criterion: string; points: number }
-export interface Assignment {
-  id: string; title: string; description?: string; instructions?: string; subject_id: string; module_id: string | null; chapter_id: string | null;
-  rubric: RubricItem[]; max_score: number; generator: string; status: "draft" | "published" | "closed";
-  available_from: string | null; due_at: string | null; allow_late: boolean; allow_resubmission: boolean; max_attempts?: number | null;
-  submission_count?: number; my_submission?: Submission | null; created_at: string;
-  /** Modules the brief and rubric were drafted from, when a set was chosen. */
-  source_module_ids?: string[];
-  results_release?: "immediate" | "held" | "scheduled";
-  results_release_at?: string | null;
-  results_released_at?: string | null;
-  pending_release_count?: number;
-}
-export interface Submission {
-  id: string; assignment_id: string; assignment_title?: string; student_id?: string; student_email?: string; student_name?: string; attempt_number: number;
-  content: string; submitted_at: string; is_late: boolean; time_spent_seconds: number; status: "submitted" | "evaluated" | "returned";
-  score: number | null; feedback: string; rubric_scores: { criterion: string; points: number }[]; evaluated_at: string | null;
-  results_released_at?: string | null;
-}
-
-export interface LessonSection { heading: string; explanation: string; source_reference: string }
-export interface Lesson { title: string; learning_objectives: string[]; sections: LessonSection[]; key_terms: { term: string; definition: string }[]; summary: string }
+export interface LessonSection { visual_ids?: string[]; heading: string; explanation: string; source_reference: string }
+export interface Lesson { source_visuals?: import("@/ui/SourceFigures").Figure[]; title: string; learning_objectives: string[]; sections: LessonSection[]; key_terms: { term: string; definition: string }[]; summary: string }
 /**
  * The Lesson tab. Lessons are generated in the background and stored, so this
  * never waits for the model. ready: the tutor's lesson. preparing: queued or
@@ -158,7 +175,10 @@ export interface Message { id: string; role: "user" | "assistant"; content: stri
 export interface AskResponse { conversation_id: string; message: Message; follow_up_suggestions: string[] }
 export interface Conversation { id: string; module_id: string; title: string; last_message_at: string | null; messages?: Message[] }
 
-export interface AuditLog { id: string; actor_email: string; actor_role: string; action: string; target_type: string; target_id: string; target_label: string; summary: Record<string, unknown>; created_at: string }
+export type AuditCategory = "content" | "quiz" | "people" | "class" | "auth" | "ai" | "other";
+export interface AuditLog { id: string; actor_email: string; actor_name?: string | null; actor_role: string; action: string; category?: AuditCategory; failed?: boolean; target_type: string; target_id: string; target_label: string; summary: Record<string, unknown>; ip_address?: string | null; created_at: string }
+export interface AuditSummary { events_today: number; people_today: number; published_week: number; failures_week: number; total: number; failures: number; categories: Record<AuditCategory, number> }
+export interface AuditExport { filename: string; csv: string; count: number; truncated: boolean }
 /** unique: each account gets its own one-time password, returned once. shared: every account starts on the server's INITIAL_USER_PASSWORD. */
 export type InitialPasswordMode = "unique" | "shared";
 export interface IssuedPassword { initial_password?: string | null; initial_password_mode?: InitialPasswordMode }

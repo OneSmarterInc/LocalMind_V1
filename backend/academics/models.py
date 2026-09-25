@@ -28,9 +28,11 @@ class SubjectQuerySet(models.QuerySet):
         if user.role == Role.ADMIN:
             return self
         if user.role == Role.FACULTY:
+            # Archived subjects leave the faculty workspace entirely (their
+            # books and quizzes too); administrators still see them.
             return self.filter(
                 faculty_links__faculty=user, faculty_links__status=AssignmentStatus.ACTIVE
-            ).distinct()
+            ).exclude(status="archived").distinct()
         if user.role == Role.STUDENT:
             return self.filter(
                 enrollments__student=user, enrollments__status=EnrollmentStatus.ACTIVE
@@ -108,6 +110,8 @@ def faculty_manages_subject(user, subject) -> bool:
     if user.role == Role.ADMIN:
         return True
     if user.role != Role.FACULTY:
+        return False
+    if subject.status == "archived":
         return False
     return FacultySubject.objects.filter(faculty=user, subject=subject, status=AssignmentStatus.ACTIVE).exists()
 

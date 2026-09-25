@@ -17,11 +17,23 @@ from .tests_auto_quiz import RESP_TEXT, TEXT, run_quizzes
 
 # A module whose title never appears in its text: the fake model quotes the
 # title, so the monitor's grounding check fails and raises a high incident.
-UNGROUNDED = ("Leaves carry tiny pores on their lower surface that open and close with guard cells. " * 12)
+# Enough text for five questions under the generator's 250-char allocation rule.
+# Keep the title absent: this fixture must still fail the monitor's grounding check.
+UNGROUNDED = ("Leaves carry tiny pores on their lower surface that open and close with guard cells. " * 16)
 
 
+# Legacy server-generation compatibility coverage.
+@override_settings(DEVICE_AUTHORING_ONLY=False)
 class Base(TestCase):
     def setUp(self):
+        # These tests cover review decisions, not the host's .env configuration.
+        # Individual async/off tests still explicitly override the mode below.
+        config = override_settings(
+            AUTO_QUIZ={**settings.AUTO_QUIZ, "ENABLED": True, "MCQS": 5, "SUBJECTIVE": 0, "MIN_CHARS": 500},
+            AI_MONITOR={**settings.AI_MONITOR, "ENABLED": True, "MODE": "sync", "JUDGE_ENABLED": False},
+        )
+        config.enable()
+        self.addCleanup(config.disable)
         self.faculty = make_faculty()
         self.admin = make_admin()
         self.student = make_student()
@@ -33,6 +45,9 @@ class Base(TestCase):
             ("Q U E S T I O N S", "1. What is photosynthesis? 2. Why do plants need light?")))
         self.good = Module.objects.get(title="Photosynthesis")
         self.flagged = Module.objects.get(title="Stomata facts")
+        from .services.generation import CHARS_PER_MCQ
+        self.assertGreaterEqual(len(self.flagged.source_text.strip()), 5 * CHARS_PER_MCQ)
+        self.assertNotIn(self.flagged.title.casefold(), self.flagged.source_text.casefold())
         self.short = Module.objects.get(title="Q U E S T I O N S")
         self.fc, self.sc = client_for(self.faculty), client_for(self.student)
 
@@ -42,7 +57,12 @@ class Base(TestCase):
         return [r["id"] for r in rows]
 
     def quiz_for(self, module):
-        return Assessment.objects.get(module=module, auto_generated=True)
+        # A setup failure should explain the job outcome, rather than raising
+        # DoesNotExist before any publish/hold assertions are reached.
+        quiz = Assessment.objects.filter(module=module, auto_generated=True).first()
+        job = AutoQuizJob.objects.filter(module=module).first()
+        self.assertIsNotNone(quiz, f"Quiz setup failed: {job.last_error if job else 'no job'}")
+        return quiz
 
 
 class HeldForReviewTests(Base):
@@ -165,6 +185,39 @@ class HeldForReviewTests(Base):
 
 
 class ShortModulesTests(Base):
+    def historical_short_quiz(self):
+        """An existing quiz from before strict generation, not a new AI output.
+
+        Cleanup must handle such records even though the current generator
+        correctly refuses to create five questions from this tiny module.
+        """
+        from django.utils import timezone
+        from tutor.lessons import source_hash
+
+        now = timezone.now()
+        quiz = Assessment.objects.create(
+            subject=self.subject, chapter=self.short.chapter, module=self.short,
+            kind="module", title="Historical short automatic quiz", auto_generated=True,
+            generator="ai", status="published", published_at=now, checked_at=now,
+            questions=[{
+                "id": "q1", "type": "mcq", "question": "Why do plants need light?",
+                "options": [
+                    {"key": "A", "text": "To provide energy for photosynthesis"},
+                    {"key": "B", "text": "To absorb minerals directly"},
+                    {"key": "C", "text": "To replace their roots"},
+                    {"key": "D", "text": "To stop water movement"},
+                ],
+                "correct_answer": "A", "explanation": "Historical test data.",
+                "source_reference": "Why do plants need light?",
+            }],
+        )
+        AutoQuizJob.objects.create(
+            module=self.short, assessment=quiz, status="ready",
+            source_hash=source_hash(self.short.source_text),
+            requested_at=now, generated_at=now,
+        )
+        return quiz
+
     def test_short_modules_get_no_automatic_quiz(self):
         queued = auto_quiz.request_quizzes([self.good, self.short])
         self.assertEqual(queued, 1)
@@ -172,7 +225,9 @@ class ShortModulesTests(Base):
         self.assertEqual(auto_quiz.state_for(self.short), "short")
         detail = self.fc.get(f"/api/faculty/documents/{self.doc.id}/").data
         self.assertEqual(detail["auto_quizzes"]["short"], 1)
-        self.assertEqual(detail["auto_quizzes"]["min_chars"], 500)
+        # The effective threshold includes the source capacity of five questions,
+        # not just the configured 500-character minimum for textbook boxes.
+        self.assertEqual(detail["auto_quizzes"]["min_chars"], 1250)
 
     def test_a_job_queued_before_the_limit_is_dropped_when_its_turn_comes(self):
         AutoQuizJob.objects.create(module=self.short, status="pending", source_hash="x")
@@ -181,28 +236,28 @@ class ShortModulesTests(Base):
         self.assertFalse(Assessment.objects.filter(module=self.short).exists())
 
     @override_settings(AUTO_QUIZ={**settings.AUTO_QUIZ, "MIN_CHARS": 0})
-    def test_zero_gives_every_module_a_quiz(self):
-        self.assertEqual(auto_quiz.request_quizzes([self.short]), 1)
+    def test_zero_does_not_override_strict_generation_capacity(self):
+        self.assertEqual(auto_quiz.request_quizzes([self.short]), 0)
+        self.assertGreaterEqual(auto_quiz.min_chars(), 1250)
 
     def test_command_removes_short_automatic_quizzes_nobody_attempted(self):
-        with override_settings(AUTO_QUIZ={**settings.AUTO_QUIZ, "MIN_CHARS": 0}, AI_MONITOR={**settings.AI_MONITOR, "MODE": "off"}):
-            auto_quiz.request_quizzes([self.short, self.good])
-            run_quizzes()
-        short_quiz = self.quiz_for(self.short)
+        short_quiz = self.historical_short_quiz()
+        auto_quiz.request_quizzes([self.good])
+        self.assertEqual(run_quizzes()["ready"], 1)
         out = StringIO()
         call_command("generate_auto_quizzes", "--remove-short", "--dry-run", stdout=out)
         self.assertIn("would delete", out.getvalue())
         self.assertTrue(Assessment.objects.filter(pk=short_quiz.pk).exists())
         call_command("generate_auto_quizzes", "--remove-short", stdout=StringIO())
         self.assertFalse(Assessment.objects.filter(pk=short_quiz.pk).exists())
+        self.assertFalse(AutoQuizJob.objects.filter(module=self.short).exists())
         self.assertTrue(Assessment.objects.filter(module=self.good, auto_generated=True).exists())
 
     def test_command_keeps_a_short_quiz_that_students_attempted(self):
-        with override_settings(AUTO_QUIZ={**settings.AUTO_QUIZ, "MIN_CHARS": 0}, AI_MONITOR={**settings.AI_MONITOR, "MODE": "off"}):
-            auto_quiz.request_quizzes([self.short])
-            run_quizzes()
-        quiz = self.quiz_for(self.short)
-        self.sc.post(f"/api/student/quizzes/{quiz.id}/attempts/")
+        quiz = self.historical_short_quiz()
+        started = self.sc.post(f"/api/student/quizzes/{quiz.id}/attempts/")
+        self.assertEqual(started.status_code, 201, started.content)
+        self.assertEqual(quiz.attempts.count(), 1)
         out = StringIO()
         call_command("generate_auto_quizzes", "--remove-short", stdout=out)
         self.assertIn("kept (has attempts)", out.getvalue())

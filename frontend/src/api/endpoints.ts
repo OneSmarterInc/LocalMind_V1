@@ -1,4 +1,6 @@
-import { ApiError, api } from "./client";
+import {courseDocument,courseQuizzes,pendingResults,courseModule,startCourseAttempt,submitCourseAttempt,courseAttempt,recordCourseWork} from '@/offline/coursework';
+import {offlineScope, writeEntry} from "@/offline/store";
+import { ApiError, api, currentSession, SessionChangedError, offlineKey, isOfflineReadable } from "./client";
 import type * as T from "./types";
 
 type Q = Record<string, string | number | undefined | null>;
@@ -9,11 +11,11 @@ export type ListRows<X> = X[] & { incomplete?: { loaded: number; total: number |
 
 /**
  * Every row of a paginated list. The first page is requested exactly as before, so its offline copy still
- * answers without a connection. Later pages are fetched only while online; if one cannot be loaded (for
- * example the device went offline, where only the first page was saved), the rows already loaded are
+ * answers without a connection. Later pages and complete lists are also saved. If a page cannot be loaded, the rows already loaded are
  * returned and marked `incomplete` so the screen can say so, instead of the whole list failing.
  */
 async function allPages<X>(path: string, query: Q = {}): Promise<ListRows<X>> {
+  const owner = offlineScope(), session = currentSession();
   const first = await api<T.Paginated<X> | X[]>(path, { query });
   if (Array.isArray(first)) return first;
   const rows: ListRows<X> = [...first.results];
@@ -22,7 +24,7 @@ async function allPages<X>(path: string, query: Q = {}): Promise<ListRows<X>> {
   for (let page = 2; next; page += 1) {
     if (page > MAX_PAGES) { rows.incomplete = { loaded: rows.length, total: first.count ?? null, reason: "limit" }; break; }
     let more: T.Paginated<X>;
-    try { more = await api<T.Paginated<X>>(path, { query: { ...query, page }, cacheOffline: false }); }
+    try { more = await api<T.Paginated<X>>(path, { query: { ...query, page } }); }
     catch (e) {
       if (e instanceof ApiError && e.code === "NETWORK") { rows.incomplete = { loaded: rows.length, total: first.count ?? null, reason: "offline" }; break; }
       throw e;
@@ -30,6 +32,9 @@ async function allPages<X>(path: string, query: Q = {}): Promise<ListRows<X>> {
     rows.push(...more.results);
     next = more.next;
   }
+  if (offlineScope() !== owner || currentSession() !== session) throw new SessionChangedError();
+  if (!rows.incomplete && isOfflineReadable(path)) await writeEntry(offlineKey(path, query), rows, owner).catch(() => {});
+  if (offlineScope() !== owner || currentSession() !== session) throw new SessionChangedError();
   return rows;
 }
 
@@ -37,6 +42,10 @@ export const auth = {
   login: (role: T.Role, email: string, password: string) =>
     api<T.LoginResponse>(`/auth/login/${role}/`, { method: "POST", body: { email, password }, auth: false }),
   me: () => api<T.User>("/auth/me/"),
+  /** A person editing their own account. The server decides which profile
+   *  fields a role may change; the rest stay with the administrator. */
+  updateMe: (body: { full_name?: string; profile?: Record<string, string> }) =>
+    api<T.User>("/auth/me/", { method: "PATCH", body }),
   changePassword: (current_password: string, new_password: string) =>
     api<T.LoginResponse>("/auth/password/change/", { method: "POST", body: { current_password, new_password } }),
   heartbeat: (session_id: string | null) => api<{ session_id: string }>("/auth/heartbeat/", { method: "POST", body: { session_id } }),
@@ -51,25 +60,22 @@ export const meta = {
 export const student = {
   subjects: () => api<T.Subject[]>("/student/subjects/").then(list),
   documents: (subjectId: string) => api<(T.Document & { open_module_count: number; completed_modules: number; progress_percent: number })[]>(`/student/subjects/${subjectId}/documents/`),
-  document: (id: string) => api<T.DocumentTree>(`/student/documents/${id}/`),
-  module: (id: string) => api<T.ModuleFull>(`/student/modules/${id}/`),
-  reportTime: (moduleId: string, seconds: number) => api<{ learning_seconds: number }>(`/student/modules/${moduleId}/time/`, { method: "POST", body: { seconds } }),
+  document: (id: string) => courseDocument(id),
+  module: (id: string) => courseModule(id),
+  reportTime: (moduleId: string, seconds: number) => recordCourseWork('time',moduleId,seconds),
   teach: (moduleId: string) => api<T.TeachResponse>(`/student/modules/${moduleId}/teach/`),
   ask: (moduleId: string, question: string, conversation_id?: string) =>
     api<T.AskResponse>(`/student/modules/${moduleId}/ask/`, { method: "POST", body: { question, conversation_id } }),
   conversations: (module?: string) => api<T.Conversation[]>("/student/conversations/", { query: { module } }).then(list),
   conversation: (id: string) => api<T.Conversation>(`/student/conversations/${id}/`),
-  quizzes: (q: Q = {}) => api<T.Quiz[]>("/student/quizzes/", { query: q }),
-  startAttempt: (quizId: string) => api<T.StartAttempt>(`/student/quizzes/${quizId}/attempts/`, { method: "POST" }),
+  quizzes: (q: Q = {}) => courseQuizzes(q),
+  startAttempt: (quizId: string) => startCourseAttempt(quizId),
   submitAttempt: (attemptId: string, submitted_answers: Record<string, string>) =>
-    api<T.Attempt>(`/student/quiz-attempts/${attemptId}/submit/`, { method: "POST", body: { submitted_answers } }),
-  attempt: (id: string) => api<T.Attempt>(`/student/quiz-attempts/${id}/`),
-  scores: (q: Q = {}) => allPages<T.Attempt>("/student/scores/", q),
+    submitCourseAttempt(attemptId,submitted_answers),
+  attempt: (id: string) => courseAttempt(id),
+  scores: (q: Q = {}) => allPages<T.Attempt>("/student/scores/", q).then(async rows=>Object.assign([...await pendingResults(),...rows],{incomplete:rows.incomplete})),
   remediation: (attemptId: string) => api<{ overview: string; items: { question: string; explanation: string; source_reference?: string }[]; generator: string }>(`/student/quiz-attempts/${attemptId}/remediation/`, { method: "POST" }),
-  assignments: (q: Q = {}) => api<T.Assignment[]>("/student/assignments/", { query: q }),
-  submitAssignment: (id: string, content: string, time_spent_seconds: number) =>
-    api<T.Submission>(`/student/assignments/${id}/submissions/`, { method: "POST", body: { content, time_spent_seconds } }),
-  submissions: () => allPages<T.Submission>("/student/assignment-submissions/"),
+
   overview: () => api<any>("/student/analytics/overview/"),
   subjectAnalytics: (id: string) => api<any>(`/student/analytics/subjects/${id}/`),
 };
@@ -83,13 +89,15 @@ export const manage = {
   searchStudents: (q: string, subject?: string) => api<{ id: string; email: string; full_name: string; roll_number: string }[]>("/faculty/students/search/", { query: { q, subject } }),
 
   documents: (q: Q = {}) => allPages<T.Document>("/faculty/documents/", q),
-  document: (id: string) => api<T.Document>(`/faculty/documents/${id}/`),
+  document: (id: string, cacheOffline = true) => api<T.Document>(`/faculty/documents/${id}/`, { cacheOffline }),
   upload: (form: FormData) => api<T.Document>("/faculty/documents/", { method: "POST", form }),
   process: (id: string) => api<T.Document>(`/faculty/documents/${id}/process/`, { method: "POST" }),
-  outline: (id: string) => api<T.Outline>(`/faculty/documents/${id}/outline/`),
-  saveOutline: (id: string, chapters: T.OutlineChapter[], document_title?: string) =>
-    api<T.Document & { outline_report?: T.OutlineReport }>(`/faculty/documents/${id}/outline/`, { method: "PUT", body: { chapters, document_title } }),
+  outline: (id: string, suggest = false) => api<T.Outline>(`/faculty/documents/${id}/outline/${suggest ? "?suggest=reading" : ""}`),
+  saveOutline: (id: string, chapters: T.OutlineChapter[], document_title?: string, expected_content_version?: number) =>
+    api<T.Document & { outline_report?: T.OutlineReport }>(`/faculty/documents/${id}/outline/`, { method: "PUT", body: { chapters, document_title, expected_content_version } }),
   moduleLesson: (id: string) => api<T.LessonDetail>(`/faculty/modules/${id}/lesson/`),
+  moduleVisuals: (id: string) => api<{ module_id: string; visuals: T.SourceVisual[] }>(`/faculty/modules/${id}/visuals/`),
+  documentPictures: (id: string) => api<T.PictureIndex>(`/faculty/documents/${id}/pictures/`),
   regenerateLesson: (id: string) => api<T.LessonDetail>(`/faculty/modules/${id}/lesson/`, { method: "POST", body: {} }),
   /** Faculty-side incident review (their own subjects), used to release a held quiz as a false alarm. */
   reviewIncident: (id: string, action: "false_positive" | "confirm", note = "") =>
@@ -98,6 +106,7 @@ export const manage = {
   generateAutoQuizzes: (documentId: string) => api<{ queued: number }>(`/faculty/documents/${documentId}/auto-quizzes/`, { method: "POST", body: {} }),
   generateLessons: (documentId: string, force = false) =>
     api<T.LessonSummary & { queued: number }>(`/faculty/documents/${documentId}/lessons/`, { method: "POST", body: { force } }),
+  unarchiveDocument: (id: string) => api<T.Document>(`/faculty/documents/${id}/unarchive/`, { method: "POST" }),
   transition: (id: string, action: "ready" | "publish" | "unpublish" | "archive") => api<T.Document>(`/faculty/documents/${id}/${action}/`, { method: "POST" }),
   deleteDocument: (id: string) => api<{ detail: string }>(`/faculty/documents/${id}/`, { method: "DELETE" }),
   module: (id: string) => api<T.ModuleFull & { chapter_title?: string; document_id?: string; document_title?: string }>(`/faculty/modules/${id}/`),
@@ -118,17 +127,7 @@ export const manage = {
   reEvaluate: (attemptId: string, overrides?: Record<string, { score_awarded: number; feedback?: string }>) =>
     api<T.Attempt>(`/faculty/quiz-attempts/${attemptId}/re-evaluate/`, { method: "POST", body: overrides ? { overrides } : {} }),
 
-  assignments: (q: Q = {}) => allPages<T.Assignment>("/faculty/assignments/", q),
-  assignment: (id: string) => api<T.Assignment>(`/faculty/assignments/${id}/`),
-  createAssignment: (body: Record<string, unknown>) => api<T.Assignment>("/faculty/assignments/", { method: "POST", body }),
-  generateAssignment: (body: Record<string, unknown>) => api<T.Assignment>("/faculty/assignments/generate/", { method: "POST", body }),
-  updateAssignment: (id: string, body: Record<string, unknown>) => api<T.Assignment>(`/faculty/assignments/${id}/`, { method: "PATCH", body }),
-  assignmentStatus: (id: string, status: string) => api<T.Assignment>(`/faculty/assignments/${id}/status/`, { method: "POST", body: { status } }),
-  deleteAssignment: (id: string) => api<{ detail: string }>(`/faculty/assignments/${id}/`, { method: "DELETE" }),
-  submissions: (id: string) => allPages<T.Submission>(`/faculty/assignments/${id}/submissions/`),
-  releaseAssignmentResults: (id: string, submissionId?: string) =>
-    api<{ released: number; pending: number }>(`/faculty/assignments/${id}/release-results/`, { method: "POST", body: submissionId ? { submission_id: submissionId } : {} }),
-  evaluate: (submissionId: string, body: { score: number; feedback: string }) => api<T.Submission>(`/faculty/assignment-submissions/${submissionId}/evaluate/`, { method: "POST", body }),
+
 
   overview: () => api<any>("/faculty/analytics/overview/"),
   subjectSummary: (id: string) => api<any>(`/faculty/analytics/subjects/${id}/`),
@@ -167,6 +166,8 @@ export const admin = {
     api<{ columns: { name: string; required: boolean; example: string; aliases: string[] }[]; filename: string; content_base64: string }>(`/admin/${kind}/import/template/`),
   auditLogs: (q: Q = {}) => api<T.Paginated<T.AuditLog>>("/admin/audit-logs/", { query: q }),
   auditActions: () => api<{ actions: { value: string; count: number }[]; targets: string[] }>("/admin/audit-logs/actions/"),
+  auditSummary: (q: Q = {}) => api<T.AuditSummary>("/admin/audit-logs/summary/", { query: q }),
+  auditExport: (q: Q = {}) => api<T.AuditExport>("/admin/audit-logs/export/", { query: q, timeoutMs: 120000 }),
   platform: () => api<any>("/admin/analytics/platform/"),
   platformSubjects: () => api<any>("/admin/analytics/platform/subjects/"),
   aiStatus: (refresh = false) => api<T.AIStatus>("/admin/ai/status/", { query: { refresh: refresh ? 1 : undefined } }),

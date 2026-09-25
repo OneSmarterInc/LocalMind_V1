@@ -1,4 +1,4 @@
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import React from "react";
 import { Text, View } from "react-native";
 import { Badge, Card, ProgressBar, TileIcon, colors } from "@/ui";
@@ -18,7 +18,10 @@ export function SubjectCard({ row, index, onPress }: { row: CatalogSubject; inde
       </View>
       <View style={{ marginTop: 4 }}>
         <Text style={{ fontSize: 16, fontWeight: "600", color: colors.ink }} numberOfLines={2}>{row.subject.name}</Text>
-        <Text style={{ fontSize: 12, color: colors.muted, marginTop: 4 }} numberOfLines={1}>{faculty || "Faculty not assigned yet"}</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6 }}>
+          <Text style={{ fontSize: 11, fontWeight: "600", color: colors.primary, backgroundColor: colors.pale, paddingHorizontal: 7, paddingVertical: 1, borderRadius: 5 }}>Faculty</Text>
+          <Text style={{ fontSize: 12, color: colors.muted, flex: 1 }} numberOfLines={1}>{faculty || "Not assigned yet"}</Text>
+        </View>
       </View>
       <View style={{ flex: 1 }} />
       <View style={{ flexDirection: "row", justifyContent: "space-between" }}>

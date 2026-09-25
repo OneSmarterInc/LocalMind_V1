@@ -1,10 +1,14 @@
-import { Stack, useRouter, useSegments, type ErrorBoundaryProps } from "expo-router";
+import { installWebHistoryGuard } from "@/hooks/webHistory";
+import { installRandomUUID } from "@/platform/randomUUID";
+import {GenerationHost} from '@/private/GenerationJobs';
+import ParserHost from "@/private/ParserHost";
+import { Stack, type ErrorBoundaryProps } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import React, { useEffect } from "react";
+import React from "react";
 import { Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider, useAuth } from "@/auth/AuthContext";
-import { DialogHost, Loading, colors } from "@/ui";
+import { DialogHost, Loading, ToastHost, colors } from "@/ui";
 import { NativeDatePickerHost } from "@/ui/NativeDatePicker";
 
 /**
@@ -36,48 +40,55 @@ if (Platform.OS === "web" && typeof window !== "undefined" && window.isSecureCon
   window.addEventListener("load", () => { navigator.serviceWorker.register("/sw.js").catch(() => {}); });
 }
 
-function Gate({ children }: { children: React.ReactNode }) {
+// Before anything can create an id: plain-http LAN addresses have no crypto.randomUUID.
+installRandomUUID();
+installWebHistoryGuard();
+
+/** Resolve the saved session before evaluating deep-link permissions. Once
+ * ready, keep the navigator mounted through redirects and account changes. */
+export function AppNavigator() {
   const { ready, user, mustChangePassword } = useAuth();
-  const segments = useSegments();
-  const router = useRouter();
-  useEffect(() => {
-    if (!ready) return;
-    const first = segments[0] as string | undefined;
-    const onLogin = first === "login";
-    const onChange = first === "change-password";
-    if (!user) { if (!onLogin) router.replace("/login"); return; }
-    if (mustChangePassword) { if (!onChange) router.replace("/change-password"); return; }
-    const home = user.role === "student" ? "/student" : user.role === "faculty" ? "/manage" : "/admin";
-    const allowed = user.role === "student" ? ["student"] : user.role === "faculty" ? ["manage"] : ["admin", "manage"];
-    // A signed-in person may open Change password from the account menu.
-    if (onChange) return;
-    if (onLogin || !first || !allowed.includes(first)) router.replace(home as any);
-  }, [ready, user, mustChangePassword, segments, router]);
   if (!ready) return <View style={{ flex: 1, backgroundColor: colors.bg, justifyContent: "center" }}><Loading /></View>;
-  return <>{children}</>;
+  const signedIn = !!user;
+  const workspace = signedIn && !mustChangePassword;
+  return (
+    <>
+      {workspace ? <GenerationHost /> : null}
+      <StatusBar style="dark" />
+      <Stack screenOptions={{ headerStyle: { backgroundColor: colors.bg }, headerShadowVisible: false, headerTintColor: colors.text, headerTitleStyle: { fontWeight: "800" }, contentStyle: { backgroundColor: colors.bg } }}>
+        <Stack.Screen name="index" options={{ headerShown: false }} />
+        <Stack.Protected guard={ready && !user}>
+          <Stack.Screen name="login/index" options={{ headerShown: false }} />
+          <Stack.Screen name="login/student" options={{ headerShown: false }} />
+          <Stack.Screen name="login/faculty" options={{ headerShown: false }} />
+          <Stack.Screen name="login/admin" options={{ headerShown: false }} />
+        </Stack.Protected>
+        <Stack.Protected guard={signedIn}>
+          <Stack.Screen name="change-password" options={{ headerShown: false }} />
+        </Stack.Protected>
+        <Stack.Protected guard={workspace && user?.role === "student"}>
+          <Stack.Screen name="student" options={{ headerShown: false }} />
+        </Stack.Protected>
+        <Stack.Protected guard={workspace && (user?.role === "faculty" || user?.role === "admin")}>
+          <Stack.Screen name="manage" options={{ headerShown: false }} />
+        </Stack.Protected>
+        <Stack.Protected guard={workspace && user?.role === "admin"}>
+          <Stack.Screen name="admin" options={{ headerShown: false }} />
+        </Stack.Protected>
+      </Stack>
+      <DialogHost />
+      <ToastHost />
+      {workspace ? <ParserHost /> : null}
+      <NativeDatePickerHost />
+    </>
+  );
 }
 
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <AuthProvider>
-        <Gate>
-          <StatusBar style="dark" />
-          <Stack screenOptions={{ headerStyle: { backgroundColor: colors.bg }, headerShadowVisible: false, headerTintColor: colors.text, headerTitleStyle: { fontWeight: "800" }, contentStyle: { backgroundColor: colors.bg } }}>
-            <Stack.Screen name="login/index" options={{ headerShown: false }} />
-            <Stack.Screen name="login/student" options={{ headerShown: false }} />
-            <Stack.Screen name="login/faculty" options={{ headerShown: false }} />
-            <Stack.Screen name="login/admin" options={{ headerShown: false }} />
-            <Stack.Screen name="change-password" options={{ headerShown: false }} />
-            <Stack.Screen name="student" options={{ headerShown: false }} />
-            <Stack.Screen name="manage" options={{ headerShown: false }} />
-            <Stack.Screen name="admin" options={{ headerShown: false }} />
-          </Stack>
-          {/* One dialog host for the whole app: every confirmation and warning
-              renders here, centred, instead of in a browser popup. */}
-          <DialogHost />
-          <NativeDatePickerHost />
-        </Gate>
+        <AppNavigator />
       </AuthProvider>
     </SafeAreaProvider>
   );

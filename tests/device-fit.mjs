@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import fs from 'node:fs';import os from 'node:os';import path from 'node:path';
+import {fileURLToPath} from 'node:url';import {createRequire} from 'node:module';
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
+const require=createRequire(path.join(root,'frontend/package.json'));
+const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'lm-fit-'));process.on('exit',()=>fs.rmSync(tmp,{recursive:true,force:true}));
+await require('esbuild').build({entryPoints:[path.join(root,'frontend/src/private/deviceFit.ts')],outfile:path.join(tmp,'fit.cjs'),bundle:true,platform:'node',format:'cjs',logLevel:'silent'});
+const {deviceFit}=require(path.join(tmp,'fit.cjs'));
+const writable={FileSystemFileHandle:{prototype:{createWritable(){}}}};
+test('desktop Chrome with memory is fine',()=>assert.equal(deviceFit({userAgent:'Mozilla/5.0 (Windows NT 10.0) Chrome/128',deviceMemory:8},writable).ok,true));
+test('low-memory device gets a clear reason',()=>{const f=deviceFit({userAgent:'Mozilla/5.0 (Linux; Android 13) Mobile Chrome/128',deviceMemory:2},writable);assert.equal(f.ok,false);assert.match(f.reason,/2 GB/);});
+test('iPhone Safari without file writing is explained',()=>{const f=deviceFit({userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0) Safari/604.1'},{});assert.equal(f.ok,false);assert.match(f.reason,/iPhone/);});
+test('a high-memory Android phone is allowed',()=>assert.equal(deviceFit({userAgent:'Mozilla/5.0 (Linux; Android 14) Mobile Chrome/128',deviceMemory:8},writable).ok,true));

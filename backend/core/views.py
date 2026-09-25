@@ -1,5 +1,6 @@
 import ipaddress
 
+from django.conf import settings
 from django.db import connection
 from rest_framework.exceptions import AuthenticationFailed, NotAuthenticated
 from rest_framework.permissions import AllowAny
@@ -12,13 +13,24 @@ from core.utils import client_ip
 
 
 def may_see_internals(request) -> bool:
-    """Administrators (bearer token) and requests from this machine itself.
+    """Administrators (bearer token), and requests from this machine itself when
+    nothing is proxying in front of the application.
 
     The detailed health report names filesystem paths, model files, provider
-    URLs and error text, which is useful to an operator and to nobody else. The
-    loopback exception keeps `curl http://127.0.0.1:8000/api/health/?full=1` on
-    the host working; `client_ip` honours TRUSTED_PROXY_COUNT, so a request
-    arriving through nginx is judged by the real client address, not nginx's.
+    URLs and error text, which is useful to an operator and to nobody else.
+
+    The loopback exception keeps `curl http://127.0.0.1:8000/api/health/?full=1`
+    on the host working, but only when TRUSTED_PROXY_COUNT is 0. A proxy that
+    forwards to 127.0.0.1 and does not pass the caller's address on (Tailscale
+    Funnel and `tailscale serve` do exactly that) makes every visitor on the
+    internet look like the operator at the keyboard, and there is nothing in the
+    request left to tell them apart. Declaring a proxy is therefore taken as
+    saying the address can no longer identify anyone: administrators read the
+    same report through their token, at GET /api/admin/ai/status/.
+
+    A proxy that does pass X-Forwarded-For on is no safer here. The header is
+    whatever the caller wrote until a proxy overwrites it, and a caller can
+    write "127.0.0.1" as easily as anything else.
     """
     try:
         user = request.user
@@ -27,6 +39,8 @@ def may_see_internals(request) -> bool:
     if user is not None and getattr(user, "is_authenticated", False) and getattr(user, "role", "") == "admin" \
             and user.is_active and not user.must_change_password:
         return True
+    if int(settings.REST_FRAMEWORK.get("NUM_PROXIES") or 0) > 0:
+        return False
     address = client_ip(request)
     try:
         return bool(address) and ipaddress.ip_address(address).is_loopback

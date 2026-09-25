@@ -1,9 +1,11 @@
+from core.generation_policy import require_server_authoring
 from django.db.models import Count
 from rest_framework import status
 from rest_framework.generics import ListAPIView
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from drf_spectacular.utils import extend_schema, extend_schema_view
 
 from academics.models import Subject
 from core.exceptions import APIError
@@ -44,14 +46,15 @@ class DocumentListUploadView(ListAPIView):
             qs = qs.filter(status=params["status"])
         # The chapter and module counts drop the model's default ordering; a
         # paged list with no order can repeat or skip books between pages.
-        return qs.order_by("-created_at", "id")
+        return qs.prefetch_related("chapters__modules__lesson").order_by("-created_at", "id")
 
     def post(self, request):
         serializer = UploadSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         subject = get_or_404(Subject.objects.visible_to(request.user), pk=data["subject_id"])
-        document = svc.upload_document(request.user, subject, data["file"], data.get("title", ""), request)
+        document = svc.upload_document(request.user, subject, data["file"], data.get("title", ""), request,
+                                       outline_strategy=data["outline_strategy"])
         return Response(DocumentSerializer(document).data, status=status.HTTP_201_CREATED)
 
 
@@ -66,6 +69,7 @@ def _detail(user, document_id):
 class DocumentDetailView(APIView):
     permission_classes = [IsAdminOrFaculty]
 
+    @extend_schema(responses=DocumentDetailSerializer)
     def get(self, request, document_id):
         return Response(DocumentDetailSerializer(_detail(request.user, document_id)).data)
 
@@ -113,6 +117,11 @@ class UnpublishView(_Transition):
     action = "unpublish"
 
 
+@extend_schema_view(post=extend_schema(request=None, responses=DocumentDetailSerializer))
+class UnarchiveView(_Transition):
+    action = "unarchive"
+
+
 class ArchiveView(_Transition):
     action = "archive"
 
@@ -122,9 +131,19 @@ class OutlineView(APIView):
 
     def get(self, request, document_id):
         document = _doc(request.user, document_id)
+        if request.query_params.get("suggest") == "reading":
+            from .services.reading_outline import suggest_for_document
+            from core.exceptions import ValidationFailed
+            try:
+                plan = suggest_for_document(document)
+            except (ValueError, OSError) as exc:
+                raise ValidationFailed(str(exc)) from exc
+            return Response({"document_id": str(document.pk), "content_version": document.content_version,
+                             "status": document.status, "outline_source": "reading_units", "headings": [],
+                             "outline_quality": plan.pop("_quality"), **plan})
         chapters = document.chapters.prefetch_related("modules__lesson", "modules__auto_quiz_job")
         return Response({"document_id": str(document.id), "document_title": document.title, "status": document.status,
-                         "outline_source": document.outline_source, "headings": document.extracted_headings,
+                         "outline_source": document.outline_source, "content_version": document.content_version, "headings": document.extracted_headings,
                          "chapters": ChapterSerializer(chapters, many=True).data})
 
     def put(self, request, document_id):
@@ -181,9 +200,51 @@ class ModuleLessonView(APIView):
         if not lessons.has_text(module):
             raise APIError("This module has no source text, so there is nothing to build a lesson from.",
                            code="EMPTY_SOURCE_TEXT", status_code=400)
+        require_server_authoring()
         lessons.request_lessons([module], force=True, reason="faculty.regenerate")
         audit.record(request.user, "lesson.regenerate_requested", module, {}, request)
         return Response(lessons.detail_for_faculty(module), status=status.HTTP_202_ACCEPTED)
+
+
+class ModuleVisualsView(APIView):
+    """Every source picture that lands in one module, for staff review.
+
+    Placement is computed live from the extraction manifest, so this reflects
+    exactly what a student sees in the same module.
+    """
+
+    permission_classes = [IsAdminOrFaculty]
+
+    def get(self, request, module_id):
+        from .services.visual_delivery import module_visuals
+        module = get_or_404(Module.objects.filter(chapter__document__in=_docs_for(request.user))
+                            .select_related("chapter__document"), pk=module_id)
+        return Response({"module_id": str(module.pk), "visuals": module_visuals(module)})
+
+
+class DocumentPicturesView(APIView):
+    """Read-only picture index for one book, for faculty and administrators.
+
+    Extraction runs during processing, but its output was previously only
+    reachable through a module editor or a generated lesson, so a freshly
+    uploaded book looked as though nothing had been extracted.
+    """
+
+    permission_classes = [IsAdminOrFaculty]
+
+    def get(self, request, document_id):
+        from .services.visual_delivery import (
+            picture_index, unassigned_visuals, extracted_total, extraction_warnings)
+        document = _doc(request.user, document_id)
+        review, pending = unassigned_visuals(document)
+        chapters = picture_index(document)
+        return Response({
+            "document_id": str(document.pk), "title": document.title,
+            "total": extracted_total(document),
+            "assigned": sum(m["count"] for c in chapters for m in c["modules"]),
+            "needs_review": pending, "warnings": extraction_warnings(document),
+            "chapters": chapters, "review": review,
+        })
 
 
 class ModuleAutoQuizView(APIView):
@@ -198,6 +259,7 @@ class ModuleAutoQuizView(APIView):
         module = get_or_404(Module.objects.filter(chapter__document__in=_docs_for(request.user)).select_related("chapter__document"), pk=module_id)
         if not lessons.has_text(module):
             raise APIError("This module has no source text, so there is nothing to write a quiz from.", code="EMPTY_SOURCE_TEXT", status_code=400)
+        require_server_authoring()
         auto_quiz.request_quizzes([module], force=True, reason="faculty.regenerate_quiz")
         audit.record(request.user, "auto_quiz.regenerate_requested", module, {}, request)
         return Response({"module_id": str(module.id), "quiz_status": auto_quiz.state_for(module)}, status=status.HTTP_202_ACCEPTED)
@@ -213,6 +275,7 @@ class DocumentAutoQuizzesView(APIView):
         from audit import services as audit
         document = _doc(request.user, document_id)
         modules = list(Module.objects.filter(chapter__document=document).select_related("chapter__document"))
+        require_server_authoring()
         queued = auto_quiz.request_quizzes(modules, reason="faculty.generate_quizzes")
         audit.record(request.user, "auto_quiz.generate_requested", document, {"queued": queued}, request)
         return Response({"queued": queued, **auto_quiz.summary_for_document(document)}, status=status.HTTP_202_ACCEPTED)
@@ -229,6 +292,7 @@ class DocumentLessonsView(APIView):
         from tutor import lessons
         document = _doc(request.user, document_id)
         force = str(request.data.get("force", "")).lower() in ("1", "true", "yes")
+        require_server_authoring()
         queued = lessons.request_for_document(document, force=force, reason="faculty.generate_all")
         audit.record(request.user, "lessons.generate_requested", document, {"queued": queued, "force": force}, request)
         return Response({"queued": queued, **lessons.summary_for_document(document)}, status=status.HTTP_202_ACCEPTED)

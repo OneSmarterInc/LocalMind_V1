@@ -9,12 +9,47 @@ class ModuleSerializer(serializers.ModelSerializer):
     lesson_status = serializers.SerializerMethodField()
     quiz_status = serializers.SerializerMethodField()
     auto_quiz_id = serializers.SerializerMethodField()
+    shared_quiz_id = serializers.SerializerMethodField()
+    shared_quiz_status = serializers.SerializerMethodField()
+    shared_quiz_by = serializers.SerializerMethodField()
+    lesson_synced_by = serializers.SerializerMethodField()
 
     class Meta:
         model = Module
         fields = ["id", "chapter_id", "title", "order", "source_heading_index", "source_text", "source_missing",
                   "start_page", "end_page", "is_user_edited", "availability", "opened_at", "lesson_status",
-                  "quiz_status", "auto_quiz_id", "created_at", "updated_at"]
+                  "quiz_status", "auto_quiz_id", "shared_quiz_id", "shared_quiz_status", "shared_quiz_by",
+                  "lesson_synced_by", "created_at", "updated_at"]
+
+    def _shared(self, module):
+        """Institution quizzes and lesson authors for the module's whole book,
+        fetched once and cached on the root serializer's context, so a book
+        costs a fixed four extra queries however many chapters it has."""
+        from .shared_status import for_document
+        cache = self.context.setdefault("_shared_status", {"chapters": {}, "books": {}}) if isinstance(self.context, dict) else {"chapters": {}, "books": {}}
+        book = cache["chapters"].get(module.chapter_id)
+        if book is None:
+            book = Chapter.objects.filter(pk=module.chapter_id).values_list("document_id", flat=True).first()
+            for chapter_id in Chapter.objects.filter(document_id=book).values_list("pk", flat=True):
+                cache["chapters"][chapter_id] = book
+        if book not in cache["books"]:
+            cache["books"][book] = for_document(book)
+        return cache["books"][book]
+
+    def get_shared_quiz_id(self, module) -> str | None:
+        quiz = self._shared(module)[0].get(str(module.pk))
+        return quiz["id"] if quiz else None
+
+    def get_shared_quiz_status(self, module) -> str | None:
+        quiz = self._shared(module)[0].get(str(module.pk))
+        return quiz["status"] if quiz else None
+
+    def get_shared_quiz_by(self, module) -> str | None:
+        quiz = self._shared(module)[0].get(str(module.pk))
+        return quiz["by"] if quiz else None
+
+    def get_lesson_synced_by(self, module) -> str | None:
+        return self._shared(module)[1].get(str(module.pk))
 
     def get_lesson_status(self, module) -> str:
         """ready | pending | generating | failed | none (the module has no text)."""
@@ -28,7 +63,7 @@ class ModuleSerializer(serializers.ModelSerializer):
         from assessments.services import auto_quiz
         return auto_quiz.state_for(module, getattr(module, "auto_quiz_job", None))
 
-    def get_auto_quiz_id(self, module):
+    def get_auto_quiz_id(self, module) -> str | None:
         job = getattr(module, "auto_quiz_job", None)
         return str(job.assessment_id) if job and job.assessment_id else None
 
@@ -66,13 +101,18 @@ class DocumentSerializer(serializers.ModelSerializer):
     chapter_count = serializers.SerializerMethodField()
     module_count = serializers.SerializerMethodField()
     progress = serializers.SerializerMethodField()
+    lessons = serializers.SerializerMethodField()
+
+    def get_lessons(self, doc):
+        from tutor import lessons
+        return lessons.summary_for_document(doc)
 
     class Meta:
         model = Document
         fields = ["id", "subject_id", "subject_code", "title", "original_name", "file_type", "file_size", "status",
-                  "outline_source", "parse_mode", "error_message", "uploaded_by_id", "uploaded_by_name", "published_by_name",
+                  "outline_strategy", "outline_source", "outline_quality", "parse_mode", "error_message", "uploaded_by_id", "uploaded_by_name", "published_by_name",
                   "processed_at", "reviewed_at", "published_at", "unpublished_at", "archived_at",
-                  "content_version", "last_edited_at", "chapter_count", "module_count", "progress",
+                  "content_version", "last_edited_at", "chapter_count", "module_count", "progress", "lessons",
                   "processing_started_at", "created_at", "updated_at"]
 
     def get_progress(self, doc):
@@ -99,11 +139,17 @@ class DocumentDetailSerializer(DocumentSerializer):
     missing_source_modules = serializers.SerializerMethodField()
     lessons = serializers.SerializerMethodField()
     auto_quizzes = serializers.SerializerMethodField()
+    background_job = serializers.SerializerMethodField()
 
     class Meta(DocumentSerializer.Meta):
-        fields = DocumentSerializer.Meta.fields + ["extracted_headings", "chapters", "missing_source_modules", "lessons", "auto_quizzes"]
+        fields = DocumentSerializer.Meta.fields + ["extracted_headings", "chapters", "missing_source_modules", "auto_quizzes", "background_job"]
 
-    def get_missing_source_modules(self, doc):
+    def get_background_job(self, doc) -> dict | None:
+        from jobs.models import Job
+        job = Job.objects.filter(kind="document_parse", target=str(doc.id)).order_by("-created_at").first()
+        return {"id": str(job.id), "status": job.status, "attempts": job.attempts, "error": job.error} if job else None
+
+    def get_missing_source_modules(self, doc) -> list[str]:
         """Modules kept without text only because student work refers to them;
         they are hidden from students. Every other empty module is removed."""
         return [str(m.id) for m in Module.objects.filter(chapter__document=doc, source_missing=True)]
@@ -120,12 +166,15 @@ class DocumentDetailSerializer(DocumentSerializer):
 
 
 class UploadSerializer(serializers.Serializer):
+    outline_strategy = serializers.ChoiceField(choices=["source", "ai"], default="source")
     subject_id = serializers.UUIDField()
     file = serializers.FileField()
     title = serializers.CharField(max_length=300, required=False, allow_blank=True)
 
 
 class OutlineModuleInSerializer(serializers.Serializer):
+    start_page = serializers.IntegerField(min_value=1, required=False, allow_null=True)
+    end_page = serializers.IntegerField(min_value=1, required=False, allow_null=True)
     id = serializers.UUIDField(required=False)
     title = serializers.CharField(max_length=300)
     source_heading_index = serializers.IntegerField(required=False, allow_null=True)
@@ -141,6 +190,7 @@ class OutlineChapterInSerializer(serializers.Serializer):
 
 
 class OutlineInSerializer(serializers.Serializer):
+    expected_content_version = serializers.IntegerField(min_value=1, required=False)
     document_title = serializers.CharField(max_length=300, required=False, allow_blank=True)
     chapters = OutlineChapterInSerializer(many=True)
 
