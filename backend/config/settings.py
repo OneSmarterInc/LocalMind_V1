@@ -246,11 +246,21 @@ if not DEBUG:
 DATA_UPLOAD_MAX_MEMORY_SIZE = env_int("MAX_UPLOAD_MB", 100) * 1024 * 1024
 FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024
 
+# The shared first-login password. The development default is printed in the
+# public README, so a production server (DEBUG off) must set its own; starting
+# with the published value would let anyone sign in to a fresh account.
+_INITIAL_USER_PASSWORD = env_str("INITIAL_USER_PASSWORD", "")
+if not _INITIAL_USER_PASSWORD:
+    if DEBUG or TESTING:
+        _INITIAL_USER_PASSWORD = "Welcome@LocalMind1"
+    else:
+        raise RuntimeError("INITIAL_USER_PASSWORD must be set when DJANGO_DEBUG is false.")
+
 # LocalMind domain settings
 LOCALMIND = {
     "MAX_UPLOAD_MB": env_int("MAX_UPLOAD_MB", 100),
     "ALLOWED_UPLOAD_EXTENSIONS": {".pdf", ".docx", ".doc"},
-    "INITIAL_USER_PASSWORD": env_str("INITIAL_USER_PASSWORD", "Welcome@LocalMind1"),
+    "INITIAL_USER_PASSWORD": _INITIAL_USER_PASSWORD,
     # shared (default): every new account, Excel import row and admin reset
     # starts on INITIAL_USER_PASSWORD and must change it at first login, as the
     # platform always did. unique (opt-in): each gets its own random one-time

@@ -10,12 +10,12 @@
       "distribution": "internal",
       "android": { "buildType": "apk" },
       "ios": { "simulator": false },
-      "env": { "EXPO_PUBLIC_API_URL": "http://192.168.1.20:8000" }
+      "env": { "EXPO_PUBLIC_API_URL": "https://localmind.onesmarter.com" }
     },
     "production": {
       "autoIncrement": true,
       "android": { "buildType": "app-bundle" },
-      "env": { "EXPO_PUBLIC_API_URL": "https://localmind.example.edu" }
+      "env": { "EXPO_PUBLIC_API_URL": "https://localmind.onesmarter.com" }
     }
   },
   "submit": { "production": {} }

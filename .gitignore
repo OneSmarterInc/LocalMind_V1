@@ -46,3 +46,7 @@ launcher/dist/
 launcher/*.zip
 verification/
 .test-build/
+
+# Production signing keys and deploy secrets
+deploy/keys/
+deploy/.env

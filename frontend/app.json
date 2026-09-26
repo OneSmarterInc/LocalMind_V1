@@ -14,7 +14,7 @@
       "buildNumber": "1",
       "infoPlist": {
         "NSAppTransportSecurity": {
-          "NSAllowsArbitraryLoads": true,
+          "NSAllowsArbitraryLoads": false,
           "NSAllowsLocalNetworking": true
         },
         "NSLocalNetworkUsageDescription": "LocalMind connects to your institution's LocalMind server on the local network.",
@@ -61,7 +61,7 @@
         "expo-build-properties",
         {
           "android": {
-            "usesCleartextTraffic": true
+            "usesCleartextTraffic": false
           },
           "ios": {
             "deploymentTarget": "15.1"
@@ -77,6 +77,12 @@
           "forceCxx20": true,
           "enableOpenCL": true
         }
+      ],
+      [
+        "./plugins/withAsyncStorageSize",
+        {
+          "sizeMB": 200
+        }
       ]
     ],
     "experiments": {
@@ -84,7 +90,7 @@
       "reactCompiler": true
     },
     "extra": {
-      "apiUrl": "http://127.0.0.1:8000",
+      "apiUrl": "https://localmind.onesmarter.com",
       "eas": {
         "projectId": "<run: eas init>"
       }
