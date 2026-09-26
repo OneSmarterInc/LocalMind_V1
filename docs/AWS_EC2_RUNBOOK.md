@@ -175,7 +175,7 @@ The `REPO` line matters: the models must land in the same repo folder that `dock
 
 `DJANGO_DEBUG=true` applies to this one download command only; the real server still runs with the settings in `deploy/.env`. If `docker images` showed a different name than `deploy-api`, use that name.
 
-The download ends with the Qwen3 model and a `docling/` folder holding layout, table and OCR models. If it stops with `libxcb.so.1: cannot open shared object file`, the image predates the fix in commit `ec-libgl`: run `git pull` and `docker compose build` again, then repeat this step.
+The download ends with the Qwen3 model and a `docling/` folder holding layout, table and OCR models. If it stops with `libxcb.so.1: cannot open shared object file`, the image predates the fix in commit `8574bb3`: run `git pull` and `docker compose build` again, then repeat this step.
 
 - [ ] H3. Create the production signing key:
 
