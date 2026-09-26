@@ -8,7 +8,7 @@ import { toByteArray } from 'base64-js';
 import { randomUUID } from 'expo-crypto';
 import { parseNative } from './parserBridge';
 import { MAX_BOOK_BYTES, makeReadingSections, requireThat } from './core';
-import { CONTEXT_TOKENS, MAX_MODEL_BYTES, MODEL } from './modelSpec';
+import { CONTEXT_TOKENS, MAX_MODEL_BYTES, PHONE_MODELS, QUALITY_MODEL_MEMORY, type ModelSpec } from './modelSpec';
 import { Exclusive, cancelled } from './busy';
 import { nativeInferenceThreads } from './performance';
 import type { Completion, Device } from './device.types';
@@ -39,7 +39,13 @@ async function verify(uri:string){
  const head=toByteArray(await FS.readAsStringAsync(uri,{encoding:FS.EncodingType.Base64,position:0,length:4}));
  return {bytes:i.size,md5:(i.md5||'').toLowerCase(),magic:String.fromCharCode(...head)};
 }
-async function accept(uri:string,name:string,progress:(n:number)=>void,signal?:AbortSignal,expected?:typeof MODEL){
+/** Total memory from the kernel, readable by any app. Undefined when unreadable. */
+async function memoryBytes(){
+ try{const text=await FS.readAsStringAsync('file:///proc/meminfo');const kb=text.match(/MemTotal:\s+(\d+)\s*kB/);return kb?Number(kb[1])*1024:undefined;}catch{return undefined;}
+}
+/** Unknown memory gets the fast model: it runs everywhere; quality is a choice. */
+async function recommendedModel(){const memory=await memoryBytes();return {memory,id:memory!==undefined && memory>=QUALITY_MODEL_MEMORY?'quality':'fast'};}
+async function accept(uri:string,name:string,progress:(n:number)=>void,signal?:AbortSignal,expected?:ModelSpec){
  const result=await verify(uri);requireThat(result.magic==='GGUF','Choose a real GGUF model file.');
  requireThat(result.bytes>0 && result.bytes<=MAX_MODEL_BYTES,'Choose a model under 1.8 GB.');
  if(expected)requireThat(result.bytes===expected.bytes && result.md5===expected.md5,'The downloaded model checksum did not match. The previous model was retained.');
@@ -129,7 +135,10 @@ const implementation:Device={...store,complete,
  },
  async releaseFile(f){if(f.uri.startsWith(`${FS.cacheDirectory}private-book-`))await FS.deleteAsync(f.uri,{idempotent:true});},
  async status(){const m=await store.get<Installed>(MODEL_KEY);if(!m)return {installed:false};const i=await FS.getInfoAsync(m.uri);return {installed:i.exists && !i.isDirectory && i.size===m.bytes,name:m.name,bytes:m.bytes,hash:m.hash,loaded:loaded===m.uri,...(context&&loaded===m.uri?{accelerator:context.gpu?'gpu' as const:'cpu' as const,accelerationNote:(await store.get<Accel>(ACCEL_KEY))?.note}: {})};},
- download:(progress,signal)=>lock.run(async()=>{
+ async models(){const r=await recommendedModel();return {models:PHONE_MODELS,recommended:r.id,memoryBytes:r.memory};},
+ download:(progress,signal,modelId)=>lock.run(async()=>{
+  const wanted=modelId??(await recommendedModel()).id;
+  const MODEL=PHONE_MODELS.find(m=>m.id===wanted)??PHONE_MODELS[0];
   await FS.makeDirectoryAsync(root,{intermediates:true});
   // Keep one unfinished download per published model. A dropped connection,
   // Cancel, or closing the app keeps the bytes; the next Download continues.

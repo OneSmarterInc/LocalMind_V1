@@ -9,7 +9,7 @@ import { Screen, Card, PageHeading, H2, P, Row, Button, ErrorBanner, Notice, Pro
 import { device } from '../device';
 import { deviceFit } from '../deviceFit';
 import { useAuth } from '@/auth/AuthContext';
-import { MODEL } from '../modelSpec';
+import { MODEL, type ModelSpec } from '../modelSpec';
 import type { ModelStatus, ModelStorage } from '../device.types';
 
 const gb=(n?:number)=>n===undefined?'unknown':`${(n/1024**3).toFixed(n<1024**3?2:1)} GB`;
@@ -21,11 +21,13 @@ export default function OfflineAI() {
   const {user}=useAuth();const student=user?.role==='student';
   const [status, setStatus] = useState<ModelStatus | null>(null);
   const [storage, setStorage] = useState<ModelStorage | null>(null);
+  // Phone app only: the two downloadable models and which one suits this phone.
+  const [choices, setChoices] = useState<{models:ModelSpec[];recommended:string;memoryBytes?:number} | null>(null);
   const refreshStorage = async () => { const d = await device(); const s = d.storage ? await d.storage().catch(() => null) : null; if (alive.current) setStorage(s); };
   const [busy, setBusy] = useState(false), [progress, setProgress] = useState(0);
   const [error, setError] = useState(''), [notice, setNotice] = useState('');
   const controller = useRef<AbortController | null>(null), alive = useRef(true), locked = useRef(false);
-  useEffect(() => { alive.current = true; void device().then(d => d.status()).then(s => { if (alive.current) setStatus(s); }).catch(e => { if (alive.current) setError(String(e.message || e)); }); void refreshStorage(); return () => { alive.current = false; controller.current?.abort(); }; }, []);
+  useEffect(() => { alive.current = true; void device().then(d => d.status()).then(s => { if (alive.current) setStatus(s); }).catch(e => { if (alive.current) setError(String(e.message || e)); }); void refreshStorage(); void device().then(d => d.models?.()).then(c => { if (alive.current && c) setChoices(c); }).catch(() => {}); return () => { alive.current = false; controller.current?.abort(); }; }, []);
   const run = async (fn: (signal: AbortSignal) => Promise<void>) => {
     if (locked.current) return;
     locked.current = true; setBusy(true); setProgress(0); setError(''); setNotice('');
@@ -58,10 +60,22 @@ export default function OfflineAI() {
         if (alive.current) setNotice(`Saving to your folder “${chosen.folderName ?? 'the folder you chose'}”.`);
         setProgress(0);
       }
-    } else if (!(await confirmAsync('Download local AI?', `${MODEL.title}: approximately ${MODEL.downloadSize}. Internet is used only to download the model. It will run on this device; your books and questions are not sent to the model publisher.`, 'Download', 'Cancel'))) {
+    }
+    let modelId: string | undefined;
+    if (!canChoose && choices) {
+      // Phone: recommend by memory, but let the person pick the other model.
+      const best = choices.models.find(m => m.id === choices.recommended) ?? choices.models[0];
+      const other = choices.models.find(m => m.id !== best.id);
+      const memory = choices.memoryBytes ? `This phone has about ${gb(choices.memoryBytes)} of memory. ` : '';
+      const picked = await choiceAsync('Which local AI model?',
+        `${memory}Recommended: ${best.title} (${best.downloadSize}). ${best.summary}${other ? `\n\nAlternative: ${other.title} (${other.downloadSize}). ${other.summary}` : ''}\n\nThe download continues where it stopped if the connection drops. Your books and questions are never sent to the model publisher.`,
+        { confirm: `Download recommended`, extra: other ? `Download ${other.id === 'quality' ? 'better quality' : 'faster'} model` : 'Cancel', cancel: 'Cancel' });
+      if (picked === 'cancel' || (picked === 'extra' && !other)) return;
+      modelId = picked === 'extra' ? other!.id : best.id;
+    } else if (!canChoose && !(await confirmAsync('Download local AI?', `${MODEL.title}: approximately ${MODEL.downloadSize}. Internet is used only to download the model. It will run on this device; your books and questions are not sent to the model publisher.`, 'Download', 'Cancel'))) {
       return;
     }
-    await (await device()).download(report, signal);
+    await (await device()).download(report, signal, modelId);
     const saved = await (await device()).storage?.().catch(() => null);
     if (alive.current) setNotice(saved?.location === 'folder'
       ? `Model saved and verified in your folder “${saved.folderName ?? 'you chose'}”. Private study and offline course doubts use this same model.`
@@ -83,15 +97,16 @@ export default function OfflineAI() {
     <Card>
       <Row><H2>Model on this device</H2><Badge value={status?.installed ? 'Downloaded' : 'Not downloaded'} tone={status?.installed ? 'green' : 'neutral'} /></Row>
       <P>{status?.name || MODEL.title}</P>
-      <P muted>Available download: {MODEL.title} · {MODEL.downloadSize}.</P>
-      {status?.installed && status.hash !== MODEL.sha256 && <P muted>Select Download replacement model to switch to Qwen3 1.7B. Your current model stays installed until the new download is complete and verified. Your books and saved study material are kept.</P>}
+      {choices ? <P muted>Available downloads: {choices.models.map(m => `${m.title} · ${m.downloadSize}${m.id === choices.recommended ? ' (recommended for this phone)' : ''}`).join('; ')}.</P>
+        : <P muted>Available download: {MODEL.title} · {MODEL.downloadSize}.</P>}
+      {status?.installed && !(choices ? choices.models.some(m => m.sha256 === status.hash) : status.hash === MODEL.sha256) && <P muted>Select Download replacement model to switch to a verified model. Your current model stays installed until the new download is complete and verified. Your books and saved study material are kept.</P>}
       {status?.loaded && <P muted>Local inference: {accelerationLabel({accelerator:status.accelerator || 'unconfirmed',gpuLayers:status.gpuLayers},status.threads)}. One response at a time.</P>}
       {!!status?.accelerationNote && <P muted>{status.accelerationNote}</P>}
-      {!status?.loaded && <P muted>GPU acceleration is requested when the model loads. Actual hardware use appears here after generation.</P>}
+      {!status?.loaded && <P muted>{choices ? 'The first time the model runs, the app checks whether this phone is faster on its CPU or GPU and keeps the faster one. The result appears here after generation.' : 'GPU acceleration is requested when the model loads. Actual hardware use appears here after generation.'}</P>}
       <P muted>After the model and book are installed, lesson generation, quiz generation and doubt solving run here without an internet connection or an AI API key. Checking an existing multiple-choice quiz does not need a model.</P>
       <P muted>The included download is a compact model, not a guarantee of answer quality. Compare explanations and generated questions with the original book. You may import a compatible larger GGUF when this device has enough memory.</P>
-      <Row><Button title={status?.installed ? 'Download replacement model' : `Download model · ${MODEL.downloadSize}`} icon="download-outline" onPress={download} disabled={busy} /><Button title="Import a .gguf file" variant="secondary" icon="folder-open-outline" onPress={importModel} disabled={busy} /></Row>
-      {busy && <><ProgressBar value={progress} /><P>{progress > 0 ? `${progress}% — downloading or verifying` : 'Preparing…'}</P><Button title="Cancel download" variant="secondary" onPress={() => controller.current?.abort()} /></>}
+      <Row><Button title={status?.installed ? 'Download replacement model' : choices ? 'Download model' : `Download model · ${MODEL.downloadSize}`} icon="download-outline" onPress={download} disabled={busy} /><Button title="Import a .gguf file" variant="secondary" icon="folder-open-outline" onPress={importModel} disabled={busy} /></Row>
+      {busy && <><ProgressBar value={progress} /><P>{progress > 0 ? `${progress}% — ${progress >= 98 ? 'verifying' : 'downloading'}` : 'Preparing…'}</P><Button title="Cancel download" variant="secondary" onPress={() => controller.current?.abort()} /></>}
       {status?.installed && <Button title="Remove model only" variant="secondary" disabled={busy} onPress={() => { void run(async () => { if (await confirmAsync('Remove this local model?', 'Books, lessons and quizzes will remain. New AI work will require importing or downloading a model again.', 'Remove model', 'Keep model')) { await (await device()).removeModel(); if (alive.current) setNotice('Model removed. Your saved study material is unchanged.'); } }); }} />}
     </Card>
     {storage ? <Card>

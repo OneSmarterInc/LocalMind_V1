@@ -1,4 +1,5 @@
 import type { Section, SourceVisual } from './core';
+import type { ModelSpec } from './modelSpec';
 export type LocalFile = { name: string; uri: string; size?: number; file?: File };
 export type Parsed = { hash: string; sections: Section[]; warnings: string[]; visuals?: SourceVisual[] };
 export type Completion = {system:string;prompt:string;schema:object;maxTokens:number;temperature:number;signal:AbortSignal;progress?:(message:string)=>void};
@@ -18,7 +19,10 @@ export interface Device {
   releaseFile(file:LocalFile): Promise<void>;
   complete(req:Completion): Promise<unknown>;
   status(): Promise<ModelStatus>;
-  download(progress:(fraction:number)=>void,signal:AbortSignal):Promise<void>;
+  /** modelId picks one of models(); runtimes without models() have one download. */
+  download(progress:(fraction:number)=>void,signal:AbortSignal,modelId?:string):Promise<void>;
+  /** Native only: the downloadable models and the one recommended for this device. */
+  models?():Promise<{models:ModelSpec[];recommended:string;memoryBytes?:number}>;
   importModel(file:LocalFile,progress:(fraction:number)=>void,signal?:AbortSignal):Promise<void>;
   removeModel():Promise<void>;
   prepareOffline():Promise<string>;
