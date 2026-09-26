@@ -17,10 +17,12 @@ One EC2 server (t3a.xlarge: 4 vCPUs, 16 GB memory, Ubuntu 24.04) runs three Dock
 | A GitHub personal access token | GitHub, Settings, Developer settings, Personal access tokens, Fine-grained, give it read access to `LocalMind_V1` contents. Needed only if the repo is private |
 | An AWS account you can log in to | aws.amazon.com |
 | Access to the DNS settings for `onesmarter.com` | Whoever manages the domain (GoDaddy, Cloudflare, Route 53 or similar) |
-| The laptop's `backend\models` folder | Your existing laptop install. It holds the `.gguf` model and the `docling` folder |
-| The file `deploy-aws-ec2.bundle` | Downloaded from the chat |
+| The production settings file `localmind-production.env` | From the project owner, through a password manager or encrypted share |
 
 ## Part A. Put the new branch on GitHub (laptop, 10 minutes)
+
+Already done on September 26, 2026: `deploy/aws-ec2` is on GitHub. Skip to Part B.
+
 
 The branch `deploy/aws-ec2` was made in a sandbox that cannot log in to GitHub, so it exists only inside `deploy-aws-ec2.bundle`. This part copies it to GitHub. Nothing touches `main`.
 
@@ -123,50 +125,61 @@ npm run export:web
 ls dist/index.html      # must exist
 ```
 
-## Part G. Copy the AI models from the laptop (20 to 40 minutes)
+## Part G. Put the settings file in place (5 minutes)
 
-- [ ] G1. On the laptop, in PowerShell:
+- [ ] G1. Copy the settings file you were given to the server as `deploy/.env`. From your own computer (PowerShell, same key file as Part E):
 
 ```powershell
-scp -i C:\path\to\localmind-prod-key.pem -r C:\path\to\LocalMind_V1\backend\models ubuntu@<ELASTIC-IP>:/home/ubuntu/LocalMind_V1/backend/
+scp -i C:\path\to\localmind-prod-key.pem C:\path\to\localmind-production.env ubuntu@<ELASTIC-IP>:/home/ubuntu/LocalMind_V1/deploy/.env
 ```
 
-- [ ] G2. On the server: `ls ~/LocalMind_V1/backend/models` shows `Qwen3-1.7B-Q4_K_M.gguf` and `docling`.
+(Or on the server run `nano ~/LocalMind_V1/deploy/.env`, paste the whole file, save with Ctrl+O, Enter, Ctrl+X.)
 
-## Part H. Fill in the settings and create the signing key (15 minutes)
-
-- [ ] H1. Make three secrets. Run this three times and save each result in your password manager (secret key, database password, first-login password):
-
-```bash
-python3 -c "import secrets; print(secrets.token_urlsafe(48))"
-```
-
-- [ ] H2. Create the settings file:
+- [ ] G2. On the server:
 
 ```bash
 cd ~/LocalMind_V1/deploy
-cp ../backend/.env.example .env
-nano .env
-```
-
-Replace every `CHANGE_ME` value and the domain and email lines, save with Ctrl+O, Enter, then Ctrl+X. Then:
-
-```bash
 chmod 600 .env
 mkdir -p keys
-grep CHANGE_ME .env      # must print nothing
+grep -c "^DJANGO_SECRET_KEY=" .env     # must print 1
+grep CHANGE_ME .env                    # must print nothing
 ```
 
-- [ ] H3. Build the containers and create the production signing key:
+If you were not given a settings file, make one instead: `cp ../backend/.env.example .env`, then replace every `CHANGE_ME` with the output of `python3 -c "import secrets; print(secrets.token_urlsafe(48))"` (a different value for each).
+
+## Part H. Build, download the AI models, create the signing key (30 minutes)
+
+- [ ] H1. Build the containers (10 to 15 minutes the first time):
 
 ```bash
 cd ~/LocalMind_V1/deploy
 docker compose build
+docker images | grep api        # shows an image called deploy-api
+```
+
+- [ ] H2. Download the AI models straight onto the server from Hugging Face (about 2 GB; a few minutes on AWS):
+
+```bash
+mkdir -p ~/LocalMind_V1/backend/models
+docker run --rm -u root \
+  -e DJANGO_DEBUG=true -e HF_HUB_OFFLINE=0 \
+  -v "$HOME/LocalMind_V1/backend/models:/app/models" \
+  --entrypoint "" deploy-api \
+  python manage.py fetch_model --docling
+ls -lh ~/LocalMind_V1/backend/models          # Qwen3-1.7B-Q4_K_M.gguf (about 1.1 GB) and docling/
+```
+
+`DJANGO_DEBUG=true` applies to this one download command only; the real server still runs with the settings in `deploy/.env`. If `docker images` showed a different name than `deploy-api`, use that name.
+
+- [ ] H3. Create the production signing key:
+
+```bash
+cd ~/LocalMind_V1/deploy
 docker compose run --rm -u root --entrypoint "" api sh -c \
   "python manage.py study_signing_key /app/keys/publisher.pem --key-id localmind-prod-1 && chown -R localmind:localmind /app/keys"
 ```
 
-Save the printed public key and fingerprint. Back up `deploy/keys/publisher.pem` offline (encrypted USB or password-manager attachment).
+Save the printed public key and fingerprint. Back up `deploy/keys/publisher.pem` offline (encrypted USB or password-manager attachment) and send the project owner a copy through the same secure route as the settings file.
 
 ## Part I. Start LocalMind (10 minutes)
 
