@@ -160,16 +160,22 @@ docker images | grep api        # shows an image called deploy-api
 - [ ] H2. Download the AI models straight onto the server from Hugging Face (about 2 GB; a few minutes on AWS):
 
 ```bash
-mkdir -p ~/LocalMind_V1/backend/models
+cd ~/LocalMind_V1/deploy          # or wherever the repo is: cd <repo>/deploy
+REPO="$(cd .. && pwd)"            # the repo folder, whatever path it lives at
+mkdir -p "$REPO/backend/models"
 docker run --rm -u root \
   -e DJANGO_DEBUG=true -e HF_HUB_OFFLINE=0 \
-  -v "$HOME/LocalMind_V1/backend/models:/app/models" \
+  -v "$REPO/backend/models:/app/models" \
   --entrypoint "" deploy-api \
   python manage.py fetch_model --docling
-ls -lh ~/LocalMind_V1/backend/models          # Qwen3-1.7B-Q4_K_M.gguf (about 1.1 GB) and docling/
+ls -lh "$REPO/backend/models"     # Qwen3-1.7B-Q4_K_M.gguf (about 1.1 GB) and docling/
 ```
 
+The `REPO` line matters: the models must land in the same repo folder that `docker compose` runs from, because the compose file mounts `../backend/models`. If the repo is at `/var/www/LocalMind_V1`, do not use `$HOME` in the mount.
+
 `DJANGO_DEBUG=true` applies to this one download command only; the real server still runs with the settings in `deploy/.env`. If `docker images` showed a different name than `deploy-api`, use that name.
+
+The download ends with the Qwen3 model and a `docling/` folder holding layout, table and OCR models. If it stops with `libxcb.so.1: cannot open shared object file`, the image predates the fix in commit `ec-libgl`: run `git pull` and `docker compose build` again, then repeat this step.
 
 - [ ] H3. Create the production signing key:
 

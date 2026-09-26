@@ -3,7 +3,14 @@
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+# libgl1/libglib/libxcb1 are needed by OpenCV, which Docling's OCR engine
+# (RapidOCR) imports; without them `fetch_model --docling` and any scanned-PDF
+# upload fail with "libxcb.so.1: cannot open shared object file". The glib
+# package was renamed in newer Debian, hence the fallback.
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential libpq-dev curl \
+        libgl1 libxcb1 libsm6 libxext6 \
+    && (apt-get install -y --no-install-recommends libglib2.0-0t64 \
+        || apt-get install -y --no-install-recommends libglib2.0-0) \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd --system --create-home --home /app localmind
