@@ -25,7 +25,7 @@
       "package": "com.onesmarter.localmind",
       "versionCode": 1,
       "adaptiveIcon": {
-        "backgroundColor": "#080F13",
+        "backgroundColor": "#F4F6EF",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -51,9 +51,9 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#080F13",
+          "backgroundColor": "#F4F6EF",
           "dark": {
-            "backgroundColor": "#080F13"
+            "backgroundColor": "#F4F6EF"
           }
         }
       ],
