@@ -286,17 +286,17 @@ python scripts/system_test.py http://127.0.0.1:8011 --fake-ollama http://127.0.0
 
 ## Deployment
 
-Production runs on one AWS EC2 server: Docker Compose with PostgreSQL, the Django API (which also serves the built web client), a maintenance loop and Caddy for automatic https. Start from `backend/.env.example` and follow `docs/AWS_EC2_RUNBOOK.md` step by step. Devices download the AI model from Hugging Face, not from the server.
+Production runs on one AWS EC2 server: Docker Compose with PostgreSQL, the Django API (which also serves the built web client), a maintenance loop, with nginx and a free Let's Encrypt certificate (certbot) on the host for https. Start from `backend/.env.example` and follow `docs/AWS_EC2_RUNBOOK.md` step by step. Devices download the AI model from Hugging Face, not from the server.
 
 | Option | Files | Guide |
 |---|---|---|
-| **AWS EC2 (production)** | `deploy/docker-compose.yml`, `deploy/Caddyfile`, `backend/.env.example` | `docs/AWS_EC2_RUNBOOK.md` |
+| **AWS EC2 (production)** | `deploy/docker-compose.yml`, `deploy/nginx-host.conf`, `backend/.env.example` | `docs/AWS_EC2_RUNBOOK.md` |
 | Web client on Vercel | `frontend/vercel.json` (build `npm run export:web`, output `dist`) | `docs/DEPLOYMENT.md` |
-| Docker Compose on your own Linux host | `deploy/docker-compose.yml`, `deploy/Caddyfile` (`deploy/nginx.conf` for plain http on a LAN) | `docs/DEPLOYMENT.md` |
+| Docker Compose on your own Linux host | `deploy/docker-compose.yml`, `deploy/nginx-host.conf` (`deploy/nginx.conf` for nginx inside Docker) | `docs/DEPLOYMENT.md` |
 | Linux with systemd | `deploy/localmind.service`, `deploy/localmind-maintenance.*` | `docs/DEPLOYMENT.md` |
 | Offline bundle for another machine | `python package_offline.py` | `docs/OFFLINE.md` |
 
-Caddy provides TLS in the compose stack. Put TLS in front of any other server exposed beyond the local network. The web client on Vercel is optional and not the recommended setup: serving it from the same server keeps the API same-origin and keeps the browser-isolation headers the in-browser AI needs.
+nginx with certbot provides TLS on EC2. Put TLS in front of any other server exposed beyond the local network. The web client on Vercel is optional and not the recommended setup: serving it from the same server keeps the API same-origin and keeps the browser-isolation headers the in-browser AI needs.
 
 ## Remote testers and the launcher
 

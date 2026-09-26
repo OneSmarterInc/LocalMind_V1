@@ -1,8 +1,9 @@
-# Single-host AWS EC2 production stack. Save localmind.production.env as
-# deploy/.env and fill in every CHANGE_ME value. Put the Caddyfile next to this
-# file. Then: docker compose up -d --build
-# Changes from the repo version: nginx replaced by Caddy (free automatic
-# https), signing-key folder mounted, database port never exposed.
+# Single-host AWS EC2 production stack. Copy backend/.env.example to
+# deploy/.env and fill in every CHANGE_ME value. Then: docker compose up -d --build
+# nginx and the https certificate (certbot) run on the EC2 host itself, not in
+# Docker: see deploy/nginx-host.conf and docs/AWS_EC2_RUNBOOK.md. The API is
+# published on 127.0.0.1:8000 only, so nothing reaches it except host nginx.
+# The database port is never published.
 services:
   db:
     image: postgres:16
@@ -47,8 +48,10 @@ services:
       MEDIA_ROOT: /app/media
       WEB_DIST: /app/web
       DJANGO_DEBUG: "false"
-      # nginx (the web service) is the one proxy in front of gunicorn.
+      # Host nginx is the one proxy in front of gunicorn.
       TRUSTED_PROXY_COUNT: "1"
+    ports:
+      - "127.0.0.1:8000:8000"
     volumes:
       - media:/app/media
       - static:/app/staticfiles
@@ -85,25 +88,8 @@ services:
     depends_on:
       db: { condition: service_healthy }
 
-  # Caddy gets and renews the https certificate automatically and forwards
-  # everything to Django. It replaces the nginx service from the repo.
-  web:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      - api
-
 volumes:
   pgdata:
   ollama:
   media:
   static:
-  caddy_data:
-  caddy_config:
