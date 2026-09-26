@@ -158,7 +158,7 @@ Open `http://127.0.0.1:8000` (or the LAN address the console prints) and sign in
 | Field | Value |
 |---|---|
 | Email | `admin@localmind.local` |
-| Password | `Welcome@LocalMind1` (the `INITIAL_USER_PASSWORD` value) |
+| Password | the `INITIAL_USER_PASSWORD` value in `backend\.env` (the launcher writes a laptop-only default) |
 
 You must change the password at first login.
 
@@ -252,7 +252,7 @@ Settings are read from `backend/.env`. The launcher creates a working file on fi
 | `DATABASE_URL` | SQLite or PostgreSQL URL | `sqlite:///db.sqlite3` |
 | `AI_PROVIDER` | `llamacpp` or `ollama` | `llamacpp` |
 | `SERVE_WEB` / `SERVE_MEDIA` | Serve the web client and uploads from Django | `true` |
-| `INITIAL_USER_PASSWORD` | Shared first password for every new or reset account | `Welcome@LocalMind1` |
+| `INITIAL_USER_PASSWORD` | Shared first password for every new or reset account. Required when `DJANGO_DEBUG=false` | laptop-only default |
 | `TRUSTED_PROXY_COUNT` | Number of proxies in front of the server | `0` |
 | `AI_MONITOR_ENABLED` / `AI_MONITOR_MODE` | AI Monitoring & Guard | `true` / `async` |
 
@@ -286,16 +286,17 @@ python scripts/system_test.py http://127.0.0.1:8011 --fake-ollama http://127.0.0
 
 ## Deployment
 
-The planned hosting is the web client on Vercel and the backend on AWS. AI stays on the device in both the website and the APK, so users download the model rather than calling a hosted AI.
+Production runs on one AWS EC2 server: Docker Compose with PostgreSQL, the Django API (which also serves the built web client), a maintenance loop, with nginx and a free Let's Encrypt certificate (certbot) on the host for https. Start from `backend/.env.example` and follow `docs/AWS_EC2_RUNBOOK.md` step by step. Devices download the AI model from Hugging Face, not from the server.
 
 | Option | Files | Guide |
 |---|---|---|
+| **AWS EC2 (production)** | `deploy/docker-compose.yml`, `deploy/nginx-host.conf`, `backend/.env.example` | `docs/AWS_EC2_RUNBOOK.md` |
 | Web client on Vercel | `frontend/vercel.json` (build `npm run export:web`, output `dist`) | `docs/DEPLOYMENT.md` |
-| Docker Compose (PostgreSQL, API, nginx, maintenance) | `deploy/docker-compose.yml`, `deploy/nginx.conf` | `docs/DEPLOYMENT.md` |
+| Docker Compose on your own Linux host | `deploy/docker-compose.yml`, `deploy/nginx-host.conf` (`deploy/nginx.conf` for nginx inside Docker) | `docs/DEPLOYMENT.md` |
 | Linux with systemd | `deploy/localmind.service`, `deploy/localmind-maintenance.*` | `docs/DEPLOYMENT.md` |
 | Offline bundle for another machine | `python package_offline.py` | `docs/OFFLINE.md` |
 
-Put TLS in front of any server exposed beyond the local network.
+nginx with certbot provides TLS on EC2. Put TLS in front of any other server exposed beyond the local network. The web client on Vercel is optional and not the recommended setup: serving it from the same server keeps the API same-origin and keeps the browser-isolation headers the in-browser AI needs.
 
 ## Remote testers and the launcher
 
@@ -313,7 +314,7 @@ Share the exe from `launcher\dist\` together with `LocalMind.ini`. Build outputs
 
 ## Phone apps
 
-The APK is being built by a separate team. It fetches data when online, works from that data offline, submits offline quiz answers once back online and then refreshes. Build steps (EAS or local Gradle/Xcode) are in `frontend/MOBILE_BUILD.md`. Set the server address in `frontend/eas.json` before building.
+The APK is being built by a separate team. It fetches data when online, works from that data offline, submits offline quiz answers once back online and then refreshes. Build steps (EAS or local Gradle/Xcode) are in `frontend/MOBILE_BUILD.md`. The `preview` and `production` profiles in `frontend/eas.json` point at `https://localmind.onesmarter.com`; change them if your server lives elsewhere. Release builds allow https only, so a phone build cannot reach a plain-http LAN server (use the `development` profile for that).
 
 ## Maintenance commands
 
@@ -357,7 +358,8 @@ Health check: `http://<host>:8000/api/health/`. Add `?full=1` on the server itse
 | `docs/API.md` | Portals, authentication, workflows, error codes |
 | `docs/DATABASE.md` | Tables, fields, relationships, indexes |
 | `docs/ENVIRONMENT.md` | Every environment variable |
-| `docs/DEPLOYMENT.md` | Production deployment |
+| `docs/AWS_EC2_RUNBOOK.md` | Step-by-step AWS EC2 production setup, costs and savings |
+| `docs/DEPLOYMENT.md` | Production deployment on your own Linux host |
 | `docs/OFFLINE.md` | Embedded AI, launcher, offline bundles |
 | `docs/INTEGRATED_PRIVATE_LIBRARY.md` | Private library, OCR, Offline AI, model storage |
 | `docs/DEVICE_ACCEPTANCE.md` | Real-device acceptance checks |

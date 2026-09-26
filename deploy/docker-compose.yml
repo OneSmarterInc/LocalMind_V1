@@ -1,6 +1,9 @@
-# Single-host production stack. Copy backend/.env.example to deploy/.env and
-# set DJANGO_SECRET_KEY, DJANGO_ALLOWED_HOSTS, POSTGRES_PASSWORD and
-# INITIAL_USER_PASSWORD at minimum. Then: docker compose up -d --build
+# Single-host AWS EC2 production stack. Copy backend/.env.example to
+# deploy/.env and fill in every CHANGE_ME value. Then: docker compose up -d --build
+# nginx and the https certificate (certbot) run on the EC2 host itself, not in
+# Docker: see deploy/nginx-host.conf and docs/AWS_EC2_RUNBOOK.md. The API is
+# published on 127.0.0.1:8000 only, so nothing reaches it except host nginx.
+# The database port is never published.
 services:
   db:
     image: postgres:16
@@ -45,13 +48,16 @@ services:
       MEDIA_ROOT: /app/media
       WEB_DIST: /app/web
       DJANGO_DEBUG: "false"
-      # nginx (the web service) is the one proxy in front of gunicorn.
+      # Host nginx is the one proxy in front of gunicorn.
       TRUSTED_PROXY_COUNT: "1"
+    ports:
+      - "127.0.0.1:8000:8000"
     volumes:
       - media:/app/media
       - static:/app/staticfiles
       - ../backend/models:/app/models:ro
       - ../frontend/dist:/app/web:ro
+      - ./keys:/app/keys
     depends_on:
       db: { condition: service_healthy }
 
@@ -81,17 +87,6 @@ services:
         done
     depends_on:
       db: { condition: service_healthy }
-
-  web:
-    image: nginx:1.27-alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-    volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - static:/srv/static:ro
-    depends_on:
-      - api
 
 volumes:
   pgdata:
