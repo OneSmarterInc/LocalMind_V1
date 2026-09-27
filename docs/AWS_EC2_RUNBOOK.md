@@ -305,7 +305,7 @@ Include `/var/lib/localmind/private-books` in the nightly backup next to the dat
 1. `backend/.env.example` added (the production template).
 2. `models/` added to `backend/.dockerignore`.
 3. `deploy/docker-compose.yml` publishes the API on 127.0.0.1:8000 only for host nginx, mounts `deploy/keys/`, and has no web container; `deploy/nginx-host.conf` added; `deploy/keys/` and `deploy/.env` are git-ignored.
-4. Phone app points at the EC2 domain and is https-only in release builds; Android offline storage raised to 200 MB (kept through `expo prebuild` by `frontend/plugins/withAsyncStorageSize.js`).
+4. Phone app points at the EC2 domain and is https-only in release builds; Android offline storage raised to 2048 MB (kept through `expo prebuild` by `frontend/plugins/withAsyncStorageSize.js`).
 5. `INITIAL_USER_PASSWORD` is required when `DJANGO_DEBUG=false`.
 6. README, `docs/DEPLOYMENT.md` and `docs/ENVIRONMENT.md` updated; launcher points at the EC2 domain.
 7. `PRIVATE_LIBRARY_ROOT` setting added; Docker keeps private books in their own volume (they were previously inside the container and lost on rebuild).
