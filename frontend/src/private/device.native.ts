@@ -124,8 +124,20 @@ async function complete(req:Completion){return lock.queue(async()=>{
  req.progress?.('Reading the material on this phone…');
  const started=Date.now();
  const messages=[{role:'system',content:req.system},{role:'user',content:req.prompt}];
- const formatted=await context.getFormattedChat(messages,undefined,{enable_thinking:false});
- const tokenized=await context.tokenize(formatted.prompt);
+ // The prompt is formatted here and sent as text, never as `messages`.
+ //
+ // Passing messages makes the runtime take the chat-template path, and for a
+ // reasoning model such as Qwen3 that path builds a LAZY grammar: the schema
+ // is only enforced after a trigger token that closes the reasoning block.
+ // With thinking disabled that trigger never arrived, so every reply was
+ // unconstrained — the phone returned whole paragraphs, lessons with the wrong
+ // number of sections and questions with the wrong number of choices, while
+ // `json_schema` sat unused. Sending a formatted prompt skips that path, so
+ // the schema below is compiled into an ordinary grammar and applies from the
+ // first token.
+ const render=async(turns:typeof messages)=>(await context!.getFormattedChat(turns,undefined,{enable_thinking:false})).prompt;
+ const prompt=await render(messages);
+ const tokenized=await context.tokenize(prompt);
  requireThat(tokenized.tokens.length+req.maxTokens+48<=CONTEXT_TOKENS,'This prompt exceeds local model memory. Choose a shorter module.');
  // Abort only when the model stops producing text, never because a slow phone
  // is still working: up to 4 minutes to read the prompt, then 60 seconds of
@@ -135,20 +147,23 @@ async function complete(req:Completion){return lock.queue(async()=>{
  arm(240000);req.signal.addEventListener('abort',cancel);
  try {
   cancelled(req.signal);
-  // The strict form is what the browser runtime uses and what llama.cpp turns
-  // into a grammar; the loose 'json_object' form left the output unconstrained
-  // on this runtime, which is how prose and fences reached the parser.
-  const format={type:'json_schema' as const,json_schema:{name:'study',schema:req.schema,strict:true}};
-  // json_schema is also passed directly to the native runtime. The library only
-  // derives it from response_format when the model's chat template takes the
-  // jinja path, and on this build it did not: the phone returned plain prose
-  // where a grammar would have made that impossible. Passing it here makes the
-  // decoding grammar unconditional, which is what the quote enum relies on.
-  const grammar=JSON.stringify(req.schema);
-  const ask=(turns:typeof messages,temperature:number)=>context!.completion(
-   {messages:turns,n_predict:req.maxTokens,temperature,enable_thinking:false,response_format:format,json_schema:grammar,stop:['<|im_end|>','<|eot_id|>','</s>']},
-   ()=>{arm(60000);tokens++;if(tokens%25===0)req.progress?.(`Writing on this phone… ${Math.min(99,Math.round(tokens/req.maxTokens*100))}%`);});
-  let res=await ask(messages,req.temperature);
+  // grammar_lazy: false keeps the schema binding from the first token even if
+  // the runtime would otherwise defer it.
+  const schema=JSON.stringify(req.schema);
+  const watch=()=>{arm(60000);tokens++;if(tokens%25===0)req.progress?.(`Writing on this phone… ${Math.min(99,Math.round(tokens/req.maxTokens*100))}%`);};
+  const ask=async(text:string,temperature:number)=>{
+   const base={prompt:text,n_predict:req.maxTokens,temperature,stop:['<|im_end|>','<|eot_id|>','</s>']};
+   try{return await context!.completion({...base,json_schema:schema,grammar_lazy:false},watch);}
+   catch(e){
+    // A schema this runtime cannot compile would otherwise fail the whole
+    // request. Say so in the log and answer unconstrained, where the reader
+    // below and the caller's own checks still apply.
+    if(req.signal.aborted||expired)throw e;
+    console.info('[LocalMind AI] schema not applied',{reason:e instanceof Error?e.message:String(e)});
+    return await context!.completion(base,watch);
+   }
+  };
+  let res=await ask(prompt,req.temperature);
   cancelled(req.signal);requireThat(!expired && !('stopped_limit' in res && res.stopped_limit),'Local AI did not finish. No partial answer was saved.');
   let restored:unknown;
   try{restored=extractJsonObject(res.text);}
@@ -158,8 +173,8 @@ async function complete(req:Completion){return lock.queue(async()=>{
    console.info('[LocalMind AI] unusable output',{reason:first instanceof Error?first.message:String(first),sample:res.text.slice(0,240)});
    cancelled(req.signal);req.progress?.('Rewriting the answer in the required format…');
    tokens=0;arm(240000);
-   res=await ask([...messages,{role:'assistant',content:res.text.slice(0,600)},
-    {role:'user',content:'That reply could not be read. Reply again with the JSON object only: no explanation, no reasoning, no markdown fences, nothing before or after it.'}],0);
+   res=await ask(await render([...messages,{role:'assistant',content:res.text.slice(0,600)},
+    {role:'user',content:'That reply could not be read. Reply again with the JSON object only: no explanation, no reasoning, no markdown fences, nothing before or after it.'}]),0);
    cancelled(req.signal);requireThat(!expired && !('stopped_limit' in res && res.stopped_limit),'Local AI did not finish. No partial answer was saved.');
    restored=extractJsonObject(res.text);
   }
