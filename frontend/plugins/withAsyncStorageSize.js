@@ -6,7 +6,7 @@ const { withGradleProperties } = require("expo/config-plugins");
 
 const KEY = "AsyncStorage_db_size_in_MB";
 
-module.exports = function withAsyncStorageSize(config, { sizeMB = 200 } = {}) {
+module.exports = function withAsyncStorageSize(config, { sizeMB = 2048 } = {}) {
   return withGradleProperties(config, (cfg) => {
     cfg.modResults = cfg.modResults.filter((item) => !(item.type === "property" && item.key === KEY));
     cfg.modResults.push({ type: "property", key: KEY, value: String(sizeMB) });
