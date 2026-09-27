@@ -124,17 +124,9 @@ async function complete(req:Completion){return lock.queue(async()=>{
  req.progress?.('Reading the material on this phone…');
  const started=Date.now();
  const messages=[{role:'system',content:req.system},{role:'user',content:req.prompt}];
- // The prompt is formatted here and sent as text, never as `messages`.
- //
- // Passing messages makes the runtime take the chat-template path, and for a
- // reasoning model such as Qwen3 that path builds a LAZY grammar: the schema
- // is only enforced after a trigger token that closes the reasoning block.
- // With thinking disabled that trigger never arrived, so every reply was
- // unconstrained — the phone returned whole paragraphs, lessons with the wrong
- // number of sections and questions with the wrong number of choices, while
- // `json_schema` sat unused. Sending a formatted prompt skips that path, so
- // the schema below is compiled into an ordinary grammar and applies from the
- // first token.
+ // Render once without letting the completion chat-template path override grammar
+ // settings. The postinstall patch also preserves grammar/stops across the native
+ // 0.10.0 rewind; formatting the prompt alone cannot fix that runtime defect.
  const render=async(turns:typeof messages)=>(await context!.getFormattedChat(turns,undefined,{enable_thinking:false})).prompt;
  const prompt=await render(messages);
  const tokenized=await context.tokenize(prompt);
@@ -142,7 +134,11 @@ async function complete(req:Completion){return lock.queue(async()=>{
  // Abort only when the model stops producing text, never because a slow phone
  // is still working: up to 4 minutes to read the prompt, then 60 seconds of
  // silence between tokens. A fixed 3-minute cap aborted slower phones mid-answer.
- let expired=false,tokens=0,timer:ReturnType<typeof setTimeout>|undefined;const cancel=()=>{void context?.stopCompletion().catch(()=>{});};
+ let expired=false,tokens=0,timer:ReturnType<typeof setTimeout>|undefined;const cancel=()=>{
+  // llama.rn 0.10.0's JSI implementation returns void despite its Promise type.
+  // The async wrapper handles void, rejected promises and synchronous throws.
+  void (async()=>{await context?.stopCompletion();})().catch(()=>{});
+ };
  const arm=(ms:number)=>{clearTimeout(timer);timer=setTimeout(()=>{expired=true;cancel();},ms);};
  arm(240000);req.signal.addEventListener('abort',cancel);
  try {
@@ -153,15 +149,10 @@ async function complete(req:Completion){return lock.queue(async()=>{
   const watch=()=>{arm(60000);tokens++;if(tokens%25===0)req.progress?.(`Writing on this phone… ${Math.min(99,Math.round(tokens/req.maxTokens*100))}%`);};
   const ask=async(text:string,temperature:number)=>{
    const base={prompt:text,n_predict:req.maxTokens,temperature,stop:['<|im_end|>','<|eot_id|>','</s>']};
-   try{return await context!.completion({...base,json_schema:schema,grammar_lazy:false},watch);}
-   catch(e){
-    // A schema this runtime cannot compile would otherwise fail the whole
-    // request. Say so in the log and answer unconstrained, where the reader
-    // below and the caller's own checks still apply.
-    if(req.signal.aborted||expired)throw e;
-    console.info('[LocalMind AI] schema not applied',{reason:e instanceof Error?e.message:String(e)});
-    return await context!.completion(base,watch);
-   }
+   // Fail closed: a runtime/schema error must never silently disable grounding.
+   const input=await context!.tokenize(text);
+   requireThat(input.tokens.length+req.maxTokens+48<=CONTEXT_TOKENS,'This prompt exceeds local model memory. Choose a shorter module.');
+   return await context!.completion({...base,json_schema:schema,grammar_lazy:false},watch);
   };
   let res=await ask(prompt,req.temperature);
   cancelled(req.signal);requireThat(!expired && !('stopped_limit' in res && res.stopped_limit),'Local AI did not finish. No partial answer was saved.');
@@ -178,7 +169,7 @@ async function complete(req:Completion){return lock.queue(async()=>{
    cancelled(req.signal);requireThat(!expired && !('stopped_limit' in res && res.stopped_limit),'Local AI did not finish. No partial answer was saved.');
    restored=extractJsonObject(res.text);
   }
-  console.info('[LocalMind AI]',{runtime:'native',accelerator:context.gpu?'gpu':'cpu',elapsedMs:Date.now()-started,outputCharacters:res.text.length});
+  console.info('[LocalMind AI]',{runtime:'native',runtimePatch:'grammar-stops-v1',validation:'json-parsed',accelerator:context.gpu?'gpu':'cpu',elapsedMs:Date.now()-started,outputCharacters:res.text.length});
   return restored;
  }catch(e){if(expired&&!req.signal.aborted)throw new Error('Local AI stopped responding. No incomplete response was saved. Completed lesson parts and quiz questions are retained; generate again to resume.');throw e;}finally{clearTimeout(timer);req.signal.removeEventListener('abort',cancel);}
 },req.signal);}
