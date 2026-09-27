@@ -55,6 +55,31 @@ async function accept(uri:string,name:string,progress:(n:number)=>void,signal?:A
  await store.put(MODEL_KEY,{uri,name,bytes:result.bytes,hash:expected?expected.sha256:`md5:${result.md5}`});
  if(old?.uri && old.uri!==uri)await FS.deleteAsync(old.uri,{idempotent:true}).catch(()=>{});progress(1);
 }
+/** Recover the JSON object from what a small model actually wrote.
+ *
+ * Qwen3 is a reasoning model and, when the schema grammar does not bind every
+ * token, it wraps its answer: a ``<think>`` block, a markdown fence, or a
+ * sentence of preamble. Parsing the raw text then failed with "Unexpected
+ * character: `" or "Unexpected character: T" and the whole generation was
+ * thrown away. The server's provider has always stripped these; the device
+ * path did not. Nothing here repairs malformed JSON — it only finds where the
+ * object starts and ends. */
+export function extractJsonObject(raw:string){
+ const text=raw.replace(/<think>[\s\S]*?<\/think>/gi,'').replace(/<think>[\s\S]*$/i,'');
+ // Candidates in order of trust: the text as written, then the contents of a
+ // markdown fence. Taking the fence first would corrupt an answer that merely
+ // quotes back-ticked code inside a string value.
+ const candidates=[text];
+ const fenced=text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+ if(fenced)candidates.push(fenced[1]);
+ let failure:unknown;
+ for(const candidate of candidates){
+  const open=candidate.indexOf('{'),close=candidate.lastIndexOf('}');
+  if(open<0||close<=open)continue;
+  try{return JSON.parse(candidate.slice(open,close+1));}catch(e){failure=e;}
+ }
+ requireThat(false,failure?`The local model's answer could not be read: ${failure instanceof Error?failure.message:String(failure)}`:'The local model did not return a structured answer.');
+}
 type Accel={model:string;choice:'gpu'|'cpu';gpuTps?:number;cpuTps?:number;note?:string};
 /** llama.rn's GPU path (OpenCL) targets Qualcomm Adreno. Other phone GPUs
  * (Mali, PowerVR) are not candidates, so they are never forced onto the GPU. */
@@ -110,11 +135,28 @@ async function complete(req:Completion){return lock.queue(async()=>{
  arm(240000);req.signal.addEventListener('abort',cancel);
  try {
   cancelled(req.signal);
-  const res=await context.completion({messages,n_predict:req.maxTokens,temperature:req.temperature,enable_thinking:false,
-   response_format:{type:'json_object',schema:req.schema},stop:['<|im_end|>','<|eot_id|>','</s>']},()=>{
-    arm(60000);tokens++;if(tokens%25===0)req.progress?.(`Writing on this phone… ${Math.min(99,Math.round(tokens/req.maxTokens*100))}%`);
-   });
-  cancelled(req.signal);requireThat(!expired && !('stopped_limit' in res && res.stopped_limit),'Local AI did not finish. No partial answer was saved.');const restored=JSON.parse(res.text);
+  // The strict form is what the browser runtime uses and what llama.cpp turns
+  // into a grammar; the loose 'json_object' form left the output unconstrained
+  // on this runtime, which is how prose and fences reached the parser.
+  const format={type:'json_schema' as const,json_schema:{name:'study',schema:req.schema,strict:true}};
+  const ask=(turns:typeof messages,temperature:number)=>context!.completion(
+   {messages:turns,n_predict:req.maxTokens,temperature,enable_thinking:false,response_format:format,stop:['<|im_end|>','<|eot_id|>','</s>']},
+   ()=>{arm(60000);tokens++;if(tokens%25===0)req.progress?.(`Writing on this phone… ${Math.min(99,Math.round(tokens/req.maxTokens*100))}%`);});
+  let res=await ask(messages,req.temperature);
+  cancelled(req.signal);requireThat(!expired && !('stopped_limit' in res && res.stopped_limit),'Local AI did not finish. No partial answer was saved.');
+  let restored:unknown;
+  try{restored=extractJsonObject(res.text);}
+  catch(first){
+   // One correction pass at temperature 0, the same recovery the server's
+   // provider makes, with the rejection reason in the conversation.
+   console.info('[LocalMind AI] unusable output',{reason:first instanceof Error?first.message:String(first),sample:res.text.slice(0,240)});
+   cancelled(req.signal);req.progress?.('Rewriting the answer in the required format…');
+   tokens=0;arm(240000);
+   res=await ask([...messages,{role:'assistant',content:res.text.slice(0,600)},
+    {role:'user',content:'That reply could not be read. Reply again with the JSON object only: no explanation, no reasoning, no markdown fences, nothing before or after it.'}],0);
+   cancelled(req.signal);requireThat(!expired && !('stopped_limit' in res && res.stopped_limit),'Local AI did not finish. No partial answer was saved.');
+   restored=extractJsonObject(res.text);
+  }
   console.info('[LocalMind AI]',{runtime:'native',accelerator:context.gpu?'gpu':'cpu',elapsedMs:Date.now()-started,outputCharacters:res.text.length});
   return restored;
  }catch(e){if(expired&&!req.signal.aborted)throw new Error('Local AI stopped responding. No incomplete response was saved. Completed lesson parts and quiz questions are retained; generate again to resume.');throw e;}finally{clearTimeout(timer);req.signal.removeEventListener('abort',cancel);}
