@@ -46,6 +46,7 @@ services:
       AI_PROVIDER: ${AI_PROVIDER:-llamacpp}
       OLLAMA_BASE_URL: http://ollama:11434
       MEDIA_ROOT: /app/media
+      PRIVATE_LIBRARY_ROOT: /app/private-books
       WEB_DIST: /app/web
       DJANGO_DEBUG: "false"
       # Host nginx is the one proxy in front of gunicorn.
@@ -54,6 +55,7 @@ services:
       - "127.0.0.1:8000:8000"
     volumes:
       - media:/app/media
+      - private_books:/app/private-books
       - static:/app/staticfiles
       - ../backend/models:/app/models:ro
       - ../frontend/dist:/app/web:ro
@@ -92,4 +94,5 @@ volumes:
   pgdata:
   ollama:
   media:
+  private_books:
   static:

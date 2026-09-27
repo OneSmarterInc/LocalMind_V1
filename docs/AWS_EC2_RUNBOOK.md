@@ -283,7 +283,22 @@ Take a manual snapshot before any big update (EC2, Volumes, Actions, Create snap
 | certbot fails | DNS not pointing at the server yet (`nslookup`), or port 80 not open in the security group |
 | `DisallowedHost` error | `DJANGO_ALLOWED_HOSTS` in `deploy/.env` does not match the domain; fix, then `docker compose up -d` |
 | Admin sign-in fails with CSRF error | `DJANGO_CSRF_TRUSTED_ORIGINS` must be `https://` plus your domain |
+| Shared study book upload says "An unexpected error occurred", log shows `PermissionError ... private-books` | The service user cannot write `PRIVATE_LIBRARY_ROOT`. See "Plain install: private-books folder" below |
 | Uploads fail with `413` | `client_max_body_size` in the nginx file is smaller than `MAX_UPLOAD_MB` |
+
+## Plain install: private-books folder
+
+On the plain (no Docker) install, shared private-study books must live outside the code folder, owned by the user gunicorn runs as. Set `PRIVATE_LIBRARY_ROOT=/var/lib/localmind/private-books` in the backend `.env`, then:
+
+```bash
+SVC_USER=$(systemctl show -p User --value localmind)
+sudo mkdir -p /var/lib/localmind/private-books
+sudo chown -R $SVC_USER:$SVC_USER /var/lib/localmind/private-books
+sudo chmod 700 /var/lib/localmind/private-books
+sudo systemctl restart localmind
+```
+
+Include `/var/lib/localmind/private-books` in the nightly backup next to the database dump and media. Docker installs need none of this: `docker-compose.yml` keeps the books in the `private_books` volume.
 
 ## Repo changes on `deploy/aws-ec2`
 
@@ -293,6 +308,7 @@ Take a manual snapshot before any big update (EC2, Volumes, Actions, Create snap
 4. Phone app points at the EC2 domain and is https-only in release builds; Android offline storage raised to 200 MB (kept through `expo prebuild` by `frontend/plugins/withAsyncStorageSize.js`).
 5. `INITIAL_USER_PASSWORD` is required when `DJANGO_DEBUG=false`.
 6. README, `docs/DEPLOYMENT.md` and `docs/ENVIRONMENT.md` updated; launcher points at the EC2 domain.
+7. `PRIVATE_LIBRARY_ROOT` setting added; Docker keeps private books in their own volume (they were previously inside the container and lost on rebuild).
 
 ## Where the money goes, and where to save it
 

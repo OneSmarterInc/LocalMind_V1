@@ -26,6 +26,7 @@ Boolean variables accept `true`, `1`, `yes`, `on` (case-insensitive); anything e
 | Variable | Default | Notes |
 |---|---|---|
 | `MEDIA_ROOT` | `<backend>/media` | Where uploaded books and parsed markdown live. Must be writable and persistent. |
+| `PRIVATE_LIBRARY_ROOT` | `<backend>/private-books` | Where shared private-study books are stored. Never served publicly; students download them only through the authenticated API. Must be writable by the service user, persistent, outside `MEDIA_ROOT`, and backed up with the database. Production: `/var/lib/localmind/private-books`. |
 | `MEDIA_URL` | `/media/` | Only served by Django when debugging; in production the web server serves this path, or it is not exposed at all (the API never needs clients to fetch raw files). |
 | `MAX_UPLOAD_MB` | `100` | Maximum book size; also sets Django's request body limit. |
 | `PROCESS_DOCUMENTS_INLINE` | `false` | When true, `process/` blocks until parsing finishes. Useful for single-user setups and debugging; leave false for multi-user servers so uploads return immediately. |
@@ -118,6 +119,7 @@ DJANGO_ALLOWED_HOSTS=lms.example.edu
 DJANGO_CORS_ALLOWED_ORIGINS=https://app.example.edu
 DATABASE_URL=postgres://localmind:<password>@127.0.0.1:5432/localmind
 MEDIA_ROOT=/var/lib/localmind/media
+PRIVATE_LIBRARY_ROOT=/var/lib/localmind/private-books
 INITIAL_USER_PASSWORD=<department policy>
 TRUSTED_PROXY_COUNT=1
 OLLAMA_BASE_URL=http://127.0.0.1:11434
