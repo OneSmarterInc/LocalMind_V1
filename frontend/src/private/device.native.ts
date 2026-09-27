@@ -139,8 +139,14 @@ async function complete(req:Completion){return lock.queue(async()=>{
   // into a grammar; the loose 'json_object' form left the output unconstrained
   // on this runtime, which is how prose and fences reached the parser.
   const format={type:'json_schema' as const,json_schema:{name:'study',schema:req.schema,strict:true}};
+  // json_schema is also passed directly to the native runtime. The library only
+  // derives it from response_format when the model's chat template takes the
+  // jinja path, and on this build it did not: the phone returned plain prose
+  // where a grammar would have made that impossible. Passing it here makes the
+  // decoding grammar unconditional, which is what the quote enum relies on.
+  const grammar=JSON.stringify(req.schema);
   const ask=(turns:typeof messages,temperature:number)=>context!.completion(
-   {messages:turns,n_predict:req.maxTokens,temperature,enable_thinking:false,response_format:format,stop:['<|im_end|>','<|eot_id|>','</s>']},
+   {messages:turns,n_predict:req.maxTokens,temperature,enable_thinking:false,response_format:format,json_schema:grammar,stop:['<|im_end|>','<|eot_id|>','</s>']},
    ()=>{arm(60000);tokens++;if(tokens%25===0)req.progress?.(`Writing on this phone… ${Math.min(99,Math.round(tokens/req.maxTokens*100))}%`);});
   let res=await ask(messages,req.temperature);
   cancelled(req.signal);requireThat(!expired && !('stopped_limit' in res && res.stopped_limit),'Local AI did not finish. No partial answer was saved.');
