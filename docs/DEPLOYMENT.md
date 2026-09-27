@@ -93,7 +93,7 @@ Gateway log lines have the shape `AI <purpose> ok model=qwen3:1.7b attempt=1 lat
 
 ## Backups
 
-Back up the PostgreSQL database and `MEDIA_ROOT` together; the database references files by path. A nightly `pg_dump` plus an rsync of media is sufficient. Restore is `psql < dump`, copy media back, done; migrations are already applied in the dump.
+Back up the PostgreSQL database, `MEDIA_ROOT` and `PRIVATE_LIBRARY_ROOT` together; the database references files in both folders by path. A nightly `pg_dump` plus an rsync of both folders is sufficient. Restore is `psql < dump`, copy both folders back, done; migrations are already applied in the dump.
 
 ## Upgrades
 

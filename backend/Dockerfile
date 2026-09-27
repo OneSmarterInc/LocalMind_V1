@@ -19,7 +19,7 @@ COPY requirements.txt .
 RUN pip install -r requirements.txt --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
 
 COPY --chown=localmind:localmind . .
-RUN mkdir -p /app/media /app/staticfiles && chown -R localmind:localmind /app
+RUN mkdir -p /app/media /app/private-books /app/staticfiles && chown -R localmind:localmind /app
 USER localmind
 
 EXPOSE 8000

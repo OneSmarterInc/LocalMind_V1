@@ -141,6 +141,11 @@ STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_URL = env_str("MEDIA_URL", "/media/")
 MEDIA_ROOT = Path(env_str("MEDIA_ROOT", str(BASE_DIR / "media"))).resolve()
+# Shared private-study books. Kept apart from MEDIA_ROOT on purpose: media can be
+# served publicly, these files must only leave through the authenticated view.
+# Production should point this outside the code checkout (for example
+# /var/lib/localmind/private-books) and back it up with the database.
+PRIVATE_LIBRARY_ROOT = Path(env_str("PRIVATE_LIBRARY_ROOT", str(BASE_DIR / "private-books"))).resolve()
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
