@@ -2,6 +2,7 @@ import { removeBook, archiveBook, unarchiveBook } from "@/documents/remove";
 import { useBackTo } from "@/hooks/useBackTo";
 import {prepareAutomatically,preparation,clearFailure,type PreparationMap} from '@/authoring/automatic';
 import {isClaimedElsewhere} from '@/authoring/claims';
+import {failureReason,reasonForStatus} from '@/authoring/reasons';
 import {GenerationClaimNotice} from '@/authoring/GenerationClaimNotice';
 import {controlKey,generateNow,isHeld,pauseModule,setHeld,useBookControls} from '@/authoring/bookControl';
 import {generationJobs} from '@/private/jobs';
@@ -407,9 +408,11 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
   };
   const columns: Column<ModuleRow>[] = [
     { key: "m", label: "Module", flex: 1.9, render: (m) => <CellText title={m.title} sub={`Module ${m.number}`} /> },
-    { key: "l", label: "Lesson", flex: 0.8, render: (m) => <Badge value={status(m,"lesson")} tone={/^(Ready|Synchronized)/.test(status(m,"lesson"))?"green":"neutral"} /> },
-    { key: "q", label: "Quiz", flex: 0.9, render: (m) => <Badge value={status(m,"quiz")} tone={/^(Ready|Synchronized)/.test(status(m,"quiz"))?"green":m.quiz_status==="failed_final"?"red":"neutral"} /> },
-    { key: "draft", label: "Saved work", flex: 1.1, render: (m) => {const d=local(m.id!);return <CellText title={d?.lesson?"Lesson draft saved":"No lesson draft"} sub={automatic[m.id!]?.error||(d?.questions?`${d.questions.length} quiz questions saved`:"No quiz draft")}/>;} },
+    // Every skipped or failed badge says why, so a module without a lesson
+    // reads as explained rather than broken.
+    { key: "l", label: "Lesson", flex: 0.8, render: (m) => <StatusWithReason value={status(m,"lesson")} error={automatic[m.id!]?.error} tone={/^(Ready|Synchronized)/.test(status(m,"lesson"))?"green":"neutral"} /> },
+    { key: "q", label: "Quiz", flex: 0.9, render: (m) => <StatusWithReason value={status(m,"quiz")} error={automatic[m.id!]?.error} tone={/^(Ready|Synchronized)/.test(status(m,"quiz"))?"green":m.quiz_status==="failed_final"?"red":"neutral"} /> },
+    { key: "draft", label: "Saved work", flex: 1.1, render: (m) => {const d=local(m.id!);const err=automatic[m.id!]?.error;return <CellText title={d?.lesson?"Lesson draft saved":"No lesson draft"} sub={err?failureReason(err).short:(d?.questions?`${d.questions.length} quiz questions saved`:"No quiz draft")}/>;} },
     // A row can carry up to five buttons (Generate now, Pause, Open module,
     // Preview lesson, Review or Retry quiz). Without flexWrap they sat on one
     // line, made the row wider than the card and put the whole table behind a
@@ -423,7 +426,7 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
           return <><Button title="Generate now" small icon="play-outline" busy={genNow.busy} accessibilityLabel={`Generate ${m.title} now`} onPress={()=>genNow.run(m.id!)} /><Button title="Pause" small variant="secondary" icon="pause-outline" accessibilityLabel={`Pause ${m.title}`} onPress={()=>pauseModule(ctlKey,m.id!)} /></>;
         })()}
         <Button title="Open module" small variant="secondary" onPress={()=>router.push(`/manage/local-authoring/${local(m.id!)?.snapshot.module_id||m.id}`)}/>
-        <Button title="Preview" small variant="secondary" disabled={m.lesson_status === "none"} accessibilityLabel={`Preview the lesson for ${m.title}`} onPress={() => onPreview({ id: m.id!, title: m.title, quizStatus: m.quiz_status ?? "off", quizId: m.auto_quiz_id ?? null })} />
+        <Button title="Preview" small variant="secondary" disabled={m.lesson_status === "none"} accessibilityLabel={m.lesson_status === "none" ? `Preview unavailable: ${m.title} has no lesson yet${reasonForStatus(status(m,"lesson"))?`. ${reasonForStatus(status(m,"lesson"))!.short}`:""}` : `Preview the lesson for ${m.title}`} onPress={() => onPreview({ id: m.id!, title: m.title, quizStatus: m.quiz_status ?? "off", quizId: m.auto_quiz_id ?? null })} />
         {m.quiz_status === "held" && m.auto_quiz_id
           ? <Button title="Review quiz" small variant="secondary" onPress={() => router.push(`/manage/quiz/${m.auto_quiz_id}`)} />
           : null}
@@ -1282,6 +1285,17 @@ function ModuleSourceVisualsPanel({ moduleId }: { moduleId: string }) {
       {!q.loading && !q.error && !visuals.length
         ? <Text style={{ fontSize: 11.5, color: colors.muted }}>No picture was extracted for these pages. Page banners, watermarks, navigation codes and blocks of equations are left out on purpose; the Pictures tab lists everything the book produced.</Text>
         : <SourceFigures visuals={visuals} />}
+    </View>
+  );
+}
+
+/** A status badge with its reason underneath when the module was skipped or failed. */
+function StatusWithReason({ value, tone, error }: { value: string; tone: "green" | "neutral" | "red"; error?: string }) {
+  const why = reasonForStatus(value, error);
+  return (
+    <View style={{ gap: 4, minWidth: 0, alignItems: "flex-start" }}>
+      <Badge value={value} tone={why && why.kind === "failed" ? "red" : tone} />
+      {why ? <Text style={{ fontSize: 11, lineHeight: 15, color: colors.muted }} numberOfLines={3}>{why.short}</Text> : null}
     </View>
   );
 }

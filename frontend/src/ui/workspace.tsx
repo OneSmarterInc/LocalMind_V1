@@ -1,5 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import React from "react";
+import { NavigationContext } from "@react-navigation/native";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { Notice, PageTabs } from "./index";
 import { colors, radius, radiusSm, space } from "./theme";
@@ -32,6 +33,10 @@ export function ListPane({ title, action, meta, filters, children, split }: {
   children: React.ReactNode;
   split: boolean;
 }) {
+  // Like every page, the list starts at its top when navigation brings it back.
+  const scroller = React.useRef<ScrollView>(null);
+  const navigation = React.useContext(NavigationContext);
+  React.useEffect(() => navigation?.addListener?.("focus", () => scroller.current?.scrollTo({ y: 0, animated: false })), [navigation]);
   return (
     <View style={[w.list, split ? w.listSplit : w.listFull]}>
       <View style={w.listHead}>
@@ -42,7 +47,7 @@ export function ListPane({ title, action, meta, filters, children, split }: {
         {meta ? <Text style={w.listMeta}>{meta}</Text> : null}
         {filters}
       </View>
-      <ScrollView style={scrollFix} contentContainerStyle={{ padding: space.sm, paddingBottom: space.xl }} keyboardShouldPersistTaps="handled">
+      <ScrollView ref={scroller} style={scrollFix} contentContainerStyle={{ padding: space.sm, paddingBottom: space.xl }} keyboardShouldPersistTaps="handled">
         {children}
       </ScrollView>
     </View>

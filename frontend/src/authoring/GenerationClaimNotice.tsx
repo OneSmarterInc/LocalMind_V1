@@ -52,7 +52,8 @@ export function GenerationClaimNotice({documentId,onTakenOver}:{documentId:strin
   finally{setBusy(false);}
  };
  const seen=claim.last_seen?` Last seen ${ago(claim.last_seen)}.`:'';
- return <Notice inline tone="warning" title="Generation already started on another device"
+ // No close button: this notice is the only explanation of why generation will not start here.
+ return <Notice inline dismissible={false} tone="warning" title="Generation already started on another device"
   message={claimMessage(claim)+seen+(online?'':' Connect to take over.')}
   action={online?<Button small variant="secondary" title="Take over" busy={busy} onPress={()=>void takeOver()}/>:undefined}/>;
 }

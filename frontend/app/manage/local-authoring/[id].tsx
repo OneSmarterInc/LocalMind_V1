@@ -6,7 +6,8 @@ import React,{useCallback,useEffect,useMemo,useState} from 'react';
 import {Text,View} from 'react-native';
 import {useLocalSearchParams,useNavigation,useRouter} from 'expo-router';
 import {useAuth} from '@/auth/AuthContext';
-import {LocalAuthoring,draftStatus,isFrontMatter,type Draft,type ArchivedDraft} from '@/authoring/local';
+import {LocalAuthoring,draftStatus,type Draft,type ArchivedDraft} from '@/authoring/local';
+import {failureReason,skipReason} from '@/authoring/reasons';
 import {clearFailure} from '@/authoring/automatic';
 import {manage} from '@/api/endpoints';
 import {stripOptionLabel} from '@/private/core';
@@ -123,7 +124,9 @@ function Authoring(){
  // Front matter is read by students, never taught. Saying so here, and taking
  // the generate buttons away, is kinder than letting a reviewer spend four
  // minutes generating a lesson about a list of objectives.
- const frontMatter=!!draft&&isFrontMatter(draft.snapshot.title,draft.snapshot.source);
+ // Front matter, no readable text or a line or two: say why there is no lesson
+ // or quiz, and offer an override only where one makes sense.
+ const skip=draft?skipReason(draft.snapshot.title,draft.snapshot.source):null;
  const count=Number(quizCount);
  const countValid=Number.isInteger(count)&&count>=1&&count<=6;
  const quizStatus=draft?draftStatus(draft,'quiz'):'';
@@ -152,13 +155,12 @@ function Authoring(){
     main={<>
      <Card>
       <CardHead title="Generate" subtitle="Written by the model on this device. Nothing reaches students until you synchronize it."/>
-      {frontMatter?<Notice inline title="This module looks like front matter"
-        message="Objectives, contents and similar pages are shown to students on the Read tab, but a lesson or quiz written from them mostly restates them, so automatic preparation skips this module instead of reporting it as Failed. If this one really is teaching material, generate it here and it will be kept."/>:null}
+      {skip?<Notice inline dismissible={false} tone={skip.canOverride?'info':'warning'} title={skip.title} message={skip.message}/>:null}
       <Row>
-       <Button title={draft.lesson?'Regenerate lesson':draft.snapshot.institution?.lesson?'Regenerate anyway':'Generate lesson'} icon="sparkles-outline"
-        disabled={busy||task.busy||!modelReady} onPress={()=>{void generate('lesson');}}/>
-       <Button title={draft.questions?'Regenerate quiz':draft.snapshot.institution?.quiz?'Regenerate quiz anyway':'Generate quiz'} icon="help-circle-outline"
-        disabled={busy||task.busy||!modelReady||!countValid} onPress={()=>{void generate('quiz');}}/>
+       <Button title={draft.lesson?'Regenerate lesson':draft.snapshot.institution?.lesson?'Regenerate anyway':skip?'Generate lesson anyway':'Generate lesson'} icon="sparkles-outline"
+        disabled={busy||task.busy||!modelReady||skip?.kind==='no-source'} onPress={()=>{void generate('lesson');}}/>
+       <Button title={draft.questions?'Regenerate quiz':draft.snapshot.institution?.quiz?'Regenerate quiz anyway':skip?'Generate quiz anyway':'Generate quiz'} icon="help-circle-outline"
+        disabled={busy||task.busy||!modelReady||!countValid||skip?.kind==='no-source'} onPress={()=>{void generate('quiz');}}/>
       </Row>
       <View style={{maxWidth:220}}>
        <Input label="Quiz questions" placeholder="5" value={quizCount} onChangeText={setQuizCount} keyboardType="number-pad"
@@ -175,7 +177,7 @@ function Authoring(){
          {j.cancelling?null:<Button title="Cancel" small variant="secondary" onPress={()=>generationJobs.cancel(j.id)}/>}
         </Row>)}
       </View>:null}
-      {jobs.filter(j=>j.state==='failed'&&j.error).map(j=><Notice inline key={j.id} tone="warning" title="Generation stopped" message={j.error}/>)}
+      {jobs.filter(j=>j.state==='failed'&&j.error).map(j=>{const why=failureReason(j.error);return <Notice inline key={j.id} tone="warning" title={why.title} message={why.message}/>;})}
       {/* The book is preparing elsewhere. Said plainly and separately, because
           it is not this module's progress — showing it as "Working" here was
           the reason a finished module looked like it was still generating. */}

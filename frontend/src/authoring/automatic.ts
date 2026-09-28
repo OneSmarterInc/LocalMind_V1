@@ -6,6 +6,7 @@ import {jobScope} from '@/private/useGenerationJobs';
 import {Library} from '@/private/library';
 import {control,controlKey,isHeld,notifyControls} from './bookControl';
 import {GenerationClaims,isClaimedElsewhere} from './claims';
+import {BRIEF_SOURCE_CHARS} from './reasons';
 export type Preparation={lesson?:string;quiz?:string;error?:string};
 export type PreparationMap=Record<string,Preparation>;
 const key=(service:LocalAuthoring,doc:Document)=>`${service.library.prefix}automatic:${doc.id}:${doc.content_version}`;
@@ -95,7 +96,7 @@ export async function prepareAutomatically(service:LocalAuthoring,doc:Document){
    if(m.source_missing||!m.source_text?.trim()){state.lesson='No source text';state.quiz='No source text';await save();return;}
    // Front matter is read, never taught.
    if(isFrontMatter(m.title,m.source_text)){state.lesson='Front matter';state.quiz='Front matter';await save();return;}
-   if(m.source_text.trim().length<80){state.lesson='Brief source — review';state.quiz='Brief source — review';await save();return;}
+   if(m.source_text.trim().length<BRIEF_SOURCE_CHARS){state.lesson='Brief source — review';state.quiz='Brief source — review';await save();return;}
    try{
     const id=saved.find(d=>d.snapshot.remote_id===m.id)?.snapshot.module_id||m.id!;
     let draft=await service.ensure(id);

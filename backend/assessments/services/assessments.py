@@ -14,7 +14,7 @@ from learning.models import Chapter, Module
 
 from ..models import Assessment, AssessmentAttempt, AssessmentKind, AssessmentStatus, AttemptStatus, Generator, ResultsRelease
 from .evaluation import evaluate_subjective
-from .generation import generate_questions, normalize_questions
+from .generation import MANUAL_OPTION_RANGE, generate_questions, normalize_questions
 
 
 # Fields a caller may set directly on create, generate or update.
@@ -136,7 +136,7 @@ def create_manual(actor, *, module_id=None, chapter_id=None, module_ids=None, ti
     _require_manage(actor, subject)
     assessment = Assessment.objects.create(
         subject=subject, chapter=chapter, module=module, kind=kind, title=(title or f"Quiz: {default_title}")[:300],
-        questions=normalize_questions(questions), generator=Generator.MANUAL, created_by=actor,
+        questions=normalize_questions(questions, **MANUAL_OPTION_RANGE), generator=Generator.MANUAL, created_by=actor,
         pass_percentage=pass_percentage or settings.LOCALMIND["DEFAULT_PASS_PERCENTAGE"],
         content_version_at_creation=(chapter or modules[0].chapter).document.content_version,
         **{k: v for k, v in options.items() if k in RELEASE_FIELDS},
@@ -201,10 +201,10 @@ def update(actor, assessment, *, questions=None, request=None, **fields):
             continue
         changes[key] = True
         setattr(assessment, key, fields[key])
-    if questions is not None and normalize_questions(questions) == (assessment.questions or []):
+    if questions is not None and normalize_questions(questions, **MANUAL_OPTION_RANGE) == (assessment.questions or []):
         questions = None  # the same questions sent back with a settings change: nothing to version
     if questions is not None:
-        new_questions = normalize_questions(questions)
+        new_questions = normalize_questions(questions, **MANUAL_OPTION_RANGE)
         if assessment.attempts.exists():
             # Attempts exist: freeze this row, spawn a new version.
             # Settings changed in the same save apply to the old row's values before they are copied.

@@ -5,7 +5,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { api } from '@/api/client';
 import { manage } from '@/api/endpoints';
 import { useAsync } from '@/hooks/useAsync';
-import { Screen, Card, PageHeading, CardHead, H2, P, Button, Input, Row, ErrorBanner, Notice, Empty, Badge, Dropdown, Split, TileIcon, useWide, colors, confirmAsync, confirmDeleteAsync } from '@/ui';
+import { Screen, Card, PageHeading, CardHead, H2, P, Button, Input, Row, ErrorBanner, Notice, Empty, Badge, Dropdown, Split, TileIcon, useWide, colors, confirmAsync, confirmDeleteAsync, subjectLabel } from '@/ui';
 import { sharedBooks, deleteSharedBook, type SharedBook } from '../catalogue';
 import { MAX_BOOK_BYTES } from '../core';
 
@@ -63,7 +63,7 @@ export default function SharedLibrary() {
     <Card>
       <CardHead title="Upload a book" subtitle="PDF (including English scans), DOCX, TXT or Markdown · up to 100 MB" icon="cloud-upload-outline" />
       <Input label="Book title" value={title} maxLength={300} onChangeText={setTitle} editable={!busy} placeholder="e.g. Electric Charges and Fields" />
-      <Dropdown label="Who can add this book?" value={subject} options={[...(user?.role === 'admin' ? [{ value: '', label: 'All students' }] : [{ value: '', label: 'Choose a subject' }]), ...(subjects.data || []).map(s => ({ value: s.id, label: `${s.code} · ${s.name}` }))]} onChange={v => { if (!busy) setSubject(v); }} />
+      <Dropdown label="Who can add this book?" value={subject} options={[...(user?.role === 'admin' ? [{ value: '', label: 'All students' }] : [{ value: '', label: 'Choose a subject' }]), ...(subjects.data || []).map(s => ({ value: s.id, label: subjectLabel(s.code, s.name) }))]} onChange={v => { if (!busy) setSubject(v); }} />
       <Row style={{ alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <Button title={file ? 'Choose a different file' : 'Choose book file'} variant="secondary" icon="document-attach-outline" onPress={() => { void choose().catch(e => setError(String(e))); }} disabled={busy} />
         {file ? <P small muted>{file.name}{file.size ? ` · ${fileSize(file.size)}` : ''}</P> : null}

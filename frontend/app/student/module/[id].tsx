@@ -13,6 +13,7 @@ import { AppState, Pressable, Text, View } from "react-native";
 import { student } from "@/api/endpoints";
 import type { ModuleFull, ModuleNeighbour, Quiz } from "@/api/types";
 import { useAsync } from "@/hooks/useAsync";
+import { skipReason } from "@/authoring/reasons";
 import { Badge, Button, Card, CardHead, DetailList, Empty, ErrorBanner, Eyebrow, FormFooter, Loading, Notice, PageHeading, PageTabs, Screen, Split, StepList, TextLink, colors, pct } from "@/ui";
 import { LessonView } from "@/ui/LessonView";
 
@@ -90,6 +91,7 @@ export default function StudentModule() {
     </>
   ) : null;
   const lessonState = teach.data?.status;
+  const noLessonWhy = m ? skipReason(m.title, m.source_text) : null;
   return (
     <Screen scrollTopOn={id} refreshing={mod.loading} onRefresh={() => { mod.reload(); teach.reload(); }}>
       {m?.progress?.sync_pending?<Notice inline message="This progress is saved on your device and awaits institution synchronization."/>:null}
@@ -103,7 +105,17 @@ export default function StudentModule() {
           {tab === "read" ? <Split main={<><ReadCard module={m} onLesson={() => setTab("lesson")} /><ModuleNav previous={m.previous_module} next={m.next_module} onGo={go} /></>} side={side} /> : null}
           {tab === "lesson" && teach.loading && !teach.data ? <Loading /> : null}
           {tab === "lesson" ? <ErrorBanner message={teach.error} onRetry={teach.reload} /> : null}
-          {tab === "lesson" && lessonState === "preparing" ? (
+          {/* Front matter, image-only or one-line modules never get a lesson: say why instead of "being prepared". */}
+          {tab === "lesson" && noLessonWhy && (lessonState === "preparing" || lessonState === "unavailable") ? (
+            <Card>
+              <Empty icon="document-text-outline" title="No lesson for this module" text={noLessonWhy.kind === "front-matter"
+                ? "This page lists objectives or contents. Read it on the Read tab; lessons and quizzes start with the modules that teach the material."
+                : noLessonWhy.kind === "no-source" ? "No readable text was found for this module, so there is no lesson to build from it. Read the page on the Read tab or continue with the next module."
+                : "This module has only a line or two of text, too little for a lesson. Read it on the Read tab and continue with the next module."}
+                action={<Button title="Read the module" icon="book-outline" onPress={() => setTab("read")} />} />
+            </Card>
+          ) : null}
+          {tab === "lesson" && !noLessonWhy && lessonState === "preparing" ? (
             <Card>
               <Empty icon="hourglass-outline" title="Your lesson is being prepared." text="The source text is ready to read. The guided lesson will appear here after generation completes; there is no need to refresh."
                 action={<Button title="Read the module" icon="book-outline" onPress={() => setTab("read")} />} />
@@ -114,7 +126,7 @@ export default function StudentModule() {
               </View>
             </Card>
           ) : null}
-          {tab === "lesson" && lessonState === "unavailable" ? (
+          {tab === "lesson" && !noLessonWhy && lessonState === "unavailable" ? (
             <Card>
               <Empty icon="hourglass-outline" title="Your lesson isn't ready yet."
                 text="The guided lesson appears here once it has been generated. Read the module in the meantime, or check again in a moment — the source text stays on the Read tab."

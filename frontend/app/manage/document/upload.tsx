@@ -9,7 +9,7 @@ import { useOnline } from "@/offline/connectivity";
 import {BookUploads} from "@/authoring/uploads";
 import { manage } from "@/api/endpoints";
 import { useAction, useAsync } from "@/hooks/useAsync";
-import { Button, Card, CardHead, Dropdown, ErrorBanner, FormFooter, Input, Loading, Notice, PageHeading, Screen, Split, StepList, Stepper, TileIcon, colors, fmtSize } from "@/ui";
+import { Button, Card, CardHead, Dropdown, ErrorBanner, FormFooter, Input, Loading, Notice, PageHeading, Screen, Split, StepList, Stepper, TileIcon, colors, fmtSize, subjectLabel } from "@/ui";
 
 // What the server's parser can actually read, and the limit the page states.
 const ACCEPTED = ["pdf", "docx", "doc"];
@@ -82,7 +82,7 @@ export default function UploadBook() {
             {subjects.loading && !subjects.data ? <Loading lines={1} /> : null}
             {rejected ? <Notice inline tone="warning" title="That file cannot be used" message={rejected} /> : null}
             {subjects.data && active.length === 0 ? <Notice inline tone="warning" message={user?.role === "admin" ? "There is no active subject yet. Create one under Subjects first." : "You have no active subject. Ask your administrator to assign one."} /> : null}
-            <Dropdown label="Subject *" value={subjectId} onChange={setSubjectId} placeholder="Choose a subject" width="100%" options={active.map((s) => ({ value: s.id, label: `${s.code} · ${s.name}` }))} />
+            <Dropdown label="Subject *" value={subjectId} onChange={setSubjectId} placeholder="Choose a subject" width="100%" options={active.map((s) => ({ value: s.id, label: subjectLabel(s.code, s.name) }))} />
             <Notice message="Chapters and modules follow the book’s own headings and content. Review the extracted outline before publishing. Lesson and quiz generation continues on your device." />
             <Input label="Book title" required value={title} onChangeText={setTitle} placeholder="As students should see it" hint="A clear title helps students find the right book." />
             <View style={{ borderWidth: 1.5, borderStyle: "dashed", borderColor: "#B8CBBB", borderRadius: 12, backgroundColor: "#F9FCF6", alignItems: "center", paddingVertical: 30, paddingHorizontal: 20, gap: 8 }}>

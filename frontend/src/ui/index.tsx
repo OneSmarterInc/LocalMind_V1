@@ -8,6 +8,8 @@ import {
   TextInput, TextInputProps, TextStyle, View, ViewStyle, useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { NavigationContext } from "@react-navigation/native";
 import { OfflineBanner } from "@/offline/OfflineBanner";
 import { Gradient } from "./Gradient";
 import { announceInputFocus, revealFocusedInput, useInputFocus, useKeyboardInset } from "./keyboardInset";
@@ -51,6 +53,20 @@ export function useWide(min = 900) {
 /* Layout                                                              */
 /* ------------------------------------------------------------------ */
 
+/** Lets a word with no spaces (a pasted code, a long file name) wrap inside its
+ * box on the web instead of running across neighbouring columns. Android and
+ * iOS already break such words. */
+export const breakWords = (Platform.OS === "web" ? { wordBreak: "break-word", overflowWrap: "anywhere" } : {}) as TextStyle;
+
+/** How a subject is named in every dropdown and filter: code and name together. */
+export function subjectLabel(code?: string | null, name?: string | null): string {
+  const c = (code ?? "").trim(), n = (name ?? "").trim();
+  return c && n && c.toLowerCase() !== n.toLowerCase() ? `${c} · ${n}` : c || n || "Untitled subject";
+}
+
+/** Scrolls the current page to its top (PageTabs uses it when the tab changes). */
+export const ScrollTopContext = React.createContext<() => void>(() => {});
+
 export function Screen({ children, scroll = true, refreshing, onRefresh, padded = true, wide, toolbar, actions, scrollTopOn, footer }: {
   children: React.ReactNode; scroll?: boolean; refreshing?: boolean; onRefresh?: () => void; padded?: boolean; wide?: boolean;
   toolbar?: React.ReactNode; actions?: React.ReactNode;
@@ -77,6 +93,21 @@ export function Screen({ children, scroll = true, refreshing, onRefresh, padded 
     return () => clearTimeout(t);
   }, [keyboardInset, keyboardTop]);
   useInputFocus(() => revealFocusedInput(scroller.current, offset.current, keyboardTop));
+  const toTop = React.useCallback(() => {
+    scroller.current?.scrollTo({ y: 0, animated: false });
+    if (Platform.OS === "web") (globalThis as unknown as { scrollTo?: (x: number, y: number) => void }).scrollTo?.(0, 0);
+  }, []);
+  // Every page opens at the top: on first display and each time navigation
+  // brings it back. Tab and detail screens stay mounted, so without this a page
+  // reopened wherever it had last been left (or, on the web, wherever the
+  // previous page had been scrolled to).
+  const navigation = React.useContext(NavigationContext);
+  React.useEffect(() => {
+    let frame = requestAnimationFrame(toTop);
+    toTop();
+    const off = navigation?.addListener?.("focus", () => { toTop(); cancelAnimationFrame(frame); frame = requestAnimationFrame(toTop); });
+    return () => { cancelAnimationFrame(frame); off?.(); };
+  }, [navigation, toTop]);
   React.useEffect(() => {
     if (scrollTopOn === undefined) return;
     const top = () => {
@@ -93,12 +124,14 @@ export function Screen({ children, scroll = true, refreshing, onRefresh, padded 
   }, [scrollTopOn]);
   const bar = toolbar || actions ? <Toolbar right={actions}>{toolbar}</Toolbar> : null;
   const inner = (
+    <ScrollTopContext.Provider value={toTop}>
     <PageMessagesProvider>
     <View style={[padded && { paddingHorizontal: gutter, paddingTop: screenWidth < bp.tablet ? 16 : 28, gap: space.lg }, { maxWidth: wide ? 1600 : CONTENT_MAX + gutter * 2, width: "100%", alignSelf: "center" }, !scroll && { flex: 1, minHeight: 0 }]}>
       {bar}
       {children}
     </View>
     </PageMessagesProvider>
+    </ScrollTopContext.Provider>
   );
   if (!scroll) return <View style={{ flex: 1, minHeight: 0, backgroundColor: colors.bg }}>{inner}</View>;
   const page = (
@@ -254,7 +287,7 @@ export function CardHead({ title, subtitle, action, icon }: { title: string; sub
         <Text style={s.h2}>{title}</Text>
         {subtitle ? <Text style={[font.small, { color: colors.muted, marginTop: 4 }]}>{subtitle}</Text> : null}
       </View>
-      {action}
+      {action ? <View style={{ flexShrink: 0 }}>{action}</View> : null}
     </View>
   );
 }
@@ -388,7 +421,9 @@ export function OptionCard({ title, text, selected, onPress, multi, disabled, ri
 }
 
 /** Underlined page tabs. */
-export function PageTabs<T extends string>({ tabs, value, onChange }: { tabs: { key: T; label: string; icon?: IconName; count?: number | null }[]; value: T; onChange: (k: T) => void }) {
+export function PageTabs<T extends string>({ tabs, value, onChange: change }: { tabs: { key: T; label: string; icon?: IconName; count?: number | null }[]; value: T; onChange: (k: T) => void }) {
+  const toTop = React.useContext(ScrollTopContext);
+  const onChange = (k: T) => { if (k !== value) toTop(); change(k); };
   // Phones cut the tab row off at the edge; keep the selected tab in view so
   // a person landing on the third or fourth tab can see where they are.
   const scroller = React.useRef<ScrollView>(null);
@@ -437,10 +472,46 @@ export function ErrorBanner({ message, onRetry }: { message?: string | null; onR
  * pushes the page down. Errors, messages with an action button, and anything
  * marked `inline` (a live state the person must keep seeing) stay on the page.
  */
-export function Notice({ message, tone = "info", title, action, icon, inline }: { message: string; tone?: "info" | "warning" | "success" | "danger"; title?: string; action?: React.ReactNode; icon?: IconName; inline?: boolean }) {
+// Notices a person closed. Session-only by default, so a notice returns when
+// its text changes (a new situation) or the app restarts. `remember` keeps a
+// purely informational notice closed on this device.
+const closedNotices = new Set<string>();
+const REMEMBERED = "localmind.closedNotices";
+let remembered: Set<string> | null = null;
+const rememberedLoad = AsyncStorage.getItem(REMEMBERED).then((raw) => {
+  try { remembered = new Set(raw ? (JSON.parse(raw) as string[]) : []); } catch { remembered = new Set(); }
+}).catch(() => { remembered = new Set(); });
+function rememberClosed(key: string) {
+  void rememberedLoad.then(() => {
+    remembered!.add(key);
+    // Keep the list small: only the most recent 200 closed notices.
+    void AsyncStorage.setItem(REMEMBERED, JSON.stringify([...remembered!].slice(-200))).catch(() => {});
+  });
+}
+
+export function Notice({ message, tone = "info", title, action, icon, inline, dismissible, dismissKey, remember }: {
+  message: string; tone?: "info" | "warning" | "success" | "danger"; title?: string; action?: React.ReactNode; icon?: IconName; inline?: boolean;
+  /** Show a close button. On by default, except for errors ("danger"). Pass
+   * false for a notice that explains why work is blocked. */
+  dismissible?: boolean;
+  /** Identity for "closed". Defaults to the title and text, so changed text shows again. */
+  dismissKey?: string;
+  /** Keep it closed on this device across restarts (informational notices only). */
+  remember?: boolean;
+}) {
   const timed = !inline && !action && tone !== "danger";
   useTimedMessage({ tone, title, message }, timed);
+  const key = dismissKey ?? `${title ?? ""}\u0000${message}`;
+  const canClose = dismissible ?? tone !== "danger";
+  const [, rerender] = React.useState(0);
+  React.useEffect(() => {
+    if (!remember || !canClose || remembered) return;
+    let live = true; void rememberedLoad.then(() => { if (live) rerender((n) => n + 1); });
+    return () => { live = false; };
+  }, [remember, canClose]);
   if (timed) return null;
+  if (canClose && (closedNotices.has(key) || (remember && (!remembered || remembered.has(key))))) return null;
+  const close = () => { closedNotices.add(key); if (remember) rememberClosed(key); rerender((n) => n + 1); };
   const t = tone === "warning" ? { bg: "#FFFAEC", border: "#EBDFBD", fg: "#866028" } : tone === "success" ? { bg: "#F0F7F1", border: "#DBE9DE", fg: "#336655" } : tone === "danger" ? { bg: "#FFF3F1", border: "#EDD5D0", fg: "#923C35" } : { bg: "#F1F6FC", border: "#DAE5F1", fg: "#3B5E7E" };
   const ic: IconName = icon ?? (tone === "warning" ? "warning-outline" : tone === "success" ? "checkmark-circle-outline" : tone === "danger" ? "alert-circle-outline" : "information-circle-outline");
   return (
@@ -451,6 +522,12 @@ export function Notice({ message, tone = "info", title, action, icon, inline }: 
         <Text style={{ color: t.fg, fontSize: 12, lineHeight: 19 }}>{message}</Text>
       </View>
       {action ? <View style={{ alignSelf: "center" }}>{action}</View> : null}
+      {canClose ? (
+        <Pressable onPress={close} accessibilityRole="button" accessibilityLabel={`Close notice${title ? `: ${title}` : ""}`} hitSlop={12}
+          style={({ hovered }: PressState) => [{ width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: -4, marginRight: -6 }, hovered && { backgroundColor: "rgba(0,0,0,0.06)" }]}>
+          <Ionicons name="close" size={18} color={t.fg} />
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -564,7 +641,8 @@ export function Table<T>({ columns, rows, keyOf, onRowPress, empty, minWidth = 6
     // The horizontal padding narrows with the table: at 18 a side, eight columns
     // spend nearly 300px on gutters alone, which is what pushed neighbouring
     // cells into each other on a tablet.
-    return { flex: c.width ? undefined : action ? (c.flex ?? 1.1) * 1.7 : c.flex ?? 1, width: c.width, paddingHorizontal: gutter, minWidth: 0,
+    // overflow hidden: a long name must never spill into the next column.
+    return { flex: c.width ? undefined : action ? (c.flex ?? 1.1) * 1.7 : c.flex ?? 1, width: c.width, paddingHorizontal: gutter, minWidth: 0, overflow: "hidden",
       alignItems: action ? "flex-start" : c.align === "right" ? "flex-end" : c.align === "center" ? "center" : "flex-start" };
   };
   const foot = footer === false || rows.length === 0 ? null : footer ?? (
@@ -645,14 +723,14 @@ function wrapText(node: React.ReactNode) {
 /** Primary + secondary text for a table cell. */
 export function CellText({ title, sub, strong = true, avatar, icon }: { title: string; sub?: string | null; strong?: boolean; avatar?: string | null; icon?: IconName }) {
   const text = (
-    <View style={{ minWidth: 0, flexShrink: 1 }}>
+    <View style={{ minWidth: 0, flexShrink: 1, flex: avatar || icon ? 1 : undefined }}>
       <Text style={[s.td, strong && { color: colors.ink, fontWeight: "600" }]} numberOfLines={2}>{title}</Text>
-      {sub ? <Text style={{ fontSize: 11, color: colors.muted, marginTop: 3 }} numberOfLines={2}>{sub}</Text> : null}
+      {sub ? <Text style={[{ fontSize: 11, color: colors.muted, marginTop: 3 }, breakWords]} numberOfLines={2}>{sub}</Text> : null}
     </View>
   );
   if (!avatar && !icon) return text;
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 10, minWidth: 0 }}>
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 10, minWidth: 0, maxWidth: "100%" }}>
       {avatar ? <Avatar name={avatar.includes("@") ? avatar.split("@")[0].replace(/[._-]+/g, " ").replace(/(\d+)/g, " $1") : avatar} size={32} /> : <TileIcon icon={icon!} size={32} />}
       {text}
     </View>
@@ -999,7 +1077,7 @@ const s = StyleSheet.create({
   thead: { flexDirection: "row", backgroundColor: "#F7F9F5", borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.border, paddingVertical: 12 },
   th: { fontSize: 11, fontWeight: "600", letterSpacing: 0.2, color: "#708071" },
   tr: { flexDirection: "row", alignItems: "center", paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.rowLine },
-  td: { fontSize: 12, color: colors.text },
+  td: { fontSize: 12, color: colors.text, ...breakWords },
   menu: { position: "absolute", backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: colors.border, borderRadius: 9, paddingVertical: 4, ...shadow },
   formFooter: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 14, flexWrap: "wrap", paddingTop: 18, marginTop: 6, borderTopWidth: 1, borderTopColor: colors.border },
   stepCircle: { width: 26, height: 26, borderRadius: 13, backgroundColor: colors.pale, alignItems: "center", justifyContent: "center" },

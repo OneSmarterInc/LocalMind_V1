@@ -4,7 +4,7 @@ import React, { useMemo, useState } from "react";
 import { student } from "@/api/endpoints";
 import type { Attempt, Quiz } from "@/api/types";
 import { useAsync } from "@/hooks/useAsync";
-import { Badge, Button, Card, CellText, Column, Dropdown, Empty, ErrorBanner, Input, Loading, Notice, PageHeading, Screen, Table, TableToolbar, Tone, pct, RequestFailed, IncompleteNote } from "@/ui";
+import { Badge, Button, Card, CellText, Column, Dropdown, Empty, ErrorBanner, Input, Loading, Notice, PageHeading, Screen, Table, TableToolbar, Tone, pct, RequestFailed, IncompleteNote, subjectLabel } from "@/ui";
 import { useStudentCatalog } from "@/screens/student/catalog";
 
 type RowT = { quiz: Quiz; latest: Attempt | null; code: string; sub: string };
@@ -42,6 +42,8 @@ export default function StudentQuizzes() {
     return { quiz, latest, code, sub: [code, mod?.document, mod ? mod.title : quiz.kind === "module" ? null : "Several modules"].filter(Boolean).join(" · ") };
   }), [quizzes.data, scores.data, cat.data]);
   const codes = [...new Set(rows.map((r) => r.code).filter(Boolean))];
+  // Quiz rows carry only the subject code; the (offline-cached) catalogue has the name.
+  const subjectNames = new Map((cat.data?.subjects ?? []).map((r) => [r.subject.code, r.subject.name] as const));
   const ready = rows.filter((r) => statusOf(r).action === "Start quiz").length;
   const shown = rows.filter((r) => (subject === "all" || r.code === subject) && (book === "all" || r.quiz.document_ids?.includes(book)) && `${r.quiz.title} ${r.sub}`.toLowerCase().includes(search.trim().toLowerCase()));
   const open = (r: RowT) => {
@@ -64,7 +66,7 @@ export default function StudentQuizzes() {
       <Notice tone="success" title={ready ? `You have ${ready} quiz${ready === 1 ? "" : "zes"} ready.` : "No quizzes waiting right now."} message="Open a quiz to see its instructions before you begin." />
       <ErrorBanner message={quizzes.error || scores.error || books.error || cat.error} onRetry={reload} />
       <Card flush>
-        <TableToolbar right={<><Dropdown value={subject} onChange={v=>{setSubject(v);setBook("all");}} accessibilityLabel="Filter by subject" options={[{ value: "all", label: "All subjects" }, ...codes.map((c) => ({ value: c, label: c }))]} /><Dropdown value={book} onChange={setBook} accessibilityLabel="Filter by book" options={[{value:"all",label:"All books"},...(books.data??[]).map(b=>({value:b.id,label:b.title}))]} /></>}>
+        <TableToolbar right={<><Dropdown value={subject} onChange={v=>{setSubject(v);setBook("all");}} accessibilityLabel="Filter by subject" options={[{ value: "all", label: "All subjects" }, ...codes.map((c) => ({ value: c, label: subjectLabel(c, subjectNames.get(c)) }))]} /><Dropdown value={book} onChange={setBook} accessibilityLabel="Filter by book" options={[{value:"all",label:"All books"},...(books.data??[]).map(b=>({value:b.id,label:b.title}))]} /></>}>
           <Input icon="search" placeholder="Search this list…" value={search} onChangeText={setSearch} compact accessibilityLabel="Search quizzes" />
         </TableToolbar>
         {quizzes.error && !quizzes.data ? <RequestFailed onRetry={quizzes.reload} /> : quizzes.loading && !quizzes.data ? <Loading lines={2} /> : (
