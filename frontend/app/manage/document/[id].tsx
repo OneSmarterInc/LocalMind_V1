@@ -279,6 +279,8 @@ export default function DocumentScreen() {
     <Screen>
       {jobNotice}<ErrorBanner message={retryJob.error}/>
       <PageHeading eyebrow="BOOKS & MODULES" title={d!.title} subtitle={subtitle} right={<Row style={{ gap: 8, alignItems: "center" }}>{backToBooks}{statusBadge}</Row>} />
+      {authoring?<GenerationClaimNotice documentId={d!.id} onTakenOver={()=>{void prepareAutomatically(authoring,d!).catch(e=>{if(!isClaimedElsewhere(e))setPrepareError(errorMessage(e));});}}/>:null}
+      {prepareError?<Notice inline tone="warning" title="Source preparation needs attention" message={prepareError}/>:null}
       {!live ? stepper(tab === "publish" ? 2 : 1) : null}
       <ErrorBanner message={tabError ?? doc.error ?? act.error ?? remove.error} onRetry={doc.error ? doc.reload : undefined} />
       <PageTabs<DocTab> value={tab} onChange={setTab} tabs={[
@@ -363,10 +365,13 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
   const jobs=useGenerationJobs(prefix);
   const bookRunning=jobs.some(j=>(j.documentId===doc.id||j.bookId===doc.id)&&j.kind==='staff-auto'&&['queued','running'].includes(j.state));
   const running=controls.running;
-  const start=useCallback(async()=>{if(!service)return;if(await isHeld(prefix,doc.id))await setHeld(prefix,doc.id,false);setHeldState(false);await prepareAutomatically(service,doc);},[service,prefix,doc]);
+  const start=useCallback(async()=>{if(!service)return false;if(await isHeld(prefix,doc.id))await setHeld(prefix,doc.id,false);setHeldState(false);
+    // Another device of this login owns the book: the claim notice at the top says so and offers Take over.
+    try{return await prepareAutomatically(service,doc);}catch(e){if(isClaimedElsewhere(e)){showToast({tone:"warning",title:"Generation already started on another device",message:"See the notice at the top of this page to continue here."});return false;}throw e;}
+  },[service,prefix,doc]);
   const genNow=useAction(async(id:string)=>{if(!service)return;await clearFailure(service,doc,id);generateNow(ctlKey,id);await start();});
   const pauseAll=useAction(async()=>{await setHeld(prefix,doc.id,true);setHeldState(true);await generationJobs.cancelDocument(scope,doc.id);showToast({tone:"info",title:"Generation paused",message:"Everything finished so far is saved. Resume continues from each module's saved point."});});
-  const resumeAll=useAction(async()=>{await start();showToast({tone:"success",title:"Generation resumed",message:"Each module continues from its saved point."});});
+  const resumeAll=useAction(async()=>{if(await start())showToast({tone:"success",title:"Generation resumed",message:"Each module continues from its saved point."});});
   const rowState=(m:ModuleRow):'running'|'paused'|'queued'|'failed'|null=>{
     if(!teachableRows(m))return null;
     const a=automatic[m.id!];const kinds=[a?.lesson,a?.quiz];
