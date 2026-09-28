@@ -5,7 +5,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { api } from '@/api/client';
 import { manage } from '@/api/endpoints';
 import { useAsync } from '@/hooks/useAsync';
-import { Screen, Card, PageHeading, CardHead, H2, P, Button, Input, Row, ErrorBanner, Notice, Empty, Badge, Dropdown, Split, TileIcon, colors, confirmAsync, confirmDeleteAsync } from '@/ui';
+import { Screen, Card, PageHeading, CardHead, H2, P, Button, Input, Row, ErrorBanner, Notice, Empty, Badge, Dropdown, Split, TileIcon, useWide, colors, confirmAsync, confirmDeleteAsync } from '@/ui';
 import { sharedBooks, deleteSharedBook, type SharedBook } from '../catalogue';
 import { MAX_BOOK_BYTES } from '../core';
 
@@ -20,6 +20,7 @@ function fileSize(bytes: number) {
 
 /** Sharing books only. No block editor, model keys or teaching-aid approval steps. */
 export default function SharedLibrary() {
+  const wideSplit = useWide(980);
   const user = useAuth().user;
   const q = useAsync(() => sharedBooks(true), []), subjects = useAsync(() => manage.subjects(), []);
   const [title, setTitle] = useState(''), [subject, setSubject] = useState('');
@@ -72,6 +73,8 @@ export default function SharedLibrary() {
     </Card>
   );
 
+  // Split puts the upload form beside the list only when wide; on a phone it comes below.
+  const wideLayout = wideSplit;
   return <Screen refreshing={q.loading} onRefresh={q.reload}>
     <PageHeading eyebrow="SHARED STUDY BOOKS" title="Shared study books" subtitle="Share a book with your students. They create their own lessons, quizzes and doubt sessions on their devices, and their private study is not reported to you." />
     <ErrorBanner message={error || q.error || subjects.error} onRetry={q.reload} />
@@ -81,7 +84,7 @@ export default function SharedLibrary() {
         <Card>
           <CardHead title="Shared private-study books" subtitle={own.length ? `${own.length} book${own.length === 1 ? '' : 's'} · ${available} available to download` : undefined} />
           {!own.length
-            ? <Empty icon="book-outline" title="No extra books shared yet" text="Upload a book on the right. Published books from enrolled subjects also appear automatically in each student's Private library." />
+            ? <Empty icon="book-outline" title="No extra books shared yet" text={`Upload a book ${wideLayout ? "on the right" : "below"}. Published books from enrolled subjects also appear automatically in each student's Private library.`} />
             : <View style={{ gap: 10 }}>
                 {own.map(b => (
                   <View key={b.id} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 14, gap: 12, backgroundColor: colors.surface }}>

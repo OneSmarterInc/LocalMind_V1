@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { Platform, ScrollView, Text, View } from "react-native";
+import { Platform, ScrollView, Text, View, useWindowDimensions } from "react-native";
 import { colors } from "./theme";
 import { parseReadingBlocks } from "./sourceBlocks";
 
@@ -10,11 +10,25 @@ import { parseReadingBlocks } from "./sourceBlocks";
 export function SourceContent({ text, large = false }: { text: string; large?: boolean }) {
   const blocks = useMemo(() => parseReadingBlocks(text), [text]);
   const size = large ? 18 : 15;
+  const { width: screenWidth } = useWindowDimensions();
   return <View style={{ gap: 16, minWidth: 0, width: "100%" }}>
     {!blocks.length ? <Text style={{ color: colors.muted }}>This module has no text yet.</Text> : null}
     {blocks.map((block, index) => {
       if (block.kind === "heading") return <Text key={index} accessibilityRole="header"
         style={{ fontSize: size + Math.max(1, 7 - block.level), fontWeight: "600", color: colors.ink, marginTop: 8 }}>{block.text}</Text>;
+      if (block.kind === "table" && Platform.OS !== "web" && screenWidth < 700 && block.header.length >= 3) {
+        // Phones: each row as a labelled block. A 150dp-per-column grid scrolled
+        // sideways and lost the row it was on.
+        return <View key={index} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 8, overflow: "hidden" }} accessibilityLabel="Table from the source material">
+          <Text style={{ padding: 10, backgroundColor: colors.pale, fontSize: 12, fontWeight: "600", color: colors.primary }}>Table · {block.rows.length} {block.rows.length === 1 ? "row" : "rows"}</Text>
+          {block.rows.map((row, k) => <View key={k} style={{ padding: 12, gap: 6, borderTopWidth: k ? 1 : 0, borderColor: colors.border }}>
+            {row.map((cell, j) => <View key={j} style={{ flexDirection: "row", gap: 10 }}>
+              <Text style={{ width: 96, fontSize: 12, color: colors.muted, paddingTop: 2 }}>{block.header[j]}</Text>
+              <Text selectable style={{ flex: 1, minWidth: 0, fontSize: size - 1, lineHeight: (size - 1) * 1.5, color: j === 0 ? colors.ink : colors.text, fontWeight: j === 0 ? "600" : "400" }}>{cell}</Text>
+            </View>)}
+          </View>)}
+        </View>;
+      }
       if (block.kind === "table") {
         const width = Math.max(360, block.header.length * 150);
         return <View key={index} style={{ maxWidth: "100%", borderWidth: 1, borderColor: colors.border, borderRadius: 8, overflow: "hidden" }}>

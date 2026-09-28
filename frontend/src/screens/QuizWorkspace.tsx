@@ -343,18 +343,25 @@ export function QuizDetailPage({ id, note }: { id: string; note?: string }) {
   const subtitle = [code, first?.document_title, sources.length > 1 ? `${sources.length} modules` : first ? `Module ${first.number}` : null, `Version ${d.version}`].filter(Boolean).join(" · ");
   const held = !!d.held_for_review;
 
-  const saveBar = (
-    <View style={[{ flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap", paddingVertical: 13, paddingHorizontal: 18, borderWidth: 1, borderColor: colors.border, borderRadius: 12, backgroundColor: "#FFFFFFF2" },
-      Platform.OS === "web" ? ({ position: "sticky", bottom: 14, zIndex: 10, boxShadow: "0 8px 30px rgba(27,59,42,0.08)" } as object) : null]}>
+  const saveBarItems = (
+    <>
       <Text style={{ flex: 1, fontSize: 12, color: dirty ? colors.warning : colors.muted }}>{dirty ? "Unsaved changes" : "No unsaved changes"}</Text>
       {dirty ? <Button title="Discard" small variant="ghost" onPress={discard} /> : null}
       {d.status === "draft" || d.status === "closed" ? <Button title={held ? "Publish corrected quiz" : "Publish quiz"} small variant="secondary" icon="checkmark" onPress={() => (held ? publishHeld.run() : setStatus.run("published"))} busy={setStatus.busy || publishHeld.busy} disabled={dirty} /> : null}
       <Button title="Save changes" small icon="save-outline" onPress={() => save.run()} busy={save.busy} disabled={!dirty || !editable} />
+    </>
+  );
+  const saveBar = (
+    <View style={[{ flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap", paddingVertical: 13, paddingHorizontal: 18, borderWidth: 1, borderColor: colors.border, borderRadius: 12, backgroundColor: "#FFFFFFF2" },
+      Platform.OS === "web" ? ({ position: "sticky", bottom: 14, zIndex: 10, boxShadow: "0 8px 30px rgba(27,59,42,0.08)" } as object) : null]}>
+      {saveBarItems}
     </View>
   );
 
+  // Android has no sticky positioning: the same bar is pinned below the page there.
+  const pinBar = Platform.OS !== "web" && tab === "questions";
   return (
-    <Screen refreshing={q.loading} onRefresh={q.reload}>
+    <Screen refreshing={q.loading} onRefresh={q.reload} footer={pinBar ? <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>{saveBarItems}</View> : undefined}>
       <PageHeading eyebrow="QUIZ WORKSPACE" title={d.title || "Untitled quiz"} subtitle={subtitle} right={<Badge value={st.label} tone={st.tone} />} />
       <PageTabs<Tab> value={tab} onChange={setTab} tabs={[
         { key: "questions", label: "Questions" }, { key: "sources", label: "Source modules" },
@@ -393,7 +400,7 @@ export function QuizDetailPage({ id, note }: { id: string; note?: string }) {
               </>
             }
           />
-          {saveBar}
+          {pinBar ? null : saveBar}
         </>
       ) : null}
 

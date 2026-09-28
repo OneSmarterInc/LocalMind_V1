@@ -7,8 +7,10 @@ import {
   ActivityIndicator, Keyboard, Modal, Platform, Pressable, PressableStateCallbackType, RefreshControl, ScrollView, StyleProp, StyleSheet, Text,
   TextInput, TextInputProps, TextStyle, View, ViewStyle, useWindowDimensions,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { OfflineBanner } from "@/offline/OfflineBanner";
 import { Gradient } from "./Gradient";
+import { announceInputFocus, revealFocusedInput, useInputFocus, useKeyboardInset } from "./keyboardInset";
 import { Tone, bp, colors, font, gradients, radius, radiusSm, space, statusTone, tones } from "./theme";
 
 export { Gradient };
@@ -25,6 +27,8 @@ type IconName = keyof typeof Ionicons.glyphMap;
 type PressState = PressableStateCallbackType & { hovered?: boolean };
 
 export const SIDEBAR_WIDTH = 238;
+/** Touch devices get larger tap targets and a visible pressed state (no hover). */
+const TOUCH = Platform.OS !== "web";
 const CONTENT_MAX = 1370;
 const shadow: ViewStyle = Platform.OS === "web"
   ? ({ boxShadow: "0 8px 30px rgba(27,59,42,0.03)" } as ViewStyle)
@@ -47,9 +51,11 @@ export function useWide(min = 900) {
 /* Layout                                                              */
 /* ------------------------------------------------------------------ */
 
-export function Screen({ children, scroll = true, refreshing, onRefresh, padded = true, wide, toolbar, actions, scrollTopOn }: {
+export function Screen({ children, scroll = true, refreshing, onRefresh, padded = true, wide, toolbar, actions, scrollTopOn, footer }: {
   children: React.ReactNode; scroll?: boolean; refreshing?: boolean; onRefresh?: () => void; padded?: boolean; wide?: boolean;
   toolbar?: React.ReactNode; actions?: React.ReactNode;
+  /** A bar pinned below the scrolling page (and above the keyboard), e.g. Save. */
+  footer?: React.ReactNode;
   /** Return to the top of the page whenever this value changes.
    *
    * Moving to the next module kept the previous scroll position, so a reader
@@ -59,7 +65,18 @@ export function Screen({ children, scroll = true, refreshing, onRefresh, padded 
   scrollTopOn?: string | number | null;
 }) {
   const gutter = useGutter();
+  const { width: screenWidth } = useWindowDimensions();
   const scroller = React.useRef<ScrollView>(null);
+  // Keyboard: pad the page by exactly what the keyboard covers, then bring the
+  // focused field into view (Android does neither on its own under edge-to-edge).
+  const offset = React.useRef(0);
+  const { inset: keyboardInset, keyboardTop } = useKeyboardInset(scroller);
+  React.useEffect(() => {
+    if (!keyboardTop) return;
+    const t = setTimeout(() => revealFocusedInput(scroller.current, offset.current, keyboardTop), 30);
+    return () => clearTimeout(t);
+  }, [keyboardInset, keyboardTop]);
+  useInputFocus(() => revealFocusedInput(scroller.current, offset.current, keyboardTop));
   React.useEffect(() => {
     if (scrollTopOn === undefined) return;
     const top = () => {
@@ -77,18 +94,26 @@ export function Screen({ children, scroll = true, refreshing, onRefresh, padded 
   const bar = toolbar || actions ? <Toolbar right={actions}>{toolbar}</Toolbar> : null;
   const inner = (
     <PageMessagesProvider>
-    <View style={[padded && { paddingHorizontal: gutter, paddingTop: 28, gap: space.lg }, { maxWidth: wide ? 1600 : CONTENT_MAX + gutter * 2, width: "100%", alignSelf: "center" }, !scroll && { flex: 1, minHeight: 0 }]}>
+    <View style={[padded && { paddingHorizontal: gutter, paddingTop: screenWidth < bp.tablet ? 16 : 28, gap: space.lg }, { maxWidth: wide ? 1600 : CONTENT_MAX + gutter * 2, width: "100%", alignSelf: "center" }, !scroll && { flex: 1, minHeight: 0 }]}>
       {bar}
       {children}
     </View>
     </PageMessagesProvider>
   );
   if (!scroll) return <View style={{ flex: 1, minHeight: 0, backgroundColor: colors.bg }}>{inner}</View>;
-  return (
-    <ScrollView ref={scroller} style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={{ paddingBottom: 48 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={Platform.OS === "web"}
+  const page = (
+    <ScrollView ref={scroller} style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={{ paddingBottom: 48 + (footer ? 0 : keyboardInset) }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator
+      onScroll={(e) => { offset.current = e.nativeEvent.contentOffset.y; }} scrollEventThrottle={32}
       refreshControl={onRefresh ? <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} /> : undefined}>
       {inner}
     </ScrollView>
+  );
+  if (!footer) return page;
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      {page}
+      <View style={[s.screenFoot, { paddingHorizontal: gutter, marginBottom: keyboardInset }]}>{footer}</View>
+    </View>
   );
 }
 
@@ -185,7 +210,7 @@ export function TextLink({ title, onPress, icon, iconLeft }: { title: string; on
       {(st: PressState) => (
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
           {icon && iconLeft ? <Ionicons name={icon} size={14} color={colors.primary} /> : null}
-          <Text style={[s.textLink, st.hovered && { textDecorationLine: "underline" }]}>{title}</Text>
+          <Text style={[s.textLink, (st.hovered || st.pressed) && { textDecorationLine: "underline" }, st.pressed && { opacity: 0.7 }]}>{title}</Text>
           {icon && !iconLeft ? <Ionicons name={icon} size={14} color={colors.primary} /> : null}
         </View>
       )}
@@ -248,14 +273,15 @@ export function Button({ title, onPress, variant = "primary", disabled, busy, sm
       {(st: PressState) => (
         <View style={[
           s.btn, small && s.btnSmall, iconPosition === "right" && { flexDirection: "row-reverse" },
-          variant === "primary" && { backgroundColor: st.hovered ? colors.primaryDark : colors.primary, borderColor: colors.primary },
-          variant === "secondary" && { backgroundColor: st.hovered ? "#F4F7F1" : "#FFFFFF", borderColor: st.hovered ? "#BDCDBF" : colors.border },
-          variant === "danger" && { backgroundColor: st.hovered ? "#FFF6F4" : "#FFFFFF", borderColor: "#EBC9C5" },
-          variant === "ghost" && { backgroundColor: st.hovered ? colors.pale : "transparent", borderColor: "transparent" },
-          off && { opacity: 0.5 }, st.pressed && { opacity: 0.85 },
+          TOUCH && (small ? s.btnSmallTouch : s.btnTouch),
+          variant === "primary" && { backgroundColor: st.hovered || st.pressed ? colors.primaryDark : colors.primary, borderColor: colors.primary },
+          variant === "secondary" && { backgroundColor: st.hovered || st.pressed ? "#EEF3EC" : "#FFFFFF", borderColor: st.hovered || st.pressed ? "#BDCDBF" : colors.border },
+          variant === "danger" && { backgroundColor: st.hovered || st.pressed ? "#FFF0EE" : "#FFFFFF", borderColor: "#EBC9C5" },
+          variant === "ghost" && { backgroundColor: st.hovered || st.pressed ? colors.pale : "transparent", borderColor: "transparent" },
+          off && { opacity: 0.5 },
         ]}>
           {busy ? <ActivityIndicator size="small" color={fg} /> : icon ? <Ionicons name={icon} size={small ? 14 : 16} color={fg} /> : null}
-          <Text style={{ color: fg, fontWeight: "600", fontSize: small ? 12 : 13 }} numberOfLines={1}>{title}</Text>
+          <Text style={{ color: fg, fontWeight: "600", fontSize: small ? 12 : 13, flexShrink: 1, textAlign: "center" }} numberOfLines={full ? 2 : 1}>{title}</Text>
         </View>
       )}
     </Pressable>
@@ -266,7 +292,7 @@ export function IconButton({ icon, onPress, label, disabled }: { icon: IconName;
   return (
     <Pressable onPress={onPress} disabled={disabled} accessibilityRole="button" accessibilityLabel={label}>
       {(st: PressState) => (
-        <View style={[s.iconBtn, st.hovered && { backgroundColor: "#F4F7F1" }, disabled && { opacity: 0.5 }]}>
+        <View style={[s.iconBtn, TOUCH && { width: 44, height: 44 }, (st.hovered || st.pressed) && { backgroundColor: "#EEF3EC" }, disabled && { opacity: 0.5 }]}>
           <Ionicons name={icon} size={18} color={colors.ink} />
         </View>
       )}
@@ -281,7 +307,7 @@ export function Input(props: TextInputProps & { label?: string; error?: string |
       {label ? <Text style={s.fieldLabel}>{label}{required ? <Text style={{ color: colors.danger, fontWeight: "400" }}> *</Text> : null}</Text> : null}
       <View>
         {icon ? <Ionicons name={icon} size={17} color={colors.muted} style={{ position: "absolute", left: 12, top: compact ? 10 : 12, zIndex: 1 }} /> : null}
-        <TextInput placeholderTextColor={colors.faint} selectionColor={colors.primary} accessibilityLabel={label} {...rest} onKeyPress={enterHandler(onEnter, onKeyPress, Platform.OS === "web")}
+        <TextInput placeholderTextColor={colors.faint} selectionColor={colors.primary} accessibilityLabel={label} {...rest} onFocus={(e) => { announceInputFocus(); rest.onFocus?.(e); }} onKeyPress={enterHandler(onEnter, onKeyPress, Platform.OS === "web")}
           style={[s.input, compact && s.inputCompact, icon && { paddingLeft: 38 }, rest.multiline && { minHeight: 116, textAlignVertical: "top", lineHeight: 21 }, error && { borderColor: colors.danger }, !!endAdornment && { paddingRight: 48 }, style]} />
         {endAdornment ? <View style={{ position: "absolute", right: 0, top: 0, bottom: 0, justifyContent: "center" }}>{endAdornment}</View> : null}
       </View>
@@ -317,7 +343,7 @@ export function Chip({ label, selected, onPress, count }: { label: string; selec
   return (
     <Pressable onPress={onPress} accessibilityRole="button" accessibilityState={{ selected: !!selected }}>
       {(st: PressState) => (
-        <View style={[s.pill, selected && s.pillOn, st.hovered && !selected && { borderColor: "#C6DBC9" }]}>
+        <View style={[s.pill, TOUCH && { minHeight: 36, justifyContent: "center" }, selected && s.pillOn, (st.hovered || st.pressed) && !selected && { borderColor: "#C6DBC9", backgroundColor: st.pressed ? "#F1F6EF" : undefined }]}>
           <Text style={{ color: selected ? colors.primary : colors.muted, fontSize: 11, fontWeight: selected ? "600" : "400" }}>{label}{count !== undefined ? ` (${count})` : ""}</Text>
         </View>
       )}
@@ -334,8 +360,8 @@ export function Checkbox({ on, onPress, label, mixed }: { on: boolean; onPress: 
   const filled = on || mixed;
   return (
     <Pressable onPress={onPress} accessibilityRole="checkbox" accessibilityLabel={label} accessibilityState={{ checked: mixed ? "mixed" : on }} hitSlop={10}
-      style={{ width: 18, height: 18, borderRadius: 4, borderWidth: 1.5, borderColor: filled ? colors.primary : "#9AAA9D", backgroundColor: filled ? colors.primary : "#FFFFFF", alignItems: "center", justifyContent: "center" }}>
-      {filled ? <Ionicons name={mixed ? "remove" : "checkmark"} size={12} color="#FFFFFF" /> : null}
+      style={{ width: TOUCH ? 22 : 18, height: TOUCH ? 22 : 18, borderRadius: 4, borderWidth: 1.5, borderColor: filled ? colors.primary : "#9AAA9D", backgroundColor: filled ? colors.primary : "#FFFFFF", alignItems: "center", justifyContent: "center" }}>
+      {filled ? <Ionicons name={mixed ? "remove" : "checkmark"} size={TOUCH ? 15 : 12} color="#FFFFFF" /> : null}
     </Pressable>
   );
 }
@@ -345,8 +371,8 @@ export function OptionCard({ title, text, selected, onPress, multi, disabled, ri
   return (
     <Pressable onPress={onPress} disabled={disabled} accessibilityRole={multi ? "checkbox" : "radio"} accessibilityLabel={title || undefined} accessibilityState={{ checked: !!selected, disabled: !!disabled }} aria-checked={!!selected}>
       {(st: PressState) => (
-        <View style={[s.option, selected && s.optionOn, st.hovered && !selected && { borderColor: "#BDCDBF" }, disabled && { opacity: 0.55 }]}>
-          <View style={[multi ? s.checkbox : s.radio, selected && (multi ? s.checkboxOn : s.radioOn)]}>
+        <View style={[s.option, selected && s.optionOn, (st.hovered || st.pressed) && !selected && { borderColor: "#BDCDBF" }, st.pressed && !selected && { backgroundColor: "#F6F9F4" }, disabled && { opacity: 0.55 }]}>
+          <View style={[multi ? s.checkbox : s.radio, TOUCH && { width: 20, height: 20, borderRadius: multi ? 5 : 10 }, selected && (multi ? s.checkboxOn : s.radioOn)]}>
             {selected && multi ? <Ionicons name="checkmark" size={12} color="#FFFFFF" /> : null}
           </View>
           {letter ? <View style={{ width: 24, height: 24, borderRadius: 5, borderWidth: 1, borderColor: colors.border, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", marginTop: -3 }}><Text style={{ fontSize: 11, color: colors.muted }}>{letter}</Text></View> : null}
@@ -363,16 +389,28 @@ export function OptionCard({ title, text, selected, onPress, multi, disabled, ri
 
 /** Underlined page tabs. */
 export function PageTabs<T extends string>({ tabs, value, onChange }: { tabs: { key: T; label: string; icon?: IconName; count?: number | null }[]; value: T; onChange: (k: T) => void }) {
+  // Phones cut the tab row off at the edge; keep the selected tab in view so
+  // a person landing on the third or fourth tab can see where they are.
+  const scroller = React.useRef<ScrollView>(null);
+  const spots = React.useRef<Record<string, number>>({});
+  React.useEffect(() => {
+    const x = spots.current[value];
+    if (x != null) scroller.current?.scrollTo({ x: Math.max(0, x - 24), animated: true });
+  }, [value]);
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ flexGrow: 1 }}>
+    <ScrollView ref={scroller} horizontal showsHorizontalScrollIndicator={TOUCH} style={{ flexGrow: 0 }} contentContainerStyle={{ flexGrow: 1 }}>
       <View style={s.tabs} accessibilityRole="tablist" {...keyboardList("tab")}>
         {tabs.map((tb) => {
           const on = tb.key === value;
           return (
-            <Pressable key={tb.key} tabIndex={on ? 0 : -1} onPress={() => onChange(tb.key)} accessibilityRole="tab" accessibilityLabel={tb.label} accessibilityState={{ selected: on }} aria-selected={on}>
+            <Pressable key={tb.key} tabIndex={on ? 0 : -1} onPress={() => onChange(tb.key)} accessibilityRole="tab" accessibilityLabel={tb.label} accessibilityState={{ selected: on }} aria-selected={on}
+              onLayout={(e) => {
+                spots.current[tb.key] = e.nativeEvent.layout.x;
+                if (on && e.nativeEvent.layout.x > 0) scroller.current?.scrollTo({ x: Math.max(0, e.nativeEvent.layout.x - 24), animated: false });
+              }}>
               {(st: PressState) => (
-                <View style={[s.tab, on && s.tabOn]}>
-                  <Text style={{ fontSize: 12, color: on || st.hovered ? colors.primary : colors.muted, fontWeight: on ? "600" : "400" }}>{tb.label}</Text>
+                <View style={[s.tab, TOUCH && { minHeight: 40, paddingTop: 8 }, on && s.tabOn, st.pressed && !on && { borderBottomColor: "#C6DBC9" }]}>
+                  <Text style={{ fontSize: TOUCH ? 13 : 12, color: on || st.hovered || st.pressed ? colors.primary : colors.muted, fontWeight: on ? "600" : "400" }}>{tb.label}</Text>
                   {tb.count != null ? <View style={s.tabCount}><Text style={{ fontSize: 11, color: colors.muted }}>{tb.count}</Text></View> : null}
                 </View>
               )}
@@ -495,7 +533,7 @@ export function ListRow({ title, subtitle, right, onPress, badge, icon, tone, pl
     {badge ? <Badge value={badge} /> : null}
   </>;
   return <View style={plain ? s.listItem : s.listCard}>
-    {onPress ? <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={title} style={{ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 12 }}>
+    {onPress ? <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={title} style={({ pressed }) => [{ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 8 }, pressed && { backgroundColor: "#F1F6EF" }]}>
       {content}<Ionicons name="chevron-forward" size={17} color={colors.muted} />
     </Pressable> : content}
     {right}
@@ -529,6 +567,50 @@ export function Table<T>({ columns, rows, keyOf, onRowPress, empty, minWidth = 6
     return { flex: c.width ? undefined : action ? (c.flex ?? 1.1) * 1.7 : c.flex ?? 1, width: c.width, paddingHorizontal: gutter, minWidth: 0,
       alignItems: action ? "flex-start" : c.align === "right" ? "flex-end" : c.align === "center" ? "center" : "flex-start" };
   };
+  const foot = footer === false || rows.length === 0 ? null : footer ?? (
+    <TableFooter><Text style={{ fontSize: 11, color: colors.muted }}>Showing {rows.length === 1 ? "1" : `all ${rows.length}`} {rows.length === 1 ? noun : noun.endsWith("z") ? `${noun}zes` : noun.endsWith("y") ? `${noun.slice(0, -1)}ies` : `${noun}s`}</Text></TableFooter>
+  );
+  // Phones: every row becomes a card. The first column is the title, the other
+  // headed columns become label / value pairs, and the row's buttons sit at the
+  // bottom. Nothing scrolls sideways and the name never scrolls out of view.
+  if (windowWidth < 700) {
+    const data = columns.filter((c) => !!c.label);
+    // A narrow unheaded column (a selection checkbox) stays beside the title.
+    const side = columns.filter((c) => !c.label && (c.width ?? 99) <= 48);
+    const acts = columns.filter((c) => !c.label && !side.includes(c));
+    const [lead, ...rest] = data;
+    return (
+      <View>
+        {rows.length === 0 ? (empty ?? null) : rows.map((row, i) => {
+          const card = (pressed: boolean) => (
+            <View style={[s.mrow, i === rows.length - 1 && { borderBottomWidth: 0 }, pressed && { backgroundColor: "#F6F9F4" }]}>
+              {lead ? (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 12, minWidth: 0 }}>
+                  {side.map((c) => <View key={c.key}>{c.render(row)}</View>)}
+                  <View style={{ flex: 1, minWidth: 0 }}>{wrapText(lead.render(row))}</View>
+                </View>
+              ) : null}
+              {rest.length ? (
+                <View style={s.mgrid}>
+                  {rest.map((c) => (
+                    <View key={c.key} style={s.mcell}>
+                      <Text style={s.mlabel} numberOfLines={1}>{c.label}</Text>
+                      <View style={{ alignItems: "flex-start" }}>{wrapText(c.render(row))}</View>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+              {acts.map((c) => <View key={c.key} style={{ alignItems: "stretch" }}>{c.render(row)}</View>)}
+            </View>
+          );
+          return onRowPress
+            ? <Pressable key={keyOf(row)} onPress={() => onRowPress(row)} accessibilityRole="none">{(st: PressState) => card(!!st.pressed)}</Pressable>
+            : <View key={keyOf(row)}>{card(false)}</View>;
+        })}
+        {foot}
+      </View>
+    );
+  }
   // Real table semantics for screen readers: table, rows, column headers and cells.
   const body = (
     <View style={{ minWidth: floor, flex: 1 }} role="table">
@@ -537,19 +619,16 @@ export function Table<T>({ columns, rows, keyOf, onRowPress, empty, minWidth = 6
       </View>
       {rows.length === 0 ? (empty ?? null) : rows.map((row, i) => {
         const content = (hovered: boolean) => (
-          <View style={[s.tr, i === rows.length - 1 && { borderBottomWidth: 0 }, hovered && { backgroundColor: "#FCFDFB" }]} role="row">
+          <View style={[s.tr, i === rows.length - 1 && { borderBottomWidth: 0 }, hovered && { backgroundColor: "#F6F9F4" }]} role="row">
             {columns.map((c) => <View key={c.key} style={cell(c)} role="cell">{wrapText(c.render(row))}</View>)}
           </View>
         );
         return onRowPress
           // No button role: rows hold their own buttons, and a button inside a button is invalid HTML.
-          ? <Pressable key={keyOf(row)} onPress={() => onRowPress(row)} accessibilityRole="none">{(st: PressState) => content(!!st.hovered)}</Pressable>
+          ? <Pressable key={keyOf(row)} onPress={() => onRowPress(row)} accessibilityRole="none">{(st: PressState) => content(!!st.hovered || st.pressed)}</Pressable>
           : <View key={keyOf(row)}>{content(false)}</View>;
       })}
     </View>
-  );
-  const foot = footer === false || rows.length === 0 ? null : footer ?? (
-    <TableFooter><Text style={{ fontSize: 11, color: colors.muted }}>Showing {rows.length === 1 ? "1" : `all ${rows.length}`} {rows.length === 1 ? noun : noun.endsWith("z") ? `${noun}zes` : noun.endsWith("y") ? `${noun.slice(0, -1)}ies` : `${noun}s`}</Text></TableFooter>
   );
   return (
     <View>
@@ -587,6 +666,18 @@ export function TableFooter({ children }: { children: React.ReactNode }) {
 /** Numbered steps; `active` is the current one, earlier steps show as done. */
 export function Stepper({ steps, active }: { steps: string[]; active: number }) {
   const wide = useWide(640);
+  if (!wide) {
+    // Phones: one line and a segmented bar instead of a tall vertical list.
+    const at = Math.min(Math.max(active, 0), steps.length - 1);
+    return (
+      <View style={{ gap: 7, marginBottom: 4 }} accessibilityRole="progressbar" accessibilityLabel={`Step ${at + 1} of ${steps.length}: ${steps[at]}`}>
+        <View style={{ flexDirection: "row", gap: 4 }}>
+          {steps.map((label, i) => <View key={label} style={{ flex: 1, height: 4, borderRadius: 2, backgroundColor: i < at ? "#88A47B" : i === at ? colors.primary : colors.border }} />)}
+        </View>
+        <Text style={{ fontSize: 12, color: colors.muted }}>Step {at + 1} of {steps.length} · <Text style={{ color: colors.primary, fontWeight: "600" }}>{steps[at]}</Text></Text>
+      </View>
+    );
+  }
   return (
     <View style={{ flexDirection: wide ? "row" : "column", gap: 8, marginBottom: 8 }} accessibilityRole="list">
       {steps.map((label, i) => {
@@ -714,10 +805,14 @@ export function Dropdown<T extends string>({ value, options, onChange, label, pl
   const [box, setBox] = React.useState<{ left: number; top: number; width: number; maxHeight: number } | null>(null);
   const ref = React.useRef<View>(null);
   const win = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const current = options.find((o) => o.value === value);
+  // Phones: a bottom sheet with full-height rows, always on screen and clear of the keyboard.
+  const sheet = TOUCH && win.width < bp.tablet;
   // Opens below the field when there is room, otherwise above, and always inside the visible screen
   // (above the keyboard on a phone).
   const show = () => {
+    if (sheet) { Keyboard.dismiss(); setOpen(true); return; }
     ref.current?.measureInWindow((x, y, w, h) => {
       const keyboard = Keyboard.isVisible?.() ? Keyboard.metrics()?.height ?? 0 : 0;
       const wanted = Math.min(options.length * 38 + 8, 320);
@@ -735,21 +830,38 @@ export function Dropdown<T extends string>({ value, options, onChange, label, pl
       {label ? <Text style={s.fieldLabel}>{label}</Text> : null}
       <Pressable ref={ref} onPress={show} accessibilityRole="button" accessibilityLabel={accessibilityLabel ?? label ?? current?.label ?? placeholder} accessibilityState={{ expanded: open }}>
         {(st: PressState) => (
-          <View style={[s.input, s.inputCompact, { flexDirection: "row", alignItems: "center", gap: 8, minWidth: 140 }, st.hovered && { borderColor: "#BDCDBF" }]}>
+          <View style={[s.input, s.inputCompact, { flexDirection: "row", alignItems: "center", gap: 8, minWidth: 140 }, TOUCH && { minHeight: 44 }, (st.hovered || st.pressed) && { borderColor: "#BDCDBF" }]}>
             <Text style={{ flex: 1, fontSize: 12, color: current ? colors.ink : colors.faint }} numberOfLines={1}>{current?.label ?? placeholder}</Text>
             <Ionicons name="chevron-down" size={14} color={colors.muted} />
           </View>
         )}
       </Pressable>
       <Modal visible={open} transparent animationType="none" onRequestClose={() => setOpen(false)}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={() => setOpen(false)} accessibilityLabel="Close list" />
-        {box ? (
+        <Pressable style={[StyleSheet.absoluteFill, sheet && { backgroundColor: "rgba(22,40,30,0.35)" }]} onPress={() => setOpen(false)} accessibilityLabel="Close list" />
+        {sheet ? (
+          <View style={[s.dropSheet, { paddingBottom: 10 + insets.bottom, maxHeight: win.height * 0.7 }]} {...keyboardList("menuitem", () => setOpen(false))}>
+            <View style={s.dropGrab} />
+            {label || accessibilityLabel ? <Text style={[s.h2, { fontSize: 15, marginHorizontal: 8, marginBottom: 6 }]}>{label ?? accessibilityLabel}</Text> : null}
+            <ScrollView>
+              {options.map((o) => (
+                <Pressable key={o.value || "_"} onPress={() => { onChange(o.value); setOpen(false); }} accessibilityRole="menuitem" accessibilityState={{ selected: o.value === value }}>
+                  {(st: PressState) => (
+                    <View style={[{ minHeight: 48, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 9 }, (st.pressed || o.value === value) && { backgroundColor: colors.pale }]}>
+                      <Text style={{ flex: 1, fontSize: 14, color: o.value === value ? colors.primary : colors.ink, fontWeight: o.value === value ? "600" : "400" }}>{o.label}</Text>
+                      {o.value === value ? <Ionicons name="checkmark" size={18} color={colors.primary} /> : null}
+                    </View>
+                  )}
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        ) : box ? (
           <View style={[s.menu, { left: box.left, top: box.top, width: box.width }]} {...keyboardList("menuitem", () => setOpen(false))}>
             <ScrollView style={{ maxHeight: box.maxHeight - 8 }}>
               {options.map((o) => (
                 <Pressable key={o.value || "_"} onPress={() => { onChange(o.value); setOpen(false); }} accessibilityRole="menuitem" accessibilityState={{ selected: o.value === value }}>
                   {(st: PressState) => (
-                    <View style={[{ paddingHorizontal: 12, paddingVertical: 9, flexDirection: "row", alignItems: "center", gap: 8 }, (st.hovered || o.value === value) && { backgroundColor: colors.pale }]}>
+                    <View style={[{ paddingHorizontal: 12, paddingVertical: 9, flexDirection: "row", alignItems: "center", gap: 8 }, (st.hovered || st.pressed || o.value === value) && { backgroundColor: colors.pale }]}>
                       <Text style={{ flex: 1, fontSize: 12, color: colors.ink, fontWeight: o.value === value ? "600" : "400" }}>{o.label}</Text>
                       {o.value === value ? <Ionicons name="checkmark" size={14} color={colors.primary} /> : null}
                     </View>
@@ -845,6 +957,15 @@ const s = StyleSheet.create({
   toolbarActions: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 9 },
   btn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderWidth: 1, borderRadius: radiusSm, paddingHorizontal: 15, minHeight: 39 },
   btnSmall: { paddingHorizontal: 11, minHeight: 33 },
+  btnTouch: { minHeight: 44, paddingVertical: 8 },
+  screenFoot: { borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: "#FFFFFF", paddingVertical: 10 },
+  mrow: { paddingHorizontal: 16, paddingVertical: 14, gap: 10, borderBottomWidth: 1, borderBottomColor: colors.rowLine },
+  mgrid: { flexDirection: "row", flexWrap: "wrap", rowGap: 8, columnGap: 12 },
+  mcell: { flexBasis: "46%", flexGrow: 1, minWidth: 0, gap: 2 },
+  mlabel: { fontSize: 11, color: colors.faint },
+  dropSheet: { position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: "#FFFFFF", borderTopLeftRadius: 18, borderTopRightRadius: 18, paddingHorizontal: 12, paddingTop: 8 },
+  dropGrab: { width: 36, height: 4, borderRadius: 2, backgroundColor: "#D5DDD3", alignSelf: "center", marginBottom: 10 },
+  btnSmallTouch: { minHeight: 38, paddingVertical: 6 },
   iconBtn: { width: 38, height: 38, borderRadius: radiusSm, borderWidth: 1, borderColor: colors.border, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
   fieldLabel: { fontSize: 12, fontWeight: "600", color: colors.ink },
   hint: { fontSize: 11, color: colors.muted },

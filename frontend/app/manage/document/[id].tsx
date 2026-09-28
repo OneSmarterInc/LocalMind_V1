@@ -42,7 +42,7 @@ export default function DocumentScreen() {
   const owner=user?.id;
   const authoring=useMemo(()=>owner?new LocalAuthoring(owner):null,[owner]);
   const [prepareError,setPrepareError]=useState("");
-  const { height } = useWindowDimensions();
+  const { height, width } = useWindowDimensions();
   const [tabChoice, setTabChoice] = useState<DocTab | null>(tabParam ?? null);
   useEffect(() => { setTabChoice(tabParam && ["outline", "pictures", "lessons", "publish", "live"].includes(tabParam) ? tabParam : null); }, [id, tabParam]);
   const [preview, setPreview] = useState<{ id: string; title: string; quizStatus: string; quizId: string | null } | null>(null);
@@ -291,7 +291,7 @@ export default function DocumentScreen() {
       {tab === "outline" ? (
         <>
           {d.outline_quality?.source_sections ? <Notice title={`${d.outline_quality.covered_sections} of ${d.outline_quality.source_sections} extracted sections accounted for`} message={[d.outline_quality.coverage_note,...(d.outline_quality.warnings||[])].filter(Boolean).join(' ')} tone={d.outline_quality.warnings?.length ? 'warning' : 'info'} /> : null}
-          <Notice title="One module at a time." message="Choose a module on the left. Edit its title and source on the right. Save explicitly before leaving." />
+          <Notice title="One module at a time." message={width >= 900 ? "Choose a module on the left. Edit its title and source on the right. Save explicitly before leaving." : "Choose a module, then edit its title and source. Save explicitly before leaving."} />
           {missingSource ? <Notice inline tone="warning" title="Modules without text" message={`${missingSource} module${missingSource === 1 ? " has" : "s have"} no source text but ${missingSource === 1 ? "is" : "are"} kept because a quiz, an assignment or student work refers to ${missingSource === 1 ? "it" : "them"}. Students do not see ${missingSource === 1 ? "it" : "them"}. Paste text to bring ${missingSource === 1 ? "it" : "them"} back.`} /> : null}
           {live ? <Notice inline tone="warning" title="This book is live." message="Saved changes reach enrolled students immediately, and a module a student has already worked through cannot be removed." /> : null}
           <View onLayout={(e) => setEditorTop(e.nativeEvent.layout.y)} style={{ height: editorHeight, borderWidth: 1, borderColor: colors.border, borderRadius: 13, overflow: "hidden", backgroundColor: "#FFFFFF" }}>
@@ -878,6 +878,7 @@ function OutlineTree({ chapters, selection, outlineSource, onSelect, onCollapse,
         style={[{ flex: 1, minHeight: 0 }, Platform.OS === "web" && ({ overflowY: "auto" } as object)]}
         contentContainerStyle={{ paddingHorizontal: 8, paddingBottom: space.xl }}
         keyboardShouldPersistTaps="handled"
+        nestedScrollEnabled
       >
         {needle && rows.length === 0 ? <Empty text="Nothing in this outline matches that." icon="search-outline" /> : null}
         {rows.map(({ chapter: ch, index: ci, modules }) => (
@@ -932,7 +933,7 @@ function ModulePane({ number, module: m, index, count, onChange, onMove, onRemov
   const heading = headings.find((h) => h.index === m.source_heading_index);
   const pages = heading?.start_page ? `Source pages ${heading.start_page}${heading.end_page && heading.end_page !== heading.start_page ? `–${heading.end_page}` : ""}` : "Source pages not recorded";
   return (
-    <ScrollView style={[{ flex: 1, minHeight: 0 }, Platform.OS === "web" && ({ overflowY: "auto" } as object)]} contentContainerStyle={{ gap: 14, paddingBottom: 12 }} keyboardShouldPersistTaps="handled">
+    <ScrollView style={[{ flex: 1, minHeight: 0 }, Platform.OS === "web" && ({ overflowY: "auto" } as object)]} contentContainerStyle={{ gap: 14, paddingBottom: 12 }} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
       <Row style={{ justifyContent: "space-between" }}>
         {onBack ? <Button title="Outline" icon="chevron-back" small variant="ghost" onPress={onBack} /> : null}
         <Text style={{ fontSize: 10, fontWeight: "700", letterSpacing: 1.8, color: colors.muted }}>MODULE {String(number).padStart(2, "0")}</Text>
@@ -1113,6 +1114,7 @@ function ChapterPane({ chapter, index, count, onChange, onMove, onRemove, onAddM
       style={[{ flex: 1, minHeight: 0 }, Platform.OS === "web" && ({ overflowY: "auto" } as object)]}
       contentContainerStyle={{ gap: space.md, paddingBottom: space.lg }}
       keyboardShouldPersistTaps="handled"
+      nestedScrollEnabled
     >
       <Row>
         {onBack ? <Button title="Outline" icon="chevron-back" small variant="ghost" onPress={onBack} /> : null}

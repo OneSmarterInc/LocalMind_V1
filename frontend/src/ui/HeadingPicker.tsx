@@ -1,8 +1,10 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import React, { useMemo, useState } from "react";
-import { Modal, Pressable, ScrollView, TouchableWithoutFeedback, View, useWindowDimensions } from "react-native";
+import React, { useMemo, useRef, useState } from "react";
+import { Modal, Platform, Pressable, ScrollView, TouchableWithoutFeedback, View, useWindowDimensions } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useDebounced } from "@/hooks/useDebounced";
 import { Empty, Input, Label, P, colors, radius, radiusSm, space } from "@/ui";
+import { useKeyboardInset } from "@/ui/keyboardInset";
 
 export interface Heading { index: number; level: number; title: string; start_page?: number; end_page?: number }
 
@@ -32,6 +34,12 @@ export function HeadingPicker({
   const [q, setQ] = useState("");
   const query = useDebounced(q, 150);
   const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  // Phones: the picker fills the screen so the search box and a useful number of
+  // headings stay visible above the keyboard.
+  const phone = Platform.OS !== "web" && width < 768;
+  const sheetRef = useRef<View>(null);
+  const { inset: keyboardInset } = useKeyboardInset(sheetRef);
   const current = headings.find((h) => h.index === value);
 
   const matches = useMemo(() => {
@@ -74,9 +82,9 @@ export function HeadingPicker({
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <TouchableWithoutFeedback onPress={() => setOpen(false)}>
-          <View style={{ flex: 1, backgroundColor: "rgba(3,8,11,0.72)", alignItems: "center", justifyContent: "center", padding: space.lg }}>
+          <View style={[{ flex: 1, backgroundColor: "rgba(3,8,11,0.72)", alignItems: "center", justifyContent: "center", padding: space.lg }, phone && { padding: 0 }]}>
             <TouchableWithoutFeedback>
-              <View style={{
+              <View ref={sheetRef} style={[{
                 width: "100%",
                 maxWidth: Math.min(640, width - 32),
                 maxHeight: height * 0.8,
@@ -86,8 +94,11 @@ export function HeadingPicker({
                 borderColor: colors.borderStrong,
                 padding: space.lg,
                 gap: space.sm,
-              }}>
-                <P style={{ fontWeight: "700" }}>Map this module to a heading</P>
+              }, phone && { maxWidth: undefined, maxHeight: undefined, height: "100%", borderRadius: 0, borderWidth: 0, paddingTop: insets.top + space.md, paddingBottom: space.md + Math.max(insets.bottom, keyboardInset) }]}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+                  {phone ? <Pressable onPress={() => setOpen(false)} accessibilityRole="button" accessibilityLabel="Close" hitSlop={10} style={{ padding: 6 }}><Ionicons name="close" size={22} color={colors.ink} /></Pressable> : null}
+                  <P style={{ fontWeight: "700", flex: 1 }}>Map this module to a heading</P>
+                </View>
                 <Input
                   compact
                   autoFocus
@@ -95,7 +106,7 @@ export function HeadingPicker({
                   onChangeText={setQ}
                   placeholder={`Search ${headings.length} headings`}
                 />
-                <ScrollView style={{ maxHeight: height * 0.5 }} keyboardShouldPersistTaps="handled">
+                <ScrollView style={phone ? { flex: 1 } : { maxHeight: height * 0.5 }} keyboardShouldPersistTaps="handled">
                   <Option
                     title="None — the module carries its own pasted text"
                     indent={0}

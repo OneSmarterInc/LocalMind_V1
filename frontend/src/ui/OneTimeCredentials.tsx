@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Platform, Text, View } from "react-native";
+import { Platform, Share, Text, View, useWindowDimensions } from "react-native";
 import { Button, Card, H2, Notice, P, Row, colors, space } from "./index";
 
 export interface IssuedCredential { full_name?: string | null; email: string; initial_password: string }
@@ -38,7 +38,15 @@ export function OneTimeCredentials({ rows, title, onDone, filename = "localmind-
   rows: IssuedCredential[]; title: string; onDone?: () => void; filename?: string;
 }) {
   const [copied, setCopied] = useState(false);
+  const { width } = useWindowDimensions();
   if (!rows.length) return null;
+  const narrow = width < 520;
+  // The app has no clipboard or file download: Android's share sheet offers Copy,
+  // and Save to Files / Drive / email for the CSV.
+  const share = async () => {
+    const message = rows.length === 1 ? rows[0].initial_password : credentialsCsv(rows);
+    try { await Share.share({ title: filename, message }); } catch { /* the person closed the sheet */ }
+  };
   const canCopy = Platform.OS === "web" && typeof navigator !== "undefined" && !!navigator.clipboard;
   const copy = async () => {
     const text = rows.length === 1 ? rows[0].initial_password : rows.map((r) => `${r.email}\t${r.initial_password}`).join("\n");
@@ -50,16 +58,25 @@ export function OneTimeCredentials({ rows, title, onDone, filename = "localmind-
       <Notice inline tone="warning" message="Shown only now. The platform stores no readable copy, so hand these over before leaving this screen. A lost password is replaced with Reset Password on the person's account; each one must be changed at first sign-in." />
       <View style={{ gap: 2 }}>
         {rows.map((r) => (
+          narrow ? (
+            <View key={r.email} style={{ gap: 2, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+              {rows.length > 1 ? <P small>{r.full_name || "—"}</P> : null}
+              <P muted small>{r.email}</P>
+              <Text selectable style={{ color: colors.text, fontFamily: mono, fontSize: 15, fontWeight: "700", letterSpacing: 0.5 }}>{r.initial_password}</Text>
+            </View>
+          ) : (
           <Row key={r.email} style={{ gap: space.sm, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.border }}>
             {rows.length > 1 ? <P small style={{ flex: 2 }}>{r.full_name || "—"}</P> : null}
             <P muted small style={{ flex: 2 }}>{r.email}</P>
             <Text selectable style={{ flex: 2, color: colors.text, fontFamily: mono, fontSize: 15, fontWeight: "700", letterSpacing: 0.5 }}>{r.initial_password}</Text>
           </Row>
+          )
         ))}
       </View>
       <Row>
         {canCopy ? <Button title={copied ? "Copied" : rows.length === 1 ? "Copy password" : "Copy all"} icon="copy-outline" small variant="secondary" onPress={copy} /> : null}
         {Platform.OS === "web" && rows.length > 1 ? <Button title="Download CSV" icon="download-outline" small variant="secondary" onPress={() => downloadCsv(filename, rows)} /> : null}
+        {Platform.OS !== "web" ? <Button title={rows.length === 1 ? "Share password" : "Share CSV"} icon="share-outline" small variant="secondary" onPress={() => void share()} /> : null}
         {onDone ? <Button title="Done" small onPress={onDone} /> : null}
       </Row>
     </Card>

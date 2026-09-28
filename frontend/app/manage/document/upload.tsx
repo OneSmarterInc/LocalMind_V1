@@ -89,9 +89,9 @@ export default function UploadBook() {
               <TileIcon icon="cloud-upload-outline" size={48} />
               <Text style={{ fontSize: 15, fontWeight: "600", color: colors.ink }}>Choose your source book</Text>
               <Text style={{ fontSize: 12, color: colors.muted }}>PDF or Word (.docx) · Up to 100 MB</Text>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 6 }}>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", alignItems: "center", gap: 10, marginTop: 6, maxWidth: "100%" }}>
                 <Button title="Choose file" variant="secondary" onPress={pick} />
-                <Text style={{ fontSize: 12, color: colors.muted }}>{file ? `${file.name}${size ? ` · ${size}` : ""}` : "No file chosen"}</Text>
+                <Text style={{ fontSize: 12, color: colors.muted, flexShrink: 1, minWidth: 0, maxWidth: "100%" }} numberOfLines={1} ellipsizeMode="middle">{file ? `${file.name}${size ? ` · ${size}` : ""}` : "No file chosen"}</Text>
               </View>
             </View>
             <ErrorBanner message={upload.error} />

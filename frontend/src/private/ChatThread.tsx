@@ -24,7 +24,7 @@ export default function ChatThread({ children, empty }: { children: React.ReactN
   if (!count) return <>{empty}</>;
   return (
     <View style={{ maxHeight, borderRadius: 10, backgroundColor: colors.bg, borderWidth: 1, borderColor: "#E4EAE2" }}>
-      <ScrollView ref={scroller} style={{ maxHeight }} contentContainerStyle={{ padding: 10, gap: 10 }}
+      <ScrollView ref={scroller} style={{ maxHeight }} nestedScrollEnabled contentContainerStyle={{ padding: 10, gap: 10 }}
                   onContentSizeChange={() => scroller.current?.scrollToEnd({ animated: true })}
                   showsVerticalScrollIndicator>
         {children}

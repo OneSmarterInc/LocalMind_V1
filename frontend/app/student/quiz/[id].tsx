@@ -11,7 +11,7 @@ import { useUnsavedWarning } from "@/hooks/useDraft";
 import { useLocalDraft } from "@/hooks/useLocalDraft";
 import { registerGuard } from "@/hooks/unsavedGuard";
 import { useOnline } from "@/offline/connectivity";
-import { alertAsync, Badge, Button, Card, CardHead, DetailList, ErrorBanner, Eyebrow, FormFooter, Loading, Notice, OptionCard, PageHeading, ProgressBar, Screen, Split, StepList, colors, confirmAsync, fmtDate, pct } from "@/ui";
+import { alertAsync, Badge, Button, Card, CardHead, DetailList, ErrorBanner, Eyebrow, FormFooter, Loading, Notice, OptionCard, PageHeading, ProgressBar, Screen, Split, StepList, colors, useWide, confirmAsync, fmtDate, pct } from "@/ui";
 import { everyVisible } from "@/hooks/visibleInterval";
 
 const releaseText = (r?: string, at?: string | null) => (r === "held" ? "After faculty release" : r === "scheduled" ? `From ${fmtDate(at)}` : "Shown after submission");
@@ -21,6 +21,7 @@ export default function StudentQuiz() {
   return <StudentQuizEditor key={id} id={id} />;
 }
 function StudentQuizEditor({ id }: { id: string }) {
+  const wideQuiz = useWide(980);
   const router = useRouter();
   const online = useOnline();
   const info = useAsync(async () => (await student.quizzes()).find((q) => q.id === id) ?? null, [id]);
@@ -208,7 +209,14 @@ function StudentQuizEditor({ id }: { id: string }) {
       {attempt.resumed && restored !== null ? <Notice inline title="Resuming your open attempt" message={restored ? "Your answers saved on this device were restored. Check them before you submit." : "No answers were saved on this device for this attempt, so check each question."} /> : null}
       <Split sideWidth={265}
         main={
-          <Card style={{ padding: 30 }}>
+          <Card style={{ padding: wideQuiz ? 30 : 18 }}>
+            {/* Phones: the side panel falls below the question, so the timer is repeated here where it is seen. */}
+            {!wideQuiz && remaining !== null ? (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, alignSelf: "flex-start", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, backgroundColor: remaining < 60 ? "#FBEDEB" : "#EEF4FA" }} accessibilityRole="timer" accessibilityLabel={`Time remaining ${Math.floor(remaining / 60)} minutes ${remaining % 60} seconds`}>
+                <Ionicons name="timer-outline" size={15} color={remaining < 60 ? colors.danger : "#3B5E7E"} />
+                <Text style={{ fontSize: 13, fontWeight: "700", color: remaining < 60 ? colors.danger : "#3B5E7E" }}>Time remaining {Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, "0")}</Text>
+              </View>
+            ) : null}
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
               <Eyebrow>{`QUESTION ${index + 1} OF ${total}`}</Eyebrow>
               <Text style={{ fontSize: 11, color: colors.muted }}>{answered} of {total} answered</Text>
