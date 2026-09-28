@@ -1,6 +1,7 @@
 import type {Lesson as CourseLesson,Question} from '@/api/types';
 import {quizSectionIndices} from './quizSections';
 import {activeBookTransfers} from './locks';
+import {GenerationClaims,claimMessage} from './claims';
 import {randomUUID} from 'expo-crypto';
 import {api,ApiError} from '@/api/client';
 import {Library,fingerprint} from '@/private/library';
@@ -156,6 +157,9 @@ export class LocalAuthoring {
   requireThat(!await this.isRemoved(draft.snapshot.document_id),'This book was removed or archived.');
   requireThat(!draft.localBook||!activeBookTransfers.has(this.library.prefix+'import:'+draft.localBook),'A book transfer is in progress. Try generation when it finishes.');
   requireThat(!draft.operation||draft.state==='synced','Finish synchronizing the reviewed draft before generating another version.');
+  // One device per login generates a book. Online this asks the server now;
+  // offline it records the start and the server settles it on reconnect.
+  await new GenerationClaims(this.library.owner).ensure(draft.snapshot.document_id||undefined,draft.localBook);
   if(draft.run&&draft.run.kind!==kind){draft.pausedRuns={...draft.pausedRuns,[draft.run.kind]:draft.run};draft.run=undefined;}
   if(restart){if(draft.run?.kind===kind)draft.run=undefined;if(draft.pausedRuns?.[kind])delete draft.pausedRuns[kind];}
   if(!draft.run&&draft.pausedRuns?.[kind]){draft.run=draft.pausedRuns[kind];delete draft.pausedRuns[kind];}
@@ -205,6 +209,9 @@ export class LocalAuthoring {
   const draft=await this.read(id);if(!draft?.operation||draft.state==='synced'||await this.isRemoved(draft.snapshot.document_id))return draft;
   if(draft.localBook&&activeBookTransfers.has(this.library.prefix+'import:'+draft.localBook))return draft;
   if(draft.localBook&&!draft.snapshot.remote_id){draft.error='Synchronize the book draft before its reviewed content.';await this.save(id,draft);return draft;}
+  // Another device of this login owns the book: keep this draft here, unsent.
+  const refused=await new GenerationClaims(this.library.owner).lost(draft.snapshot.document_id||undefined,draft.localBook);
+  if(refused)return this.update(id,fresh=>fresh.operation?.id!==draft.operation!.id?fresh:{...fresh,state:'conflict',error:claimMessage(refused.claim)});
   try{
    const result=await api<{revision:string;quiz_id?:string}>(`/faculty/modules/${draft.snapshot.remote_id||id}/local-authoring/`,{method:'POST',body:draft.operation,timeoutMs:15000});
    this.library.guard();return await this.update(id,fresh=>{

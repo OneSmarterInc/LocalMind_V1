@@ -20,6 +20,8 @@ const fixtures={
  '@/private/jobs':'export const generationJobs=globalThis.queue;',
  '@/private/useGenerationJobs':'export const jobScope=p=>p;',
  '@/private/library':'export class Library{constructor(){this.prefix="scope";}}',
+ // Device ownership of a book is covered by the backend claim tests.
+ './claims':'export class GenerationClaims{async ensure(){}};export const isClaimedElsewhere=()=>false;',
 };
 await esbuild.build({stdin:{contents:"export * from './src/authoring/automatic';export * from './src/authoring/bookControl';",resolveDir:path.join(root,'frontend'),loader:'ts'},
  outfile:path.join(tmp,'auto.cjs'),bundle:true,platform:'node',format:'cjs',logLevel:'silent',

@@ -1,6 +1,8 @@
 import { removeBook, archiveBook, unarchiveBook } from "@/documents/remove";
 import { useBackTo } from "@/hooks/useBackTo";
 import {prepareAutomatically,preparation,clearFailure,type PreparationMap} from '@/authoring/automatic';
+import {isClaimedElsewhere} from '@/authoring/claims';
+import {GenerationClaimNotice} from '@/authoring/GenerationClaimNotice';
 import {controlKey,generateNow,isHeld,pauseModule,setHeld,useBookControls} from '@/authoring/bookControl';
 import {generationJobs} from '@/private/jobs';
 import {jobScope,useGenerationJobs} from '@/private/useGenerationJobs';
@@ -60,7 +62,8 @@ export default function DocumentScreen() {
     // unpreparable module. The token already changes when the book's content
     // version does, so genuine new work still starts on its own; anything else
     // is a deliberate retry from the module itself.
-    void prepareAutomatically(authoring,d).catch(e=>{setPrepareError(errorMessage(e));});
+    // "Already started on another device" is shown by GenerationClaimNotice, with a take-over action.
+    void prepareAutomatically(authoring,d).catch(e=>{if(!isClaimedElsewhere(e))setPrepareError(errorMessage(e));});
   },[authoring,d,modelInstalled,owner]);
 
   useEffect(()=>{let live=true;if(!authoring||!sourceChapters)return;
@@ -163,7 +166,7 @@ export default function DocumentScreen() {
   if (!editable) {
     return (
       <Screen refreshing={doc.loading} onRefresh={doc.reload}>
-        {prepareError?<Notice inline tone="warning" title="Source preparation needs attention" message={prepareError}/>:null}{jobNotice}<ErrorBanner message={retryJob.error}/>
+        {authoring&&d?<GenerationClaimNotice documentId={d.id} onTakenOver={()=>{void prepareAutomatically(authoring,d).catch(e=>{if(!isClaimedElsewhere(e))setPrepareError(errorMessage(e));});}}/>:null}{prepareError?<Notice inline tone="warning" title="Source preparation needs attention" message={prepareError}/>:null}{jobNotice}<ErrorBanner message={retryJob.error}/>
         <ErrorBanner message={doc.error} onRetry={doc.reload} />
         {doc.loading && !d ? <Loading /> : null}
         {d ? (

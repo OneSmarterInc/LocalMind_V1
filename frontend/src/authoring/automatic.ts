@@ -5,6 +5,7 @@ import {generationJobs} from '@/private/jobs';
 import {jobScope} from '@/private/useGenerationJobs';
 import {Library} from '@/private/library';
 import {control,controlKey,isHeld,notifyControls} from './bookControl';
+import {GenerationClaims,isClaimedElsewhere} from './claims';
 export type Preparation={lesson?:string;quiz?:string;error?:string};
 export type PreparationMap=Record<string,Preparation>;
 const key=(service:LocalAuthoring,doc:Document)=>`${service.library.prefix}automatic:${doc.id}:${doc.content_version}`;
@@ -69,6 +70,9 @@ export async function prepareAutomatically(service:LocalAuthoring,doc:Document){
   };
  }
  await save();
+ // Another device of this login may already be generating this book. Ask
+ // before queueing anything; this throws "already started on another device".
+ await new GenerationClaims(service.library.owner).ensure(doc.id);
  const ctl=control(controlKey(scope,doc.id));
  for(const m of modules){const st=states[m.id!];if((st.lesson==='Paused'||st.quiz==='Paused')&&!ctl.priority.includes(m.id!))ctl.paused.add(m.id!);}
  generationJobs.enqueue({scope,bookId:doc.id,documentId:doc.id,sectionId:doc.id,kind:'staff-auto',label:`${doc.title} · lessons and quizzes`},async(signal,progress)=>{
@@ -106,10 +110,15 @@ export async function prepareAutomatically(service:LocalAuthoring,doc:Document){
       // Resumes from the saved checkpoint: finished parts are never generated twice.
       await service.generate(id,kind,sig,progress,Math.max(1,Math.min(5,Math.floor(m.source_text.trim().length/800))));
       state[kind]='Ready for review';
-     }catch(e){if(sig.aborted)throw e;state[kind]='Failed';state.error=String(e instanceof Error?e.message:e);}
+     }catch(e){if(sig.aborted||isClaimedElsewhere(e))throw e;state[kind]='Failed';state.error=String(e instanceof Error?e.message:e);}
      await save();
     }
-   }catch(e){if(sig.aborted)throw e;state.lesson=state.lesson==='Queued'?'Failed':state.lesson;state.quiz=state.quiz==='Queued'?'Failed':state.quiz;state.error=String(e instanceof Error?e.message:e);await save();}
+   }catch(e){
+    if(sig.aborted)throw e;
+    // Another device owns the book: stop the whole book, not just this module,
+    // and leave nothing marked as failed or generating.
+    if(isClaimedElsewhere(e)){for(const k of ['lesson','quiz'] as const)if(state[k]==='Generating')state[k]='Queued';await save();throw e;}
+    state.lesson=state.lesson==='Queued'?'Failed':state.lesson;state.quiz=state.quiz==='Queued'?'Failed':state.quiz;state.error=String(e instanceof Error?e.message:e);await save();}
   };
   try{
    while(true){

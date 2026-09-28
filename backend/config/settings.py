@@ -224,6 +224,10 @@ CSP_REPORT_ONLY = env_str("CSP_REPORT_ONLY", _DEFAULT_CSP)
 
 CORS_ALLOWED_ORIGINS = env_list("DJANGO_CORS_ALLOWED_ORIGINS", "http://localhost:8081")
 CORS_ALLOW_CREDENTIALS = False
+# Stable per-install ID the client sends so the server can tell a login's
+# laptop from its phone (see documents.generation_claims).
+from corsheaders.defaults import default_headers as _cors_default_headers
+CORS_ALLOW_HEADERS = (*_cors_default_headers, "x-localmind-device")
 
 # Origins allowed to POST to the Django admin site and any session-backed view
 # when the API sits behind a TLS-terminating proxy (scheme + host, no path).
@@ -295,6 +299,10 @@ LOCALMIND = {
     # a recycled worker and may be claimed again by the next process/ call or
     # by `manage.py requeue_stuck_documents`.
     "PROCESSING_STALE_MINUTES": env_int("PROCESSING_STALE_MINUTES", 30),
+    # One device per login owns generation for a book. A device not heard from
+    # for this long loses that ownership to the next device that asks, so a
+    # lost or wiped phone cannot hold a book forever. 0 disables expiry.
+    "GENERATION_CLAIM_STALE_HOURS": env_int("GENERATION_CLAIM_STALE_HOURS", 24),
 }
 
 AI = {

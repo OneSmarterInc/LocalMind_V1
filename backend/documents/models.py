@@ -171,3 +171,26 @@ class LocalBookUploadChunk(models.Model):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=['upload', 'offset'], name='unique_local_book_chunk')]
+
+
+class GenerationClaim(TimeStampedUUIDModel):
+    """Which device of one login owns lesson and quiz generation for one book.
+
+    Faculty can sign in on a laptop and a phone at once. Both devices run the
+    local model, so without an owner each wrote its own lessons and quizzes for
+    the same modules and both sets reached the server. One row per login and
+    book fixes that: the first device the server hears from owns the book, and
+    every other device of that login is told generation already started
+    elsewhere. The row outlives the run on purpose, because the owner may still
+    hold generated drafts that are waiting for review.
+    """
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='+')
+    document = models.ForeignKey(Document, on_delete=models.CASCADE, related_name='+')
+    device_id = models.CharField(max_length=64)
+    device_label = models.CharField(max_length=120, blank=True)
+    # When the device says it began. Earlier than created_at when it started offline.
+    started_at = models.DateTimeField()
+    heartbeat_at = models.DateTimeField()
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['actor', 'document'], name='unique_generation_claim')]
