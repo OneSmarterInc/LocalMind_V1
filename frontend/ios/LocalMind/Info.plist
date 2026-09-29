@@ -85,5 +85,13 @@
     <string>Automatic</string>
     <key>UIViewControllerBasedStatusBarAppearance</key>
     <false/>
+    <key>BGTaskSchedulerPermittedIdentifiers</key>
+    <array>
+      <string>com.onesmarter.localmind.generate.*</string>
+    </array>
+    <key>UIBackgroundModes</key>
+    <array>
+      <string>processing</string>
+    </array>
   </dict>
 </plist>

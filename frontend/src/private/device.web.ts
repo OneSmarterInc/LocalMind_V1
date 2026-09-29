@@ -7,6 +7,7 @@ import { PARSER_ASSET } from './generated/parserAsset';
 import { loadAccelerated, accelerationLabel, type Acceleration } from './acceleration';
 import { inferenceThreads } from './performance';
 import { Exclusive, cancelled } from './busy';
+import { backgroundWork } from './backgroundWork.web';
 import type { Completion, Device, LocalFile } from './device.types';
 import {downloadModelParts,downloadModelStream,RangeUnsupported} from './download';
 
@@ -186,7 +187,13 @@ async function download(progress:(n:number)=>void,signal?:AbortSignal){
 }
 let activeThreads=1;
 let acceleration:Acceleration={accelerator:'cpu'};
+/** The tab stays marked busy while answers are being written (backgroundWork),
+ * so switching tabs or apps does not let the browser freeze it. */
 async function complete(req:Completion) {
+ backgroundWork.enter();
+ try { return await completeInQueue(req); } finally { backgroundWork.leave(); }
+}
+async function completeInQueue(req:Completion) {
  req.progress?.("Waiting for the local model…");
  return lock.queue(async()=>{
   cancelled(req.signal); const info=await store.get<Installed>(MODEL_KEY);

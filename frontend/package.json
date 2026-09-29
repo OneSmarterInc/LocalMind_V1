@@ -17,7 +17,7 @@
     "doctor": "npx expo-doctor",
     "prepare:private": "node scripts/prepare-private-assets.mjs",
     "patch:native": "node scripts/patch-llama-runtime.mjs",
-    "test:native": "node --test ../tests/native-runtime.mjs",
+    "test:native": "node --test ../tests/native-runtime.mjs ../tests/background-generation.mjs",
     "prebuild:android": "npm run patch:native",
     "postinstall": "npm run patch:native && npm run prepare:private",
     "prestart": "npm run prepare:private",

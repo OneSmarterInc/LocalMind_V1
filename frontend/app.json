@@ -79,6 +79,12 @@
         }
       ],
       [
+        "./plugins/withBackgroundGeneration",
+        {
+          "gpuInBackground": false
+        }
+      ],
+      [
         "./plugins/withAsyncStorageSize",
         {
           "sizeMB": 2048

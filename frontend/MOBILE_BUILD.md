@@ -69,3 +69,16 @@ TestFlight needs no device registration. The `preview` profile is ad hoc instead
 ## Not done here
 
 This sandbox has no Android SDK, Java or Apple toolchain and cannot reach Google's Maven repository, so the APK/IPA themselves were not compiled. Everything up to that step (config, prebuild of both native projects, typecheck, lint, web export) has been run and is clean.
+
+## Generation while using other apps
+
+On-device generation keeps running when the person switches to another app (`modules/localmind-background`, used by `src/private/backgroundWork.native.ts`). It is autolinked: after pulling, run `npm install`, and on a Mac `cd ios && pod install`. EAS does both.
+
+- Android: a "LocalMind is generating" notification with progress (a foreground service of type `specialUse`) keeps the app running, GPU included. Android 13+ asks once for notification permission; if refused, generation still continues, without the visible notification. The Play Console will ask why the app uses a special-use foreground service: "On-device AI writes the lessons and quizzes the person asked for; the service runs only until that generation finishes."
+- iOS 26 and later: iOS shows a system progress bar and keeps generating in other apps. The build must be made with Xcode 26 or later; an older Xcode builds fine but pauses instead. Without background GPU access the model continues on the CPU off screen (slower) and returns to the GPU on screen.
+- Older iOS, or when iOS ends the task early: the answer pauses off screen and continues by itself when LocalMind is opened again. Nothing needs pressing.
+- Laptop: the browser tab is marked busy while generating and asks before it is closed or refreshed.
+
+Background GPU on iPhone (optional, same speed off screen): enable the Background GPU Access capability for `com.onesmarter.localmind` in the Apple Developer portal, set `"gpuInBackground": true` for `./plugins/withBackgroundGeneration` in `app.json`, then regenerate `ios/` as described above. Do not set it before the capability exists: the signed build would be rejected.
+
+QA on a real phone: start a lesson generation, switch to another app for two minutes, come back. Expect: Android notification with progress, iOS 26 progress bar at the top, older iOS "Paused while LocalMind is in the background" then automatic continuation on return. In every case the lesson finishes without pressing generate again.

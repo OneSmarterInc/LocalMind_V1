@@ -14,6 +14,7 @@ import { CONTEXT_TOKENS, MAX_MODEL_BYTES, PHONE_MODELS, QUALITY_MODEL_MEMORY, ty
 import { Exclusive, cancelled } from './busy';
 import { nativeInferenceThreads } from './performance';
 import type { Completion, Device } from './device.types';
+import { backgroundWork } from './backgroundWork.native';
 
 const root=`${FS.documentDirectory}localmind-private/`, MODEL_KEY='@model-v1';
 // PARTIAL_KEY: the unfinished download kept between attempts. ACCEL_KEY: the
@@ -116,30 +117,69 @@ async function chooseAccelerator(m:Installed,options:object,progress?:(message:s
  }
  await store.put(ACCEL_KEY,result);return result;
 }
-/** iOS suspends an app seconds after it leaves the screen and does not allow
- * GPU (Metal) work in the background, so a long generation cannot continue
- * there. Stop cleanly instead of crashing: completed lesson parts and quiz
- * questions are already saved, and generating again resumes from them.
- * Android keeps running in the background, so this only applies to iOS. */
-const PAUSED_MESSAGE='Generation paused because LocalMind left the screen. Completed lesson parts and quiz questions are retained; keep LocalMind open and generate again to resume.';
-const pausesInBackground=Platform.OS==='ios';
-function requireForeground(){if(pausesInBackground && AppState.currentState==='background')throw new Error(PAUSED_MESSAGE);}
+/** Generation continues while the person uses other apps (backgroundWork).
+ * Android keeps running under a foreground-service notification, GPU included.
+ * iOS 26+ keeps running under a continued-processing task. iOS allows Metal in
+ * the background only with background GPU access, so without it the model is
+ * reloaded on the CPU while LocalMind is off screen and returns to the GPU for
+ * the next answer once LocalMind is back.
+ * Where iOS gives no background time (older iOS, or iOS ended the task), the
+ * current answer stops before the app is suspended and starts again by itself
+ * when LocalMind is opened: nothing saved is lost and nothing needs pressing. */
+const iosBackgroundRules=Platform.OS==='ios';
+const offScreen=()=>iosBackgroundRules && AppState.currentState==='background';
+/** Thrown inside one attempt when the answer must be restarted, never shown. */
+class Interrupted extends Error {}
+function waitForForeground(signal:AbortSignal,progress?:(message:string)=>void){
+ return new Promise<void>((resolve,reject)=>{
+  if(!offScreen()){resolve();return;}
+  progress?.('Paused while LocalMind is in the background. It continues by itself when you return.');
+  const finish=()=>{subscription.remove();signal.removeEventListener('abort',abort);};
+  const subscription=AppState.addEventListener('change',state=>{if(state==='active'){finish();resolve();}});
+  const abort=()=>{finish();reject(new Error('Cancelled. Earlier saved material is unchanged.'));};
+  signal.addEventListener('abort',abort);
+ });
+}
 const KEEP_AWAKE_TAG='localmind-generation';
-async function complete(req:Completion){return lock.queue(async()=>{
- requireForeground();
+async function complete(req:Completion){
+ await backgroundWork.enter();
+ try{
+  return await lock.queue(async()=>{
+   for(;;){
+    if(offScreen() && !backgroundWork.mayRunInBackground())await waitForForeground(req.signal,req.progress);
+    try{return await answerOnce(req);}
+    catch(e){if(e instanceof Interrupted && !req.signal.aborted)continue;throw e;}
+   }
+  },req.signal);
+ }finally{backgroundWork.leave();}
+}
+let loadedLayers=-1;
+async function answerOnce(req:Completion){
  cancelled(req.signal);const m=await store.get<Installed>(MODEL_KEY);requireThat(m,'Download or import a model in Offline AI first.');
  requireThat(m.uri.startsWith('file://'),'AI models must be stored locally.');
+ // Reload when the model changed, or when the GPU/CPU choice must change:
+ // off screen without background GPU access (iOS), or back on screen after that.
+ const savedAccel=context&&loaded===m.uri?await store.get<Accel>(ACCEL_KEY):undefined;
+ const gpuPreferred=savedAccel?.model===m.hash && savedAccel.choice==='gpu';
+ const gpuAllowedNow=!offScreen() || backgroundWork.gpuInBackground();
+ const layersWanted=gpuPreferred && gpuAllowedNow?99:0;
+ if(context && loaded===m.uri && gpuPreferred && loadedLayers!==layersWanted)await close();
  if(!context||loaded!==m.uri){await close();await info(m.uri);const cores=Number((globalThis as typeof globalThis & {navigator?:{hardwareConcurrency?:number}}).navigator?.hardwareConcurrency);const threads=nativeInferenceThreads(cores);
   const options={model:m.uri,n_ctx:CONTEXT_TOKENS,n_threads:threads,use_mlock:false};
-  const accel=await chooseAccelerator(m,options,req.progress);cancelled(req.signal);
-  if(accel.choice==='gpu'){
-   try {context=await initLlama({...options,n_gpu_layers:99});}
-   catch {cancelled(req.signal);context=await initLlama({...options,n_gpu_layers:0});await store.put(ACCEL_KEY,{...accel,choice:'cpu',note:'GPU loading failed, so this phone now uses its CPU.'});}
-  } else context=await initLlama({...options,n_gpu_layers:0});
+  // The one-time speed check needs the GPU, so it only runs on screen. Off
+  // screen before it has run, use the CPU without recording a choice.
+  const saved=await store.get<Accel>(ACCEL_KEY);
+  const accel=offScreen()?(saved?.model===m.hash?saved:{model:m.hash,choice:'cpu' as const}):await chooseAccelerator(m,options,req.progress);cancelled(req.signal);
+  const wantGpu=accel.choice==='gpu' && (!offScreen() || backgroundWork.gpuInBackground());
+  if(accel.choice==='gpu' && !wantGpu)req.progress?.('Continuing on the CPU while LocalMind is in the background…');
+  if(wantGpu){
+   try {context=await initLlama({...options,n_gpu_layers:99});loadedLayers=99;}
+   catch {cancelled(req.signal);context=await initLlama({...options,n_gpu_layers:0});loadedLayers=0;await store.put(ACCEL_KEY,{...accel,choice:'cpu',note:'GPU loading failed, so this phone now uses its CPU.'});}
+  } else {context=await initLlama({...options,n_gpu_layers:0});loadedLayers=0;}
   loaded=m.uri;
  }
  cancelled(req.signal);
- req.progress?.('Reading the material on this phone…');
+ req.progress?.('Reading the material on this phone…');backgroundWork.progress(0,'Reading the material…');
  const started=Date.now();
  const messages=[{role:'system',content:req.system},{role:'user',content:req.prompt}];
  // Render once without letting the completion chat-template path override grammar
@@ -158,19 +198,30 @@ async function complete(req:Completion){return lock.queue(async()=>{
   void (async()=>{await context?.stopCompletion();})().catch(()=>{});
  };
  const arm=(ms:number)=>{clearTimeout(timer);timer=setTimeout(()=>{expired=true;cancel();},ms);};
- let backgrounded=false;
- const appState=pausesInBackground?AppState.addEventListener('change',state=>{if(state==='background'){backgrounded=true;cancel();}}):undefined;
- const stillForeground=()=>{if(backgrounded)throw new Error(PAUSED_MESSAGE);};
- // The screen must not lock during a long generation: on iOS a locked screen
- // sends the app to the background, which pauses the work.
+ // iOS only: stop this answer (to restart it) when LocalMind leaves the screen
+ // without background time, or while it is using a GPU iOS will not allow in
+ // the background, or when iOS ends the background task early.
+ let interrupted=false;
+ const interrupt=()=>{interrupted=true;cancel();};
+ const onScreenChange=(state:string)=>{
+  if(state!=='background')return;
+  if(!backgroundWork.mayRunInBackground())interrupt();
+  else if(context?.gpu && !backgroundWork.gpuInBackground())interrupt();
+ };
+ const appState=iosBackgroundRules?AppState.addEventListener('change',onScreenChange):undefined;
+ const stopExpired=iosBackgroundRules?backgroundWork.onExpired(()=>{if(offScreen())interrupt();}):undefined;
+ const checkInterrupted=()=>{if(interrupted)throw new Interrupted('restart');};
+ // The screen must not lock during a long generation: a locked screen counts
+ // as leaving LocalMind, which on older iPhones pauses the work.
  await activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(()=>{});
  arm(240000);req.signal.addEventListener('abort',cancel);
  try {
   cancelled(req.signal);
+  if(offScreen())onScreenChange('background');checkInterrupted();
   // grammar_lazy: false keeps the schema binding from the first token even if
   // the runtime would otherwise defer it.
   const schema=JSON.stringify(req.schema);
-  const watch=()=>{arm(60000);tokens++;if(tokens%25===0)req.progress?.(`Writing on this phone… ${Math.min(99,Math.round(tokens/req.maxTokens*100))}%`);};
+  const watch=()=>{arm(60000);tokens++;if(tokens%25===0){const percent=Math.min(99,Math.round(tokens/req.maxTokens*100));req.progress?.(`Writing on this phone… ${percent}%`);backgroundWork.progress(tokens/req.maxTokens,`Writing… ${percent}%`);}};
   const ask=async(text:string,temperature:number)=>{
    const base={prompt:text,n_predict:req.maxTokens,temperature,stop:['<|im_end|>','<|eot_id|>','</s>']};
    // Fail closed: a runtime/schema error must never silently disable grounding.
@@ -179,7 +230,7 @@ async function complete(req:Completion){return lock.queue(async()=>{
    return await context!.completion({...base,json_schema:schema,grammar_lazy:false},watch);
   };
   let res=await ask(prompt,req.temperature);
-  cancelled(req.signal);stillForeground();requireThat(!expired && !('stopped_limit' in res && res.stopped_limit),'Local AI did not finish. No partial answer was saved.');
+  cancelled(req.signal);checkInterrupted();requireThat(!expired && !('stopped_limit' in res && res.stopped_limit),'Local AI did not finish. No partial answer was saved.');
   let restored:unknown;
   try{restored=extractJsonObject(res.text);}
   catch(first){
@@ -190,13 +241,13 @@ async function complete(req:Completion){return lock.queue(async()=>{
    tokens=0;arm(240000);
    res=await ask(await render([...messages,{role:'assistant',content:res.text.slice(0,600)},
     {role:'user',content:'That reply could not be read. Reply again with the JSON object only: no explanation, no reasoning, no markdown fences, nothing before or after it.'}]),0);
-   cancelled(req.signal);stillForeground();requireThat(!expired && !('stopped_limit' in res && res.stopped_limit),'Local AI did not finish. No partial answer was saved.');
+   cancelled(req.signal);checkInterrupted();requireThat(!expired && !('stopped_limit' in res && res.stopped_limit),'Local AI did not finish. No partial answer was saved.');
    restored=extractJsonObject(res.text);
   }
   console.info('[LocalMind AI]',{runtime:'native',runtimePatch:'grammar-stops-v1',validation:'json-parsed',accelerator:context.gpu?'gpu':'cpu',elapsedMs:Date.now()-started,outputCharacters:res.text.length});
   return restored;
- }catch(e){if(backgrounded&&!req.signal.aborted)throw new Error(PAUSED_MESSAGE);if(expired&&!req.signal.aborted)throw new Error('Local AI stopped responding. No incomplete response was saved. Completed lesson parts and quiz questions are retained; generate again to resume.');throw e;}finally{clearTimeout(timer);req.signal.removeEventListener('abort',cancel);appState?.remove();deactivateKeepAwake(KEEP_AWAKE_TAG);}
-},req.signal);}
+ }catch(e){if(interrupted&&!req.signal.aborted)throw new Interrupted('restart');if(expired&&!req.signal.aborted)throw new Error('Local AI stopped responding. No incomplete response was saved. Completed lesson parts and quiz questions are retained; generate again to resume.');throw e;}finally{clearTimeout(timer);req.signal.removeEventListener('abort',cancel);appState?.remove();stopExpired?.();deactivateKeepAwake(KEEP_AWAKE_TAG);}
+}
 const implementation:Device={...store,complete,
  async parse(f, signal, progress, saveVisual){
   const i=await info(f.uri);requireThat(i.size<=MAX_BOOK_BYTES,'Import a book up to 100 MB.');
