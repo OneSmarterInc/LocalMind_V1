@@ -58,6 +58,8 @@ npx eas-cli@latest build --platform ios --profile production   # sign in with th
 npx eas-cli@latest submit --platform ios --latest              # uploads to App Store Connect for TestFlight
 ```
 
+For the iOS Simulator on a Mac, use `npx eas-cli@latest build --platform ios --profile simulator`, download the `.tar.gz`, unpack it and drag `LocalMind.app` onto the running Simulator. This is a release build with the JavaScript embedded, so no Metro packager is needed. A Debug build (Xcode's default Run, or `npx expo run:ios` without `--configuration Release`) loads JavaScript from Metro instead, and fails with "No script URL provided" unless `npx expo start` is running. The on-device AI must still be tested on a real iPhone: the Simulator does not reflect iPhone memory limits or Metal GPU speed.
+
 TestFlight needs no device registration. The `preview` profile is ad hoc instead: register each iPhone or iPad first with `npx eas-cli@latest device:create`, then `npx eas-cli@latest build --platform ios --profile preview`. On iOS, Save CSV and Save template open the share sheet (Save to Files, AirDrop, Mail); on Android they open the folder picker.
 
 ## 5. What was configured for mobile
