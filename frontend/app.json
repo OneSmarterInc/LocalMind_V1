@@ -81,7 +81,7 @@
       [
         "./plugins/withAsyncStorageSize",
         {
-          "sizeMB": 200
+          "sizeMB": 2048
         }
       ]
     ],

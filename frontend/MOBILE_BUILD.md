@@ -39,6 +39,27 @@ Android: open `android/` in Android Studio (or run `cd android && ./gradlew asse
 
 iOS: `cd ios && pod install`, open `LocalMind.xcworkspace` in Xcode, select your team under Signing & Capabilities, and Archive. Or `npm run ios` for a simulator run on a Mac.
 
+Because `android/` and `ios/` are committed, EAS builds them as they are and does not re-apply `app.json`. A change to icons, splash, permissions or plugin options in `app.json` only reaches the apps after the matching folder is regenerated and committed. Regenerate one platform at a time and review the diff before committing:
+
+```bash
+npx expo prebuild --platform android --clean --no-install
+EAS_BUILD_PROFILE=production npx expo prebuild --platform ios --clean --no-install
+```
+
+The `EAS_BUILD_PROFILE=production` part matters for iOS: the `llama.rn` plugin only writes the increased-memory-limit and extended-virtual-addressing entitlements (needed for the on-device model) when it sees the production profile, and it also adds the C++20 settings the library needs to compile. On Windows PowerShell set it first with `$env:EAS_BUILD_PROFILE="production"`.
+
+## iOS builds from Windows
+
+EAS compiles iOS on Expo's Macs, so Windows is enough, but device builds need a paid Apple Developer Program membership (a free Apple ID cannot sign builds for other devices).
+
+```powershell
+cd frontend
+npx eas-cli@latest build --platform ios --profile production   # sign in with the Apple account; let EAS manage certificates
+npx eas-cli@latest submit --platform ios --latest              # uploads to App Store Connect for TestFlight
+```
+
+TestFlight needs no device registration. The `preview` profile is ad hoc instead: register each iPhone or iPad first with `npx eas-cli@latest device:create`, then `npx eas-cli@latest build --platform ios --profile preview`. On iOS, Save CSV and Save template open the share sheet (Save to Files, AirDrop, Mail); on Android they open the folder picker.
+
 ## 5. What was configured for mobile
 
 `app.json` now carries the bundle identifier and package name, version codes, dark UI style, a navy (`#080F13`) splash and adaptive-icon background matching the theme, network permissions, `softwareKeyboardLayoutMode: resize` so forms scroll above the keyboard, and the `expo-build-properties` plugin for the cleartext/deployment-target settings. `eas.json` defines the three build profiles above. The shell already adapts to phones: tabs move to a dark bottom bar, the header shrinks and shows the brand mark, and safe-area insets are respected on notched devices.
