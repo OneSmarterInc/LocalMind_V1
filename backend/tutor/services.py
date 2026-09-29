@@ -218,7 +218,7 @@ def _module(student, module_id):
     return learning.resolve_accessible_module(student, module_id)
 
 
-def teach(student, module_id, request=None, legacy=False):
+def teach(student, module_id, request=None, legacy=False, record=False):
     """The Lesson tab. Reads the lesson generated in the background; never
     calls the model, so it answers in milliseconds whatever the queue is doing.
     See tutor/lessons.py for how lessons are produced.
@@ -232,6 +232,11 @@ def teach(student, module_id, request=None, legacy=False):
     data = lessons.lesson_for_student(module)
     if legacy and data.get("lesson") is None:
         data = {**data, "lesson": lessons.fallback_lesson(module), "generator": "fallback"}
+    # Opening the Lesson tab is the module's "lesson" step (see
+    # learning.services.refresh_completion). Only a lesson actually shown
+    # counts, and never the offline download fetching it in the background.
+    if record and data.get("lesson") is not None:
+        learning.record_lesson_view(student, module)
     return data
 
 

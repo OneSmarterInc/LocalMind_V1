@@ -1,6 +1,7 @@
 import {ApiError} from "@/api/client";
 import {generationJobs} from '@/private/jobs';
 import { useBackTo } from "@/hooks/useBackTo";
+import { backToKnownWebParent, previousWebPath } from "@/hooks/webHistory";
 import {jobScope} from '@/private/useGenerationJobs';
 import {useLibrary} from '@/private/useLibrary';
 import {device} from '@/private/device';
@@ -247,6 +248,27 @@ const carryOver = new Map<string, Quiz>();
 
 export function QuizDetailPage({ id, note }: { id: string; note?: string }) {
   const router = useRouter();
+  // Back returns to where the quiz was opened from: a book's Lessons & quizzes
+  // tab or the Quizzes list (faculty and administrators share /manage). Opened
+  // directly (a pasted link) there is nothing to return to, so it goes to Quizzes.
+  const backTo = useBackTo();
+  const navigation = useNavigation();
+  const [cameFrom] = useState(() => {
+    const previous = previousWebPath();
+    return previous && !previous.startsWith(`/manage/quiz/${id}`) ? previous : null;
+  });
+  const fromBook = !!cameFrom && cameFrom.startsWith("/manage/document/");
+  const backLabel = fromBook ? "Back to book" : "Back to quizzes";
+  const goBack = () => {
+    if (Platform.OS === "web") {
+      if (cameFrom) { void confirmLeave().then((ok) => { if (ok && !backToKnownWebParent(cameFrom)) backTo("/manage/quizzes"); }); return; }
+      backTo("/manage/quizzes");
+      return;
+    }
+    if (router.canGoBack()) { void confirmLeave().then((ok) => { if (ok) router.back(); }); return; }
+    backTo("/manage/quizzes");
+  };
+  useEffect(() => { navigation.setOptions({ backTo: fromBook && cameFrom ? cameFrom : "/manage/quizzes", backLabel }); }, [navigation, fromBook, cameFrom, backLabel]);
   const q = useAsync(() => manage.quiz(id), [id]);
   const subjects = useAsync(() => manage.subjects(), []);
   const modules = useSubjectModules(q.data?.subject_id);
@@ -378,6 +400,9 @@ export function QuizDetailPage({ id, note }: { id: string; note?: string }) {
   const pinBar = Platform.OS !== "web" && tab === "questions";
   return (
     <Screen refreshing={q.loading} onRefresh={q.reload} footer={pinBar ? <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>{saveBarItems}</View> : undefined}>
+      {/* Top left, above the title: the page's one-time messages appear top right
+          and would otherwise sit on top of it for their first few seconds. */}
+      <View style={{ flexDirection: "row" }}><Button title={backLabel} variant="ghost" icon="arrow-back" small onPress={goBack} /></View>
       <PageHeading eyebrow="QUIZ WORKSPACE" title={d.title || "Untitled quiz"} subtitle={subtitle} right={<Badge value={st.label} tone={st.tone} />} />
       <PageTabs<Tab> value={tab} onChange={setTab} tabs={[
         { key: "questions", label: "Questions" }, { key: "sources", label: "Source modules" },

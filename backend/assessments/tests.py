@@ -155,7 +155,9 @@ class AttemptTests(Base):
         self.assertEqual(res.data["detailed_results"][1]["correct_option"], "B")
         self.assertIsNotNone(res.data["time_taken_seconds"])
         progress = ModuleProgress.objects.get(student=self.student, module=self.module)
-        self.assertEqual(progress.status, "needs_review")
+        # A failed quiz no longer means "needs review". The student never opened
+        # the module itself, so it is not complete yet (see test_completion).
+        self.assertEqual(progress.status, "in_progress")
         self.assertEqual(progress.best_quiz_percentage, 50.0)
 
     def test_pass_completes_module_and_time_is_server_computed(self):
@@ -483,7 +485,9 @@ class HeldResultsDoNotLeakTests(ResultsReleaseTests):
         self.assertIsNone(progress["best_quiz_percentage"])
         self.fc.post(f"/api/faculty/quizzes/{quiz.id}/release-results/", {}, format="json")
         progress = self.sc.get(f"/api/student/modules/{self.module.id}/").data["progress"]
-        self.assertEqual(progress["status"], "needs_review")
+        # Read and quiz submitted: complete, pass or fail. Completion is the same
+        # before and after release, so the status never hints at a held score.
+        self.assertEqual(progress["status"], "completed")
         self.assertEqual(progress["best_quiz_percentage"], 0.0)
         self.assertEqual(progress["quiz_attempts"], 1)
         # A faculty override on an already-recorded attempt updates progress
@@ -522,7 +526,8 @@ class HeldResultsDoNotLeakTests(ResultsReleaseTests):
         quiz = self.manual_quiz()
         self._wrong_attempt(quiz)
         progress = ModuleProgress.objects.get(student=self.student, module=self.module)
-        self.assertEqual(progress.status, "needs_review")
+        self.assertEqual(progress.status, "in_progress")  # quiz taken, module itself never opened
+        self.assertEqual(progress.best_quiz_percentage, 0.0)
         self.assertEqual(progress.quiz_attempts, 1)
 
 

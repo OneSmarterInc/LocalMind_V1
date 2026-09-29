@@ -502,6 +502,10 @@ def submit_attempt(student, attempt_id, submitted_answers, request=None):
             attempt.evaluation_notes = {"late_by_seconds": elapsed - limit * 60}
         attempt.status = AttemptStatus.SUBMITTED
         attempt.save()
+        # Submitting the module's quiz is its "quiz" step, pass or fail. It
+        # reveals nothing about the score, so it also applies to held results.
+        if attempt.assessment.module_id:
+            learning.refresh_completion(student, [attempt.assessment.module_id])
         from jobs.services import enabled, enqueue
         if enabled() and any(q["type"] != "mcq" for q in attempt.assessment.questions):
             enqueue("assessment_grade", str(attempt.id), {"attempt_id": str(attempt.id), "source_text": _source_text(attempt.assessment)},

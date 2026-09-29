@@ -63,7 +63,8 @@ class StudentAnalyticsTests(Base):
         res = self.sc.get(f"/api/student/analytics/subjects/{self.subject.id}/")
         self.assertEqual(res.status_code, 200)
         statuses = {m["title"]: m["status"] for m in res.data["modules"]}
-        self.assertEqual(statuses, {"Process Management": "in_progress", "Memory Management": "not_started"})
+        # Neither module has a lesson or quiz yet, so reading one completes it.
+        self.assertEqual(statuses, {"Process Management": "completed", "Memory Management": "not_started"})
         self.assertEqual(self.sc.get(f"/api/student/analytics/subjects/{self.other_subject.id}/").status_code, 404)
 
     def test_sessions_are_own_only_and_durations_server_computed(self):
@@ -93,8 +94,15 @@ class FacultyAnalyticsTests(Base):
         self.assertEqual(d["quizzes"]["attempts"], 1)
         self.assertEqual(d["quizzes"]["passed"], 0)
         self.assertEqual(d["quizzes"]["average_percentage"], 50.0)
-        self.assertEqual(d["modules"]["completion_percentage"], 0.0)
+        # The student read the module (120 s) and submitted its quiz: complete,
+        # even though they failed. One of the subject's two modules.
+        self.assertEqual(d["modules"]["completion_percentage"], 50.0)
         self.assertEqual(d["time"]["learning_seconds"], 120)
+        # Faculty still see the failed quiz as "needs review".
+        rows = self.fc.get(f"/api/faculty/analytics/subjects/{self.subject.id}/students/").data
+        rows = rows.get("students", rows) if isinstance(rows, dict) else rows
+        self.assertEqual(rows[0]["modules_needs_review"], 1)
+        self.assertEqual(rows[0]["modules_completed"], 1)
         self.assertEqual(self.ofc.get(f"/api/faculty/analytics/subjects/{self.subject.id}/").status_code, 404)
         self.assertEqual(self.ac.get(f"/api/faculty/analytics/subjects/{self.subject.id}/").status_code, 200)
 

@@ -24,10 +24,11 @@ class TeachView(APIView):
     permission_classes = [IsStudent]
 
     def get(self, request, module_id):
-        return Response(svc.teach(request.user, module_id, request))
+        record = not getattr(request, "_offline_prefetch", False)
+        return Response(svc.teach(request.user, module_id, request, record=record))
 
     def post(self, request, module_id):
-        return Response(svc.teach(request.user, module_id, request, legacy=True))
+        return Response(svc.teach(request.user, module_id, request, legacy=True, record=True))
 
 
 class AskView(APIView):

@@ -64,6 +64,12 @@ export function installWebHistoryGuard() {
   }, true);
 }
 
+/** The page the browser showed just before this one, when it was inside the app. */
+export function previousWebPath(): string | null {
+  if (!installed || typeof window === 'undefined') return null;
+  return paths.get(position - 1) ?? null;
+}
+
 export function backToKnownWebParent(target: string): boolean {
   if (!installed || typeof window === 'undefined') return false;
   const expected = new URL(target, window.location.origin);

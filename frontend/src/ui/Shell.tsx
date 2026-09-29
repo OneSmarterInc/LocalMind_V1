@@ -122,7 +122,7 @@ const routeTitle = (o: BottomTabNavigationOptions, fallback: string) => (typeof 
 export function ShellTabBar(props: BottomTabBarProps & { meta: PortalMeta }) {
   const { width } = useWindowDimensions();
   const open = useNavDrawer();
-  if (width >= bp.desktop) return <Sidebar {...props} />;
+  if (width >= bp.desktop) return <><Sidebar {...props} /><HelpHost meta={props.meta} /></>;
   const drawer = open ? (
     <Modal transparent animationType="fade" visible onRequestClose={closeNav}>
       <TouchableWithoutFeedback onPress={closeNav} accessibilityLabel="Close navigation"><View style={s.scrim} /></TouchableWithoutFeedback>
@@ -131,8 +131,8 @@ export function ShellTabBar(props: BottomTabBarProps & { meta: PortalMeta }) {
   ) : null;
   // Phones: the first four sections sit in a bottom bar, one tap away; "More"
   // opens the full menu. Tablets keep the menu button only.
-  if (width < bp.tablet) return <>{drawer}<BottomBar {...props} /></>;
-  return drawer ?? <View style={{ height: 0 }} />;
+  if (width < bp.tablet) return <>{drawer}<BottomBar {...props} /><HelpHost meta={props.meta} /></>;
+  return <>{drawer ?? <View style={{ height: 0 }} />}<HelpHost meta={props.meta} /></>;
 }
 
 const SHORT: Record<string, string> = { "Books & modules": "Books", "My subjects": "Subjects", "My progress": "Progress", "AI monitoring": "Monitoring" };
@@ -313,12 +313,10 @@ function HelpDialog({ visible, steps, onClose, onGo }: { visible: boolean; steps
 export function ShellHeader({ route, options, meta }: BottomTabHeaderProps & { meta: PortalMeta }) {
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const router = useRouter();
   const online = useOnline();
   const back = useBackTo();
   const desktop = width >= bp.desktop;
   const narrow = width < bp.tablet;
-  const help = useHelpOpen();
   const extras = options as ShellExtras;
 
   return (
@@ -351,9 +349,20 @@ export function ShellHeader({ route, options, meta }: BottomTabHeaderProps & { m
         <UserMenu compact={narrow} profilePath={meta.profilePath} />
         {narrow ? <View style={[s.avatarDot, !online && { backgroundColor: colors.warning }]} accessibilityLabel={online ? "Connected" : "Server unavailable"} /> : null}
       </View>
-      <HelpDialog visible={help} steps={meta.help} onClose={closeHelp} onGo={(p) => { closeHelp(); void confirmLeave().then((ok) => { if (ok) router.push(p as never); }); }} />
     </View>
   );
+}
+
+/**
+ * "Your first three steps", mounted once per portal (from ShellTabBar). It used
+ * to live in ShellHeader, but every tab the person has visited stays mounted
+ * with its own header, so one "Open guide" opened one sheet per visited tab,
+ * stacked on top of each other.
+ */
+function HelpHost({ meta }: { meta: PortalMeta }) {
+  const router = useRouter();
+  const help = useHelpOpen();
+  return <HelpDialog visible={help} steps={meta.help} onClose={closeHelp} onGo={(p) => { closeHelp(); void confirmLeave().then((ok) => { if (ok) router.push(p as never); }); }} />;
 }
 
 export function UserMenu({ compact, profilePath }: { compact?: boolean; profilePath: string }) {

@@ -254,7 +254,8 @@ def subject_students(actor, subject, window=(None, None)):
     enrolled = Enrollment.objects.filter(subject=subject, status="active").select_related("student", "student__student_profile").order_by("student__full_name")
 
     completed = {r["student"]: r["n"] for r in ModuleProgress.objects.filter(module__in=modules, status="completed").values("student").annotate(n=Count("id"))}
-    needs_review = {r["student"]: r["n"] for r in ModuleProgress.objects.filter(module__in=modules, status="needs_review").values("student").annotate(n=Count("id"))}
+    from learning.services import below_pass_mark
+    needs_review = {r["student"]: r["n"] for r in below_pass_mark(ModuleProgress.objects.filter(module__in=modules)).values("student").annotate(n=Count("id"))}
     attempts = _between(AssessmentAttempt.objects.filter(assessment__subject=subject, status="evaluated"), "submitted_at", window)
     quiz = {r["student"]: r for r in attempts.values("student").annotate(n=Count("id"), avg=Avg("percentage"), best=Max("percentage"), passed=Count("id", filter=Q(passed=True)))}
     events = _between(ActivityEvent.objects.filter(subject=subject), "occurred_at", window)
@@ -294,6 +295,8 @@ def subject_modules(actor, subject):
     prog = {}
     for r in ModuleProgress.objects.filter(module__in=modules, student__in=students).values("module", "status").annotate(n=Count("id")):
         prog.setdefault(r["module"], {})[r["status"]] = r["n"]
+    from learning.services import below_pass_mark
+    struggling = {r["module"]: r["n"] for r in below_pass_mark(ModuleProgress.objects.filter(module__in=modules, student__in=students)).values("module").annotate(n=Count("id"))}
     quiz = {r["assessment__module"]: r for r in AssessmentAttempt.objects.filter(assessment__module__in=modules, status="evaluated").values("assessment__module").annotate(n=Count("id"), avg=Avg("percentage"), passed=Count("id", filter=Q(passed=True)))}
     learn = {r["module"]: r["s"] for r in ActivityEvent.objects.filter(module__in=modules, kind="learning", user__in=students).values("module").annotate(s=Sum("seconds"))}
     rows = []
@@ -307,7 +310,7 @@ def subject_modules(actor, subject):
             "document_id": str(m.chapter.document_id), "chapter_id": str(m.chapter_id),
             "order": m.order,
             "availability": m.availability, "source_missing": m.source_missing,
-            "students_started": started, "students_completed": p.get("completed", 0), "students_needs_review": p.get("needs_review", 0),
+            "students_started": started, "students_completed": p.get("completed", 0), "students_needs_review": struggling.get(m.id, 0),
             "students_not_started": max(0, n_students - started),
             "quiz_attempts": q.get("n", 0),
             "quiz_pass_rate": round(100.0 * q["passed"] / q["n"], 1) if q.get("n") else None,

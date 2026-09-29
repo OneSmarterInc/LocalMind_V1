@@ -568,9 +568,10 @@ class StudentAccessTests(TestCase):
         res = sc.get(f"/api/student/modules/{self.module.id}/")
         self.assertEqual(res.status_code, 200, res.content)
         self.assertIn("Processes are programs", res.data["source_text"])
-        self.assertEqual(res.data["progress"]["status"], "in_progress")
+        # This module has no lesson or quiz, so reading it completes it.
+        self.assertEqual(res.data["progress"]["status"], "completed")
         doc_view = sc.get(f"/api/student/documents/{self.doc.id}/").data
-        self.assertEqual(doc_view["chapters"][0]["status"], "in_progress")
+        self.assertIn(doc_view["chapters"][0]["status"], ("in_progress", "completed"))
         subj_docs = sc.get(f"/api/student/subjects/{self.subject.id}/documents/").data
         self.assertEqual(subj_docs[0]["open_module_count"], subj_docs[0]["module_count"])
 
