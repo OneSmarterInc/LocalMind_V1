@@ -1,6 +1,8 @@
 import * as FS from 'expo-file-system/legacy';
 import * as SQLite from 'expo-sqlite';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
+import * as ExpoDevice from 'expo-device';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { getBackendDevicesInfo, initLlama, type LlamaContext } from 'llama.rn';
 import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex } from '@noble/hashes/utils';
@@ -39,9 +41,12 @@ async function verify(uri:string){
  const head=toByteArray(await FS.readAsStringAsync(uri,{encoding:FS.EncodingType.Base64,position:0,length:4}));
  return {bytes:i.size,md5:(i.md5||'').toLowerCase(),magic:String.fromCharCode(...head)};
 }
-/** Total memory from the kernel, readable by any app. Undefined when unreadable. */
+/** Total memory. Android: from the kernel, readable by any app. iOS blocks
+ * /proc, so it reports through expo-device (the same physical RAM figure).
+ * Undefined when neither is readable. */
 async function memoryBytes(){
- try{const text=await FS.readAsStringAsync('file:///proc/meminfo');const kb=text.match(/MemTotal:\s+(\d+)\s*kB/);return kb?Number(kb[1])*1024:undefined;}catch{return undefined;}
+ try{const text=await FS.readAsStringAsync('file:///proc/meminfo');const kb=text.match(/MemTotal:\s+(\d+)\s*kB/);if(kb)return Number(kb[1])*1024;}catch{/* iOS: no /proc */}
+ const total=ExpoDevice.totalMemory;return typeof total==='number' && total>0?total:undefined;
 }
 /** Unknown memory gets the fast model: it runs everywhere; quality is a choice. */
 async function recommendedModel(){const memory=await memoryBytes();return {memory,id:memory!==undefined && memory>=QUALITY_MODEL_MEMORY?'quality':'fast'};}
@@ -81,9 +86,12 @@ export function extractJsonObject(raw:string){
  requireThat(false,failure?`The local model's answer could not be read: ${failure instanceof Error?failure.message:String(failure)}`:'The local model did not return a structured answer.');
 }
 type Accel={model:string;choice:'gpu'|'cpu';gpuTps?:number;cpuTps?:number;note?:string};
-/** llama.rn's GPU path (OpenCL) targets Qualcomm Adreno. Other phone GPUs
- * (Mali, PowerVR) are not candidates, so they are never forced onto the GPU. */
-async function adrenoAvailable(){
+/** Android: llama.rn's GPU path (OpenCL) targets Qualcomm Adreno. Other phone
+ * GPUs (Mali, PowerVR) are not candidates, so they are never forced onto the GPU.
+ * iOS: every supported iPhone has Metal, which llama.rn uses for the GPU. The
+ * one-time speed check below still decides, so the GPU is kept only when faster. */
+async function gpuCandidate(){
+ if(Platform.OS==='ios')return true;
  try{return (await getBackendDevicesInfo()).some(d=>/gpu/i.test(d.type) && /adreno/i.test(d.deviceName));}catch{return false;}
 }
 async function speed(options:object,layers:number){
@@ -98,7 +106,7 @@ async function speed(options:object,layers:number){
 async function chooseAccelerator(m:Installed,options:object,progress?:(message:string)=>void):Promise<Accel>{
  const saved=await store.get<Accel>(ACCEL_KEY);if(saved?.model===m.hash)return saved;
  let result:Accel={model:m.hash,choice:'cpu',note:'Running on this phone’s CPU.'};
- if(await adrenoAvailable()){
+ if(await gpuCandidate()){
   progress?.('Checking the fastest way to run the model on this phone (one time only)…');
   let gpuTps=0,cpuTps=0;
   try{gpuTps=await speed(options,99);}catch{gpuTps=0;}
@@ -108,7 +116,17 @@ async function chooseAccelerator(m:Installed,options:object,progress?:(message:s
  }
  await store.put(ACCEL_KEY,result);return result;
 }
+/** iOS suspends an app seconds after it leaves the screen and does not allow
+ * GPU (Metal) work in the background, so a long generation cannot continue
+ * there. Stop cleanly instead of crashing: completed lesson parts and quiz
+ * questions are already saved, and generating again resumes from them.
+ * Android keeps running in the background, so this only applies to iOS. */
+const PAUSED_MESSAGE='Generation paused because LocalMind left the screen. Completed lesson parts and quiz questions are retained; keep LocalMind open and generate again to resume.';
+const pausesInBackground=Platform.OS==='ios';
+function requireForeground(){if(pausesInBackground && AppState.currentState==='background')throw new Error(PAUSED_MESSAGE);}
+const KEEP_AWAKE_TAG='localmind-generation';
 async function complete(req:Completion){return lock.queue(async()=>{
+ requireForeground();
  cancelled(req.signal);const m=await store.get<Installed>(MODEL_KEY);requireThat(m,'Download or import a model in Offline AI first.');
  requireThat(m.uri.startsWith('file://'),'AI models must be stored locally.');
  if(!context||loaded!==m.uri){await close();await info(m.uri);const cores=Number((globalThis as typeof globalThis & {navigator?:{hardwareConcurrency?:number}}).navigator?.hardwareConcurrency);const threads=nativeInferenceThreads(cores);
@@ -140,6 +158,12 @@ async function complete(req:Completion){return lock.queue(async()=>{
   void (async()=>{await context?.stopCompletion();})().catch(()=>{});
  };
  const arm=(ms:number)=>{clearTimeout(timer);timer=setTimeout(()=>{expired=true;cancel();},ms);};
+ let backgrounded=false;
+ const appState=pausesInBackground?AppState.addEventListener('change',state=>{if(state==='background'){backgrounded=true;cancel();}}):undefined;
+ const stillForeground=()=>{if(backgrounded)throw new Error(PAUSED_MESSAGE);};
+ // The screen must not lock during a long generation: on iOS a locked screen
+ // sends the app to the background, which pauses the work.
+ await activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(()=>{});
  arm(240000);req.signal.addEventListener('abort',cancel);
  try {
   cancelled(req.signal);
@@ -155,7 +179,7 @@ async function complete(req:Completion){return lock.queue(async()=>{
    return await context!.completion({...base,json_schema:schema,grammar_lazy:false},watch);
   };
   let res=await ask(prompt,req.temperature);
-  cancelled(req.signal);requireThat(!expired && !('stopped_limit' in res && res.stopped_limit),'Local AI did not finish. No partial answer was saved.');
+  cancelled(req.signal);stillForeground();requireThat(!expired && !('stopped_limit' in res && res.stopped_limit),'Local AI did not finish. No partial answer was saved.');
   let restored:unknown;
   try{restored=extractJsonObject(res.text);}
   catch(first){
@@ -166,12 +190,12 @@ async function complete(req:Completion){return lock.queue(async()=>{
    tokens=0;arm(240000);
    res=await ask(await render([...messages,{role:'assistant',content:res.text.slice(0,600)},
     {role:'user',content:'That reply could not be read. Reply again with the JSON object only: no explanation, no reasoning, no markdown fences, nothing before or after it.'}]),0);
-   cancelled(req.signal);requireThat(!expired && !('stopped_limit' in res && res.stopped_limit),'Local AI did not finish. No partial answer was saved.');
+   cancelled(req.signal);stillForeground();requireThat(!expired && !('stopped_limit' in res && res.stopped_limit),'Local AI did not finish. No partial answer was saved.');
    restored=extractJsonObject(res.text);
   }
   console.info('[LocalMind AI]',{runtime:'native',runtimePatch:'grammar-stops-v1',validation:'json-parsed',accelerator:context.gpu?'gpu':'cpu',elapsedMs:Date.now()-started,outputCharacters:res.text.length});
   return restored;
- }catch(e){if(expired&&!req.signal.aborted)throw new Error('Local AI stopped responding. No incomplete response was saved. Completed lesson parts and quiz questions are retained; generate again to resume.');throw e;}finally{clearTimeout(timer);req.signal.removeEventListener('abort',cancel);}
+ }catch(e){if(backgrounded&&!req.signal.aborted)throw new Error(PAUSED_MESSAGE);if(expired&&!req.signal.aborted)throw new Error('Local AI stopped responding. No incomplete response was saved. Completed lesson parts and quiz questions are retained; generate again to resume.');throw e;}finally{clearTimeout(timer);req.signal.removeEventListener('abort',cancel);appState?.remove();deactivateKeepAwake(KEEP_AWAKE_TAG);}
 },req.signal);}
 const implementation:Device={...store,complete,
  async parse(f, signal, progress, saveVisual){
@@ -202,12 +226,14 @@ const implementation:Device={...store,complete,
   const discard=async()=>{await FS.deleteAsync(uri,{idempotent:true}).catch(()=>{});await store.removePrefix(PARTIAL_KEY);};
   const size=async()=>{const i=await FS.getInfoAsync(uri);return i.exists && !i.isDirectory?i.size:0;};
   let offset=await size();
-  // Android resumes with a byte-range request from the saved size. Other
-  // platforms start again rather than risk appending at the wrong position.
+  // Android resumes with a byte-range request from the saved size. iOS starts
+  // again rather than risk appending at the wrong position, but downloads in a
+  // background URLSession, so switching apps or locking the phone does not
+  // interrupt it the way it would a foreground transfer.
   if(offset>MODEL.bytes || (offset>0 && Platform.OS!=='android')){await FS.deleteAsync(uri,{idempotent:true});offset=0;}
   if(offset<MODEL.bytes){
    const resume=offset>0?String(offset):undefined;
-   const task=FS.createDownloadResumable(MODEL.url,uri,{},p=>progress(Math.min(0.97,p.totalBytesWritten/MODEL.bytes*0.97)),resume);
+   const task=FS.createDownloadResumable(MODEL.url,uri,Platform.OS==='ios'?{sessionType:FS.FileSystemSessionType.BACKGROUND}:{},p=>progress(Math.min(0.97,p.totalBytesWritten/MODEL.bytes*0.97)),resume);
    const cancel=()=>{void task.cancelAsync();};signal.addEventListener('abort',cancel);
    try{
     cancelled(signal);const r=await task.downloadAsync();cancelled(signal);

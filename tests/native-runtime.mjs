@@ -63,7 +63,9 @@ harness.ctx.completion = async params => { harness.calls.push(params); return {t
 const stubs = {
   'expo-file-system/legacy': `export const documentDirectory='file:///docs/'; export const getInfoAsync=async()=>({exists:true,isDirectory:false,size:1});`,
   'expo-sqlite': `export const openDatabaseAsync=async()=>({execAsync:async()=>{},getFirstAsync:async(sql,key)=>({value:JSON.stringify(key==='@model-v1'?{uri:'file:///model',name:'test',hash:'test',bytes:1}:{model:'test',choice:'cpu'})})});`,
-  'react-native': `export const Platform={OS:'android'};`,
+  'react-native': `export const Platform={OS:'android'}; export const AppState={currentState:'active',addEventListener:()=>({remove(){}})};`,
+  'expo-device': `export const totalMemory=null;`,
+  'expo-keep-awake': `export const activateKeepAwakeAsync=async()=>{}; export const deactivateKeepAwake=()=>{};`,
   'expo-crypto': `export const randomUUID=()=> 'test-uuid';`,
   'llama.rn': `export const initLlama=async()=>globalThis.__nativeTest.ctx; export const getBackendDevicesInfo=async()=>[];`,
   './parserBridge': `export const parseNative=async()=>{throw Error('not part of this test')};`,
