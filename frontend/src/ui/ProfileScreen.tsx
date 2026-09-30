@@ -6,6 +6,7 @@ import { useAuth } from "@/auth/AuthContext";
 import { useAction } from "@/hooks/useAsync";
 import { confirmSignOut } from "@/hooks/unsavedGuard";
 import { Avatar, Badge, Button, Card, CardHead, DetailList, ErrorBanner, FormFooter, Grid, Input, ListRow, Notice, PageHeading, Screen, colors, phoneProblem, useToast } from "@/ui";
+import { appVersionLabel } from "./appVersion";
 import { openHelp } from "./Shell";
 
 const pretty = (k: string) => k.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
@@ -56,6 +57,8 @@ export function ProfileScreen() {
           <Text style={{ fontSize: 18, fontWeight: "600", color: colors.ink }}>{user.full_name}</Text>
           <Text style={{ fontSize: 12, color: colors.muted }}>{user.email}</Text>
           <View style={{ flexDirection: "row", gap: 6, marginTop: 4 }}><Badge value={role} tone="green" /></View>
+          {/* Which build this is, for testers to report (version from app.json, commit from app.config.js). */}
+          <Text style={{ fontSize: 11, color: colors.muted, marginTop: 2 }} selectable>LocalMind {appVersionLabel()}</Text>
         </View>
       </View>
       <Grid min={320} gap={20}>

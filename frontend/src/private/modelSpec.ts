@@ -16,7 +16,10 @@ export type ModelSpec={id:string;title:string;downloadSize:string;name:string;by
 export const FAST_MODEL:ModelSpec={
   id:'fast',title:'Qwen3 0.6B · Q4_K_M · fast phone model',downloadSize:'397 MB',
   name:'Qwen3-0.6B-Q4_K_M.gguf',bytes:396705472,
-  url:'https://huggingface.co/unsloth/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf',
+  // Pinned to the commit whose bytes match sha256 below (checked 30 Sep 2026),
+  // like MODEL: with resolve/main, a new upload by the publisher would fail
+  // verification on every phone until LocalMind shipped a new build.
+  url:'https://huggingface.co/unsloth/Qwen3-0.6B-GGUF/resolve/f2d6f9ca53a254cc379437c49e4b2eb447f779df/Qwen3-0.6B-Q4_K_M.gguf',
   sha256:'ac2d97712095a558e31573f62f466a3f9d93990898b0ec79d7c974c1780d524a',
   md5:'45349ac9dec6a388775cbd720be5f8df',
   summary:'Fast on any recent phone. Simpler lessons and questions.',

@@ -8,6 +8,7 @@
     },
     "preview": {
       "distribution": "internal",
+      "autoIncrement": true,
       "android": { "buildType": "apk" },
       "ios": { "simulator": false },
       "env": { "EXPO_PUBLIC_API_URL": "https://localmind.onesmarter.com" }

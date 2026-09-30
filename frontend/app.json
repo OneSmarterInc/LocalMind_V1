@@ -2,7 +2,7 @@
   "expo": {
     "name": "LocalMind",
     "slug": "localmind",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "localmind",
@@ -23,7 +23,7 @@
     },
     "android": {
       "package": "com.onesmarter.localmind",
-      "versionCode": 1,
+      "versionCode": 2,
       "adaptiveIcon": {
         "backgroundColor": "#F4F6EF",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -37,7 +37,12 @@
         "ACCESS_NETWORK_STATE"
       ],
       "softwareKeyboardLayoutMode": "resize",
-      "allowBackup": false
+      "allowBackup": false,
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ]
     },
     "web": {
       "output": "single",
@@ -89,7 +94,8 @@
         {
           "sizeMB": 2048
         }
-      ]
+      ],
+      "./plugins/withReleaseSigning"
     ],
     "experiments": {
       "typedRoutes": true,

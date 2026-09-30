@@ -48,6 +48,70 @@ EAS_BUILD_PROFILE=production npx expo prebuild --platform ios --clean --no-insta
 
 The `EAS_BUILD_PROFILE=production` part matters for iOS: the `llama.rn` plugin only writes the increased-memory-limit and extended-virtual-addressing entitlements (needed for the on-device model) when it sees the production profile, and it also adds the C++20 settings the library needs to compile. On Windows PowerShell set it first with `$env:EAS_BUILD_PROFILE="production"`.
 
+## Tester APKs from a Windows laptop (exact steps)
+
+This is how tester APKs are built today. Run it in PowerShell from `frontend`:
+
+```powershell
+Remove-Item Env:NODE_ENV -ErrorAction SilentlyContinue
+npm ci
+$env:EXPO_PUBLIC_API_URL = "https://localmind.onesmarter.com"
+$env:NODE_ENV = "production"
+cd android
+.\gradlew.bat assembleRelease -PreactNativeArchitectures=arm64-v8a
+```
+
+The APK is `android/app/build/outputs/apk/release/app-release.apk`.
+
+- **ABIs:** `arm64-v8a` only. That covers 64-bit Android phones from about 2017 on. It leaves out old 32-bit phones and x86 emulators; drop the `-PreactNativeArchitectures` flag to build all four ABIs listed in `android/gradle.properties` (a much larger APK).
+- **Minimum Android version:** 7.0 (API 24). Target: API 36.
+- **If `npm ci` says EBUSY**, a Gradle daemon still holds files in `node_modules`: run `.\gradlew.bat --stop` in `android` (or close Android Studio) and try again.
+
+### Version numbers
+
+Android installs an update only when its `versionCode` is higher. Before each build you hand out, raise **both** in the same commit:
+
+- `app.json`: `expo.version` (for example `1.0.2`) and `expo.android.versionCode` (for example `3`)
+- `android/app/build.gradle`: `versionName` and `versionCode` to the same values
+
+`tests/android-release.mjs` fails if the two files disagree. EAS tester builds (`npm run build:android`) raise the build number on their own (`autoIncrement` in `eas.json`). **My profile** shows the version and the git commit (for example `LocalMind Version 1.0.1 · a1b2c3d`), so testers can say which build they have.
+
+### Signing with your own upload key
+
+Release builds are signed with the key named in **your own** `~/.gradle/gradle.properties`. Without it they fall back to the public Android debug key and Gradle prints a warning; Google Play refuses those, and a debug-signed APK built on one laptop will not install over one built on another.
+
+One time, create the key **outside the repository** (keytool comes with Android Studio's JDK):
+
+```powershell
+keytool -genkeypair -v -storetype PKCS12 -keystore C:\keys\localmind-upload.jks -alias localmind -keyalg RSA -keysize 2048 -validity 10000
+```
+
+Then add to `C:\Users\<you>\.gradle\gradle.properties` (create the file if needed):
+
+```
+LOCALMIND_UPLOAD_STORE_FILE=C:/keys/localmind-upload.jks
+LOCALMIND_UPLOAD_STORE_PASSWORD=your-store-password
+LOCALMIND_UPLOAD_KEY_ALIAS=localmind
+LOCALMIND_UPLOAD_KEY_PASSWORD=your-key-password
+```
+
+- **Never commit the `.jks` file or these passwords.** Back up the keystore and its passwords somewhere safe: losing it means the app can no longer be updated in place.
+- **Switching keys is one-way for testers.** The first APK signed with the new key will not install over a debug-signed one. Testers uninstall once, which removes their downloaded AI model and offline data, then install the new build.
+- Check the result: `apksigner verify --print-certs app-release.apk` must **not** show `CN=Android Debug`. Record the SHA-256 fingerprint it prints.
+- For EAS builds, run `eas credentials` once for Android instead; EAS keeps the key and signs with it.
+
+The signing setup lives in `plugins/withReleaseSigning.js`, so it survives `npm run prebuild` (`expo prebuild --clean`), which deletes and regenerates `android/`.
+
+### Permissions in the release build
+
+`SYSTEM_ALERT_WINDOW`, `READ_EXTERNAL_STORAGE` and `WRITE_EXTERNAL_STORAGE` are blocked in `app.json` (`android.blockedPermissions`) and removed in `android/app/src/main/AndroidManifest.xml`. Drawing over other apps is only for the React Native developer menu, which the debug manifests declare. Save to Files uses the Storage Access Framework and model import uses the file picker, so no storage permission is needed. Check a build with:
+
+```powershell
+& "$env:LOCALAPPDATA\Android\Sdk\build-tools\<version>\aapt.exe" dump permissions app-release.apk
+```
+
+If you change native settings, put them in `app.json` or a plugin in `plugins/`, not only in `android/`: `npm run prebuild` regenerates that folder from `app.json`.
+
 ## iOS builds from Windows
 
 EAS compiles iOS on Expo's Macs, so Windows is enough, but device builds need a paid Apple Developer Program membership (a free Apple ID cannot sign builds for other devices).
