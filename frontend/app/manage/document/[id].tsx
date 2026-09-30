@@ -35,6 +35,13 @@ type Selection = { ci: number; mi: number | null };
 
 type DocTab = "outline" | "pictures" | "lessons" | "publish" | "live";
 
+/** Opens a quiz from this book. Its "Back to quizzes" button returns to the
+ * Quizzes section. */
+function useOpenQuiz() {
+  const router = useRouter();
+  return (quizId: string) => { router.push({ pathname: "/manage/quiz/[id]", params: { id: quizId } }); };
+}
+
 export default function DocumentScreen() {
   const { id, tab: tabParam, module: moduleParam } = useLocalSearchParams<{ id: string; tab?: DocTab; module?: string }>();
   const router = useRouter();
@@ -349,6 +356,7 @@ type ModuleRow = OutlineModule & { chapter: string; number: number };
 type Preview = { id: string; title: string; quizStatus: string; quizId: string | null };
 
 function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsBusy, onQueueQuizzes, quizzesBusy, onRetryQuiz, retryBusy, error, onPreview }: { automatic: PreparationMap; modelInstalled:boolean; doc: Document; onQueueLessons: () => void; lessonsBusy: boolean; onQueueQuizzes: () => void; quizzesBusy: boolean; onRetryQuiz: (moduleId: string) => void; retryBusy: boolean; error: string | null; onPreview: (p: Preview) => void }) {
+  const openQuiz = useOpenQuiz();
   const router = useRouter();
   const {user}=useAuth(),owner=user?.id;
   const service=useMemo(()=>owner?new LocalAuthoring(owner):null,[owner]);
@@ -428,7 +436,7 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
         <Button title="Open module" small variant="secondary" onPress={()=>router.push(`/manage/local-authoring/${local(m.id!)?.snapshot.module_id||m.id}`)}/>
         <Button title="Preview" small variant="secondary" disabled={m.lesson_status === "none"} accessibilityLabel={m.lesson_status === "none" ? `Preview unavailable: ${m.title} has no lesson yet${reasonForStatus(status(m,"lesson"))?`. ${reasonForStatus(status(m,"lesson"))!.short}`:""}` : `Preview the lesson for ${m.title}`} onPress={() => onPreview({ id: m.id!, title: m.title, quizStatus: m.quiz_status ?? "off", quizId: m.auto_quiz_id ?? null })} />
         {m.quiz_status === "held" && m.auto_quiz_id
-          ? <Button title="Review quiz" small variant="secondary" onPress={() => router.push(`/manage/quiz/${m.auto_quiz_id}`)} />
+          ? <Button title="Review quiz" small variant="secondary" onPress={() => openQuiz(m.auto_quiz_id!)} />
           : null}
         {/* A quiz that exhausted its retries has no way back without this. */}
         {m.quiz_status === "failed_final"
@@ -1080,6 +1088,7 @@ function ModuleLessonPanel({ moduleId, textEdited }: { moduleId: string; textEdi
 
 /** The module's automatic quiz: open it, or have it written again. */
 function AutoQuizControls({ moduleId, status, quizId }: { moduleId: string; status: string; quizId: string | null }) {
+  const openQuiz = useOpenQuiz();
   const router = useRouter();
   const shown = status;
   const again = useAction(async () => { router.push(`/manage/local-authoring/${moduleId}`); });
@@ -1089,7 +1098,7 @@ function AutoQuizControls({ moduleId, status, quizId }: { moduleId: string; stat
   return (
     <View style={{ gap: 4 }}>
       <Row>
-        {quizId && (shown === "ready" || shown === "held") ? <Button title={shown === "held" ? "Review quiz" : "Open quiz"} icon="open-outline" small variant="secondary" onPress={() => router.push(`/manage/quiz/${quizId}`)} /> : null}
+        {quizId && (shown === "ready" || shown === "held") ? <Button title={shown === "held" ? "Review quiz" : "Open quiz"} icon="open-outline" small variant="secondary" onPress={() => openQuiz(quizId)} /> : null}
         {!busy ? <Button title={label} icon="refresh-outline" small variant="ghost" onPress={() => again.run()} busy={again.busy} /> : null}
         <Text style={[ws.hint, { flex: 1 }]}>
           {shown === "checking" ? "Written; the AI monitor is checking it before students can see it." :

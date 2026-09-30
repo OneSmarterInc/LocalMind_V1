@@ -185,12 +185,19 @@ class FacultySubjectListView(APIView):
         links = (FacultySubject.objects.filter(faculty=request.user, status=AssignmentStatus.ACTIVE, subject__status__in=["active", "discontinued"])
                  .select_related("subject")
                  .annotate(active_students=Count("subject__enrollments", filter=Q(subject__enrollments__status=EnrollmentStatus.ACTIVE))))
+        # faculty_names: the Books & modules faculty column and the
+        # administrator's "Filter by faculty" dropdown are built from this list.
         if request.user.role == Role.ADMIN:
-            subjects = Subject.objects.all().annotate(active_students=Count("enrollments", filter=Q(enrollments__status=EnrollmentStatus.ACTIVE)))
-            return Response([{**SubjectSerializer(s).data, "assignment_status": "admin", "active_students": s.active_students} for s in subjects])
+            subjects = list(Subject.objects.all().annotate(active_students=Count("enrollments", filter=Q(enrollments__status=EnrollmentStatus.ACTIVE))))
+            names = subject_faculty_names([s.id for s in subjects])
+            return Response([{**SubjectSerializer(s).data, "assignment_status": "admin", "active_students": s.active_students,
+                              "faculty_names": names.get(s.id, [])} for s in subjects])
+        links = list(links)
+        names = subject_faculty_names([link.subject_id for link in links])
         return Response([
             {**SubjectSerializer(link.subject).data, "assignment_status": link.status,
-             "assigned_at": link.assigned_at, "active_students": link.active_students}
+             "assigned_at": link.assigned_at, "active_students": link.active_students,
+             "faculty_names": names.get(link.subject_id, [])}
             for link in links
         ])
 

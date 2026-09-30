@@ -252,7 +252,9 @@ export function TextLink({ title, onPress, icon, iconLeft }: { title: string; on
 }
 
 /** Page title block: optional eyebrow, the title, one line of lead text, actions on the right. */
-export function PageHeading({ title, subtitle, eyebrow, icon, right }: { title: string; subtitle?: string | null; eyebrow?: string; icon?: IconName; right?: React.ReactNode }) {
+/** below: a control placed under the heading's buttons (for example a page's
+ * "Back to …" button under "About this page"), right-aligned on wide screens. */
+export function PageHeading({ title, subtitle, eyebrow, icon, right, below }: { title: string; subtitle?: string | null; eyebrow?: string; icon?: IconName; right?: React.ReactNode; below?: React.ReactNode }) {
   const wide = useWide(760);
   const page = usePageMessages();
   const about = page?.list.length ? (
@@ -271,7 +273,12 @@ export function PageHeading({ title, subtitle, eyebrow, icon, right }: { title: 
           {subtitle ? <Text style={s.headingSub}>{subtitle}</Text> : null}
         </View>
       </View>
-      {actions ? <View style={[s.actions, wide && { paddingTop: 9 }]}>{actions}</View> : null}
+      {below ? (
+        <View style={[{ gap: 10 }, wide ? { alignItems: "flex-end", paddingTop: 9 } : { alignItems: "flex-start" }]}>
+          {actions ? <View style={s.actions}>{actions}</View> : null}
+          {below}
+        </View>
+      ) : actions ? <View style={[s.actions, wide && { paddingTop: 9 }]}>{actions}</View> : null}
     </View>
       <OfflineBanner />
     </View>

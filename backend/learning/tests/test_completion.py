@@ -1,6 +1,7 @@
 """Module completion: a module is complete once the student has done every step
 it actually has (read; lesson when one is ready; quiz submitted, pass or fail,
-when a module quiz is published). See learning.services.refresh_completion."""
+when a module quiz is published), and goes back to in progress when a new quiz
+or updated content appears. See learning.services.refresh_completion."""
 from copy import deepcopy
 from datetime import timedelta
 from importlib import import_module
@@ -142,10 +143,63 @@ class ModuleCompletionTests(TestCase):
         rows = rows.get("students", rows) if isinstance(rows, dict) else rows
         self.assertEqual(rows[0]["modules_needs_review"], 0)
 
-    def test_completion_is_not_taken_back_by_a_later_quiz(self):
+    # ---- a finished module reopens for something new ----
+    def progress(self, module=None):
+        res = self.sc.get(f"/api/student/modules/{(module or self.module).id}/")
+        self.assertEqual(res.status_code, 200, res.content)
+        return res.data["progress"]["status"], res.data["progress"]["reopened_reason"]
+
+    def test_a_quiz_published_later_reopens_until_it_is_taken(self):
         self.assertEqual(self.read(), "completed")
+        quiz = self.quiz()
+        self.assertEqual(self.progress(), ("in_progress", "new_quiz"))
+        self.take(quiz, "D")  # pass or fail, submitting completes it again
+        self.assertEqual(self.progress(), ("completed", ""))
+
+    def test_a_new_version_of_a_quiz_already_taken_does_not_reopen(self):
+        quiz = self.quiz()
+        self.read()
+        self.take(quiz, "A")
+        self.assertEqual(self.status(), "completed")
+        Assessment.objects.filter(pk=quiz.pk).update(status="superseded")
+        newer = self.quiz()
+        Assessment.objects.filter(pk=newer.pk).update(version=2)
+        self.assertEqual(self.progress(), ("completed", ""))
+
+    def test_changed_text_reopens_until_read_again(self):
+        self.assertEqual(self.read(), "completed")
+        Module.objects.filter(pk=self.module.pk).update(source_text=self.module.source_text + "\n\nA corrected paragraph.")
+        doc = self.sc.get(f"/api/student/documents/{self.module.chapter.document_id}/").data
+        row = next(m for ch in doc["chapters"] for m in ch["modules"] if m["id"] == str(self.module.id))
+        self.assertEqual((row["progress"]["status"], row["progress"]["reopened_reason"]), ("in_progress", "updated"))
+        # Opening the module reads the new text and completes it again.
+        self.assertEqual(self.progress(), ("completed", ""))
+
+    def test_a_lesson_written_again_reopens_until_opened(self):
+        lesson = self.ready_lesson()
+        self.read()
+        self.sc.get(f"/api/student/modules/{self.module.id}/teach/")
+        self.assertEqual(self.status(), "completed")
+        ModuleLesson.objects.filter(pk=lesson.pk).update(generated_at=timezone.now() + timedelta(minutes=5))
+        self.assertEqual(self.progress(), ("in_progress", "updated"))
+        ModuleProgress.objects.filter(student=self.student, module=self.module).update(lesson_viewed_at=timezone.now() + timedelta(minutes=6))
+        self.assertEqual(self.progress(), ("completed", ""))
+
+    def test_reads_recorded_before_this_change_do_not_reopen(self):
+        self.assertEqual(self.read(), "completed")
+        ModuleProgress.objects.filter(student=self.student, module=self.module).update(read_source_hash="")
+        Module.objects.filter(pk=self.module.pk).update(source_text=self.module.source_text + " edited")
+        refresh = __import__("learning.services", fromlist=["refresh_completion"]).refresh_completion
+        refresh(self.student, [self.module])
+        self.assertEqual(self.status(), "completed")
+
+    def test_a_completion_set_by_faculty_is_never_reopened(self):
+        self.assertEqual(self.read(), "completed")
+        ModuleProgress.objects.filter(student=self.student, module=self.module).update(overridden_by=self.faculty)
         self.quiz()
-        self.assertEqual(self.read(), "completed")
+        refresh = __import__("learning.services", fromlist=["refresh_completion"]).refresh_completion
+        refresh(self.student, [self.module])
+        self.assertEqual(self.status(), "completed")
 
     # ---- existing rows ----
     def test_old_rows_are_brought_up_to_date_when_read(self):

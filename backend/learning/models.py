@@ -85,6 +85,13 @@ class ModuleProgress(TimeStampedUUIDModel):
     quiz_attempts = models.PositiveIntegerField(default=0)
     learning_seconds = models.PositiveIntegerField(default=0)
     overridden_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    # Why a completed module was put back in progress (see
+    # learning.services.refresh_completion): "new_quiz" or "updated". Cleared
+    # when it completes again.
+    reopened_reason = models.CharField(max_length=16, blank=True, default="")
+    # The module text as the student last read it (tutor.lessons.source_hash).
+    # Empty for reads before this was recorded: those never reopen a module.
+    read_source_hash = models.CharField(max_length=64, blank=True, default="")
 
     class Meta:
         db_table = "module_progress"

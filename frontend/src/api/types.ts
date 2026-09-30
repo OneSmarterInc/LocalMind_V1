@@ -41,7 +41,10 @@ export type ProgressStatus = "not_started" | "in_progress" | "completed" | "need
 export interface Progress {
   sync_pending?: boolean;
   status: ProgressStatus; best_quiz_percentage: number | null; quiz_attempts: number; learning_seconds: number;
+  /** Why a finished module is in progress again: a new quiz, or changed text or lesson. */
+  reopened_reason?: ReopenedReason;
 }
+export type ReopenedReason = "new_quiz" | "updated" | "";
 export interface ModuleBrief {
   id: string; title: string; order: number; availability: ModuleAvailability; source_missing?: boolean;
   start_page?: number | null; end_page?: number | null; progress?: Progress | null;

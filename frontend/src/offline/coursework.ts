@@ -98,7 +98,7 @@ export async function localProgress<T extends import('@/api/types').ModuleBrief>
  if(!own.length&&!results.length)return module;
  const progress={status:'not_started' as import('@/api/types').ProgressStatus,best_quiz_percentage:null as number|null,quiz_attempts:0,learning_seconds:0,...module.progress,sync_pending:true};
  if(progress.status==='not_started'&&own.length)progress.status='in_progress';
- for(const r of results){progress.quiz_attempts++;progress.best_quiz_percentage=Math.max(progress.best_quiz_percentage||0,r.percentage||0);if(r.passed)progress.status='completed';else if(progress.status!=='completed')progress.status='in_progress'; /* a failed quiz no longer means "needs review"; the server completes the module once all its steps are done */}
+ for(const r of results){progress.quiz_attempts++;progress.best_quiz_percentage=Math.max(progress.best_quiz_percentage||0,r.percentage||0);if(r.passed){progress.status='completed';progress.reopened_reason='';}else if(progress.status!=='completed')progress.status='in_progress'; /* a failed quiz no longer means "needs review"; the server completes the module once all its steps are done */}
  progress.learning_seconds+=own.reduce((n,e)=>n+(e.event.seconds||0),0);return {...module,progress};
 }
 export async function courseDocument(id:string){const c=context(),d=await device(),snapshot={events:await d.list<Pending>(c.prefix+'event:'),attempts:await d.list<LocalAttempt>(c.prefix+'attempt:')};c.guard();const tree=await api<import('@/api/types').DocumentTree>(`/student/documents/${id}/`);return {...tree,chapters:await Promise.all(tree.chapters.map(async ch=>({...ch,modules:await Promise.all(ch.modules.map(m=>localProgress(m,snapshot)))})))};}

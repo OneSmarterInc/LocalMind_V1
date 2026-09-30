@@ -1,6 +1,7 @@
 import { installWebHistoryGuard } from "@/hooks/webHistory";
 import { installRandomUUID } from "@/platform/randomUUID";
 import {GenerationHost} from '@/private/GenerationJobs';
+import { ModelGate } from '@/private/ModelGate';
 import ParserHost from "@/private/ParserHost";
 import { Stack, type ErrorBoundaryProps } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -76,6 +77,8 @@ export function AppNavigator() {
           <Stack.Screen name="admin" options={{ headerShown: false }} />
         </Stack.Protected>
       </Stack>
+      {/* Every signed-in person needs the local model on this device. */}
+      {workspace ? <ModelGate /> : null}
       <DialogHost />
       <ToastHost />
       {workspace ? <ParserHost /> : null}

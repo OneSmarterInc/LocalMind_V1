@@ -12,6 +12,7 @@ import React, { useEffect, useRef } from "react";
 import { AppState, Pressable, Text, View } from "react-native";
 import { student } from "@/api/endpoints";
 import type { ModuleFull, ModuleNeighbour, Quiz } from "@/api/types";
+import { reopenedLabel } from "@/api/progressLabels";
 import { useAsync } from "@/hooks/useAsync";
 import { skipReason } from "@/authoring/reasons";
 import { Badge, Button, Card, CardHead, DetailList, Empty, ErrorBanner, Eyebrow, FormFooter, Loading, Notice, PageHeading, PageTabs, Screen, Split, StepList, TextLink, colors, pct } from "@/ui";
@@ -93,7 +94,7 @@ export default function StudentModule() {
   const lessonState = teach.data?.status;
   const noLessonWhy = m ? skipReason(m.title, m.source_text) : null;
   return (
-    <Screen scrollTopOn={id} refreshing={mod.loading} onRefresh={() => { mod.reload(); teach.reload(); }}>
+    <Screen scrollTopOn={`${id}:${tab}`} refreshing={mod.loading} onRefresh={() => { mod.reload(); teach.reload(); }}>
       {m?.progress?.sync_pending?<Notice inline message="This progress is saved on your device and awaits institution synchronization."/>:null}
       <ErrorBanner message={mod.error} onRetry={mod.reload} />
       {mod.loading && !m ? <Loading /> : null}
@@ -196,7 +197,10 @@ function ModuleSide({ module, quizzes, onQuiz, onOffline }: { module: ModuleFull
     <>
       <Card>
         <Text style={{ fontSize: 18, fontWeight: "600", color: colors.ink }}>About this module</Text>
-        <View style={{ flexDirection: "row" }}><Badge value={statusLabel(st)} tone={st === "completed" ? "green" : st === "in_progress" ? "blue" : "neutral"} /></View>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+          <Badge value={statusLabel(st)} tone={st === "completed" ? "green" : st === "in_progress" ? "blue" : "neutral"} />
+          {reopenedLabel(module.progress?.reopened_reason) ? <Badge value={reopenedLabel(module.progress?.reopened_reason)!} tone="amber" icon="sparkles-outline" /> : null}
+        </View>
         <DetailList items={[
           ["Book", module.document_title ?? "—"],
           ["Module", module.module_number && module.module_count ? `${module.module_number} of ${module.module_count}` : `Module ${module.order}`],

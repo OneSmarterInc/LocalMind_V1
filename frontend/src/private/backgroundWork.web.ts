@@ -33,7 +33,9 @@ function markIdle() {
 }
 
 export const backgroundWork = {
-  enter() {
+  // Same shape as the phone version; the browser has no notification or
+  // progress bar to name, so the title and progress are not used here.
+  enter(_subtitle?: string, _title?: string) {
     active++;
     if (idle) { clearTimeout(idle); idle = undefined; return; }
     if (active === 1) markBusy();
@@ -42,4 +44,5 @@ export const backgroundWork = {
     active = Math.max(0, active - 1);
     if (active === 0 && !idle) idle = setTimeout(markIdle, IDLE_MS);
   },
+  progress(_fraction: number, _subtitle: string) { /* nothing to update in a browser */ },
 };

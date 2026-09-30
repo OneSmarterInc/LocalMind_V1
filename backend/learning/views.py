@@ -21,6 +21,8 @@ def _module_payload(module, progress, include_source):
             "completed_at": progress.completed_at if progress else None,
             "best_quiz_percentage": progress.best_quiz_percentage if progress else None,
             "quiz_attempts": progress.quiz_attempts if progress else 0,
+            # "new_quiz" or "updated" while a finished module waits for its new step.
+            "reopened_reason": progress.reopened_reason if progress else "",
         },
     }
     if include_source:

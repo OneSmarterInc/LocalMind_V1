@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { student } from "@/api/endpoints";
 import type { Chapter } from "@/api/types";
+import { reopenedLabel } from "@/api/progressLabels";
 import { useAsync } from "@/hooks/useAsync";
 import { Badge, Button, Card, DetailList, Empty, ErrorBanner, Input, ListRow, Loading, Notice, PageHeading, ProgressBar, Screen, Split, colors, RequestFailed } from "@/ui";
 
@@ -90,7 +91,10 @@ function ChapterBlock({ chapter, index, numberOf, onOpen }: { chapter: Chapter; 
             return (
               <ListRow key={m.id} plain icon={locked ? "lock-closed-outline" : st === "completed" ? "checkmark-circle-outline" : "book-outline"} tone={locked ? "neutral" : "green"}
                 title={m.title} subtitle={locked ? `Module ${n} · Opens when your faculty is ready` : `Module ${n} · Read · Lesson · Ask a doubt`}
-                right={<Badge value={locked ? "Locked" : statusLabel(st)} tone={locked ? "neutral" : st === "completed" ? "green" : st === "in_progress" ? "blue" : st === "needs_review" ? "amber" : "neutral"} />}
+                right={<View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: 6 }}>
+                  {!locked && reopenedLabel(m.progress?.reopened_reason) ? <Badge value={reopenedLabel(m.progress?.reopened_reason)!} tone="amber" icon="sparkles-outline" /> : null}
+                  <Badge value={locked ? "Locked" : statusLabel(st)} tone={locked ? "neutral" : st === "completed" ? "green" : st === "in_progress" ? "blue" : st === "needs_review" ? "amber" : "neutral"} />
+                </View>}
                 onPress={locked ? undefined : () => onOpen(m.id)} />
             );
           })}

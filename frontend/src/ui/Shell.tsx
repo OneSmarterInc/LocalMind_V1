@@ -2,7 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import type { BottomTabBarProps, BottomTabHeaderProps, BottomTabNavigationOptions } from "@react-navigation/bottom-tabs";
 import { usePathname, useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
-import { Modal, Platform, Pressable, PressableStateCallbackType, ScrollView, StyleSheet, Text, TouchableWithoutFeedback, View, useWindowDimensions } from "react-native";
+import { Image, Modal, Platform, Pressable, PressableStateCallbackType, ScrollView, StyleSheet, Text, TouchableWithoutFeedback, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/auth/AuthContext";
 import { useBackTo } from "@/hooks/useBackTo";
@@ -79,16 +79,15 @@ export type PortalMeta = {
 /* Brand                                                               */
 /* ------------------------------------------------------------------ */
 
+// The LocalMind mark (assets/images/brand-mark.png, cut from the app icon with
+// a transparent background so it sits on any page colour).
+const BRAND_MARK = require("../../assets/images/brand-mark.png");
+
 export function Brand({ size = 23 }: { size?: number }) {
-  const cell = Math.round(size * 0.62);
+  const mark = Math.round(size * 1.45);
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }} accessibilityLabel="LocalMind">
-      <View style={{ width: cell * 2 + 3, flexDirection: "row", flexWrap: "wrap", gap: 3, transform: [{ rotate: "-6deg" }] }}>
-        <View style={[s.markCell, { width: cell, height: cell, backgroundColor: colors.primary }]} />
-        <View style={[s.markCell, { width: cell, height: cell, backgroundColor: "#79A289", borderTopRightRadius: 10 }]} />
-        <View style={[s.markCell, { width: cell, height: cell, backgroundColor: "#ADC4A8" }]} />
-        <View style={[s.markCell, { width: cell, height: cell, backgroundColor: colors.primary }]} />
-      </View>
+      <Image source={BRAND_MARK} style={{ width: mark, height: mark }} resizeMode="contain" accessibilityIgnoresInvertColors />
       <Text style={{ fontSize: size, letterSpacing: -0.8, color: colors.ink, fontWeight: "700" }}>Localmind<Text style={{ color: "#8DAB91" }}>.</Text></Text>
     </View>
   );
@@ -433,7 +432,6 @@ export function useShell(meta: PortalMeta) {
 }
 
 const s = StyleSheet.create({
-  markCell: { borderRadius: 3 },
   sidebar: { width: SIDEBAR_WIDTH, backgroundColor: colors.sidebar, borderRightWidth: 1, borderRightColor: colors.border, flexGrow: 0 },
   sidebarInner: { paddingHorizontal: 13, paddingBottom: 20, flexGrow: 1 },
   portalLabel: { marginHorizontal: 11, marginBottom: 26, flexDirection: "row", alignItems: "center", gap: 8 },

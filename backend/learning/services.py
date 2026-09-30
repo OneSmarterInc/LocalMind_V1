@@ -55,6 +55,10 @@ def record_module_view(student, module):
     progress, _ = ModuleProgress.objects.select_for_update().get_or_create(student=student, module=module)
     now = timezone.now()
     progress.last_viewed_at = now
+    # Remember which version of the text was read, so a later edit can put the
+    # module back in progress (refresh_completion).
+    from tutor.lessons import source_hash
+    progress.read_source_hash = source_hash(module.source_text)
     if progress.status == ProgressStatus.NOT_STARTED:
         progress.status = ProgressStatus.IN_PROGRESS
         progress.started_at = now
@@ -83,9 +87,16 @@ def record_lesson_view(student, module):
 #   quiz    they submitted its quiz, when it has a published module quiz.
 # The quiz counts once it is submitted, pass or fail. A module that has no
 # lesson or quiz (too little text, front matter, generation skipped) is complete
-# as soon as it is read. Completion is never taken back: a quiz published later
-# does not reopen a module the student already finished. Passing the module's
-# quiz still completes it on its own, as before.
+# as soon as it is read. Passing the module's quiz still completes it on its own.
+#
+# A completed module goes back to in progress, with a label for the student,
+# when something new appears after they finished:
+#   new_quiz  a module quiz is published and they have submitted none for this
+#             module. A new version of a quiz they already took does not count.
+#   updated   the module text changed since they read it, or its lesson was
+#             written again after they finished and they have not opened it since.
+# Doing the new step (take the quiz, read the text, open the lesson) completes
+# it again and clears the label. A completion faculty set by hand is never reopened.
 
 _SUBMITTED = ("submitted", "pending_evaluation", "evaluated")
 
@@ -107,26 +118,58 @@ def below_pass_mark(progress_qs):
 
 
 def module_steps(modules):
-    """{module_id: {"lesson": bool, "quiz": bool}}: which steps each module has.
-    Two queries whatever the number of modules."""
+    """{module_id: {"lesson": bool, "quiz": bool, "lesson_at": datetime|None, "text": str}}:
+    which steps each module has, when its ready lesson was written and the hash
+    of its current text. Three queries whatever the number of modules."""
     from assessments.models import Assessment, AssessmentStatus
+    from tutor.lessons import source_hash
     from tutor.models import LessonStatus, ModuleLesson
 
     ids = [m.id if hasattr(m, "id") else m for m in modules]
     if not ids:
         return {}
-    with_lesson = set(ModuleLesson.objects.filter(module_id__in=ids, status=LessonStatus.READY, lesson__isnull=False)
-                      .values_list("module_id", flat=True))
+    lessons = dict(ModuleLesson.objects.filter(module_id__in=ids, status=LessonStatus.READY, lesson__isnull=False)
+                   .values_list("module_id", "generated_at"))
     now = timezone.now()
     with_quiz = set(Assessment.objects.filter(module_id__in=ids, status=AssessmentStatus.PUBLISHED)
                     .exclude(available_from__gt=now).values_list("module_id", flat=True))
-    return {mid: {"lesson": mid in with_lesson, "quiz": mid in with_quiz} for mid in ids}
+    texts = {mid: source_hash(text) for mid, text in Module.objects.filter(id__in=ids).values_list("id", "source_text")}
+    return {mid: {"lesson": mid in lessons, "lesson_at": lessons.get(mid), "quiz": mid in with_quiz, "text": texts.get(mid, "")}
+            for mid in ids}
+
+
+def _text_changed(row, need):
+    return bool(row.read_source_hash) and bool(need["text"]) and row.read_source_hash != need["text"]
+
+
+def _lesson_missing(row, need):
+    """The ready lesson has not been opened since it was (last) written."""
+    if not need["lesson"]:
+        return False
+    if row.lesson_viewed_at is None:
+        return True
+    return bool(need["lesson_at"]) and need["lesson_at"] > row.lesson_viewed_at
+
+
+def _reopen_reason(row, need, quiz_done):
+    """Why a completed module should be in progress again, or ""."""
+    if need["quiz"] and row.module_id not in quiz_done:
+        return "new_quiz"
+    if _text_changed(row, need):
+        return "updated"
+    # Only a lesson written after they finished: a module completed before its
+    # lesson existed, or by passing the quiz, is not reopened for that alone.
+    if need["lesson"] and row.completed_at and need["lesson_at"] and need["lesson_at"] > row.completed_at \
+            and (row.lesson_viewed_at is None or need["lesson_at"] > row.lesson_viewed_at):
+        return "updated"
+    return ""
 
 
 def refresh_completion(student, modules):
-    """Mark complete every started module whose steps are all done. Returns the
-    number of modules newly completed. Safe to call repeatedly: it only ever
-    moves a module forward to COMPLETED."""
+    """Complete every started module whose steps are all done, and put back in
+    progress any completed module with a new quiz or updated content (see the
+    rules above). Returns the number of modules newly completed. Safe to call
+    repeatedly."""
     from assessments.models import AssessmentAttempt
 
     ids = [m.id if hasattr(m, "id") else m for m in modules]
@@ -134,26 +177,34 @@ def refresh_completion(student, modules):
         return 0
     # "Read" means the module itself was opened (last_viewed_at). started_at is
     # also set by a quiz result, which alone does not count as reading.
-    open_rows = list(ModuleProgress.objects.filter(student=student, module_id__in=ids, last_viewed_at__isnull=False)
-                     .exclude(status=ProgressStatus.COMPLETED))
-    if not open_rows:
+    rows = list(ModuleProgress.objects.filter(student=student, module_id__in=ids, last_viewed_at__isnull=False))
+    if not rows:
         return 0
-    pending = [r.module_id for r in open_rows]
-    steps = module_steps(pending)
-    quiz_done = set(AssessmentAttempt.objects.filter(student=student, assessment__module_id__in=pending, status__in=_SUBMITTED)
+    touched = [r.module_id for r in rows]
+    steps = module_steps(touched)
+    quiz_done = set(AssessmentAttempt.objects.filter(student=student, assessment__module_id__in=touched, status__in=_SUBMITTED)
                     .values_list("assessment__module_id", flat=True))
     now = timezone.now()
-    done = []
-    for row in open_rows:
-        need = steps.get(row.module_id, {"lesson": False, "quiz": False})
-        if need["lesson"] and row.lesson_viewed_at is None:
+    done, reopen = [], {}
+    for row in rows:
+        need = steps.get(row.module_id, {"lesson": False, "lesson_at": None, "quiz": False, "text": ""})
+        if row.status == ProgressStatus.COMPLETED:
+            if row.overridden_by_id is None:
+                reason = _reopen_reason(row, need, quiz_done)
+                if reason:
+                    reopen.setdefault(reason, []).append(row.pk)
+            continue
+        if _lesson_missing(row, need) or _text_changed(row, need):
             continue
         if need["quiz"] and row.module_id not in quiz_done:
             continue
         done.append(row.pk)
+    for reason, pks in reopen.items():
+        ModuleProgress.objects.filter(pk__in=pks, status=ProgressStatus.COMPLETED).update(
+            status=ProgressStatus.IN_PROGRESS, reopened_reason=reason, completed_at=None, updated_at=now)
     if done:
         ModuleProgress.objects.filter(pk__in=done).exclude(status=ProgressStatus.COMPLETED).update(
-            status=ProgressStatus.COMPLETED, completed_at=now, updated_at=now)
+            status=ProgressStatus.COMPLETED, completed_at=now, reopened_reason="", updated_at=now)
     return len(done)
 
 
@@ -175,6 +226,7 @@ def record_quiz_outcome(student, module, percentage, passed, count_attempt=True)
         if progress.status != ProgressStatus.COMPLETED:
             progress.completed_at = now
         progress.status = ProgressStatus.COMPLETED
+        progress.reopened_reason = ""
     elif progress.status != ProgressStatus.COMPLETED:
         # A failed quiz no longer parks the module in "needs review": the
         # module completes once its other steps are done (see refresh_completion).

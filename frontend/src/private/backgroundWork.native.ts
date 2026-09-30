@@ -53,12 +53,12 @@ async function allowNotifications() {
   try { if (!(await PermissionsAndroid.check(permission))) await PermissionsAndroid.request(permission); } catch { /* keep generating */ }
 }
 
-async function start(subtitle: string) {
+async function start(subtitle: string, title: string) {
   if (!native || started || AppState.currentState !== 'active') return;
   if (!safely(() => native.isSupported(), false)) return;
   await allowNotifications();
   expired = false;
-  started = await native.begin(TITLE, subtitle).catch(() => false);
+  started = await native.begin(title, subtitle).catch(() => false);
 }
 
 function stop() {
@@ -79,11 +79,12 @@ export const backgroundWork = {
     if (Platform.OS !== 'ios') return true;
     return started && !expired && !!native && safely(() => native.gpuInBackground(), false);
   },
-  /** One more answer requested. Starts the session when LocalMind is on screen. */
-  async enter(subtitle = 'Writing your study material') {
+  /** One more piece of work (an answer, the model download). Starts the
+   * session when LocalMind is on screen. */
+  async enter(subtitle = 'Writing your study material', title = TITLE) {
     active++;
     if (idle) { clearTimeout(idle); idle = undefined; }
-    if (!started) { starting ??= start(subtitle).finally(() => { starting = undefined; }); await starting; }
+    if (!started) { starting ??= start(subtitle, title).finally(() => { starting = undefined; }); await starting; }
   },
   /** One answer finished (or failed). Ends the session once nothing is waiting. */
   leave() {

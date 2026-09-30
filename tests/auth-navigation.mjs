@@ -21,6 +21,7 @@ const fixtures={
  '@/ui':`import React from 'react';export const colors={};export const Loading=()=>React.createElement('span',{'data-loading':true});export const DialogHost=()=>null;export const ToastHost=()=>null;`,
  '@/private/GenerationJobs':`import React from 'react';export const GenerationHost=()=>React.createElement('span',{'data-generation':true});`,
  '@/private/ParserHost':`export default function ParserHost(){return null}`,
+ '@/private/ModelGate':`import React from 'react';export const ModelGate=()=>React.createElement('span',{'data-model-gate':true});`,
  '@/ui/NativeDatePicker':`export const NativeDatePickerHost=()=>null;`,
  'react-native-safe-area-context':`export const SafeAreaProvider=({children})=>children;`,
  'expo-status-bar':`export const StatusBar=()=>null;`,
@@ -35,7 +36,7 @@ try {
  const render=(state)=>{globalThis.authFixture=state;return renderToStaticMarkup(React.createElement(AppNavigator));};
  test('authentication hydration waits without mounting protected screens or redirecting',()=>{
   const html=render({ready:false,user:null,mustChangePassword:false});
-  assert.match(html,/data-loading/);assert.doesNotMatch(html,/data-screen|data-generation/);
+  assert.match(html,/data-loading/);assert.doesNotMatch(html,/data-screen|data-generation|data-model-gate/);
  });
  for(const [role,screens,home] of [
   [null,['index','login/index','login/student','login/faculty','login/admin'],'/login'],
@@ -47,12 +48,14 @@ try {
   assert.match(html,/<nav>/);
   assert.deepEqual([...html.matchAll(/data-screen="([^"]+)"/g)].map(m=>m[1]),screens);
   assert.equal(html.includes('data-generation'),!!role);
+  // Every signed-in workspace requires the local model on this device.
+  assert.equal(html.includes('data-model-gate'),!!role);
   assert.match(renderToStaticMarkup(React.createElement(Index)),new RegExp(`data-redirect="${home}"`));
  });
  test('mandatory password change blocks all workspaces and generation',()=>{
   const html=render({ready:true,user:{role:'admin'},mustChangePassword:true});
   assert.deepEqual([...html.matchAll(/data-screen="([^"]+)"/g)].map(m=>m[1]),['index','change-password']);
-  assert.doesNotMatch(html,/data-generation/);
+  assert.doesNotMatch(html,/data-generation|data-model-gate/);
   assert.match(renderToStaticMarkup(React.createElement(Index)),/data-redirect="\/change-password"/);
  });
 } finally { fs.rmSync(tmp,{recursive:true,force:true}); }
