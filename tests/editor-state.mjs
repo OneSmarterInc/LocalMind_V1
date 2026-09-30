@@ -13,7 +13,9 @@ const fixtures={
  'react-native':`export const Platform={OS:'test'};export const BackHandler={addEventListener:()=>({remove(){}})};`,
  '@/api/client':`export class ApiError extends Error{};export class SessionChangedError extends Error{};export const errorMessage=e=>String(e);`,
 };
-await require('esbuild').build({stdin:{contents:`export {useDraft} from '${root}/frontend/src/hooks/useDraft';export {useAsync} from '${root}/frontend/src/hooks/useAsync';export {clearDraftStash} from '${root}/frontend/src/hooks/draftStash';`,resolveDir:root,loader:'ts'},outfile:path.join(tmp,'hooks.cjs'),bundle:true,platform:'node',plugins:[{name:'fixtures',setup(b){
+// Relative to resolveDir (the repository root): an absolute Windows path
+// written into this code loses its backslashes (C:\\x becomes C:x).
+await require('esbuild').build({stdin:{contents:`export {useDraft} from './frontend/src/hooks/useDraft';export {useAsync} from './frontend/src/hooks/useAsync';export {clearDraftStash} from './frontend/src/hooks/draftStash';`,resolveDir:root,loader:'ts'},outfile:path.join(tmp,'hooks.cjs'),bundle:true,platform:'node',plugins:[{name:'fixtures',setup(b){
  b.onResolve({filter:/.*/},a=>a.path.endsWith('unsavedGuard')?{path:'guard',namespace:'fixture'}:Object.hasOwn(fixtures,a.path)?{path:a.path,namespace:'fixture'}:undefined);
  b.onLoad({filter:/.*/,namespace:'fixture'},a=>({contents:a.path==='guard'?'export const confirmLeave=async()=>true; export const registerGuard=()=>()=>{};':fixtures[a.path]}));
 }}]});
