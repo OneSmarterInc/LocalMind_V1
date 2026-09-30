@@ -14,9 +14,11 @@ The rule is "the first device the server hears from owns the book":
 - Offline, a device cannot ask, so it generates anyway and asks as soon as it
   reconnects. Whichever device reconnects first wins. The other is refused and
   keeps its drafts on the device without sending them.
-- Every device-authored write (lesson, quiz, book) re-checks the claim, so
-  nothing from a losing device reaches the institution even if its client is
-  old or its reconnect ordering is wrong.
+- Lesson writes, single-module quiz writes and book uploads re-check the
+  claim, so nothing from a losing device reaches the institution even if its
+  client is old or its reconnect ordering is wrong. Multi-module selection
+  quizzes (LocalQuizView) do not: they are a deliberate faculty choice, not
+  bulk generation, and must not claim a book as a side effect.
 
 The claim is not released when a run ends: the owner may still hold drafts
 waiting for review. It ends when the owner releases it, when the person takes
@@ -24,7 +26,7 @@ over from another device, or when the owner has not been heard from for
 GENERATION_CLAIM_STALE_HOURS.
 """
 import re
-from datetime import timedelta
+from datetime import timedelta, timezone as dt_timezone
 
 from django.conf import settings
 from django.db import transaction
@@ -78,7 +80,8 @@ def _started(value, now):
     if parsed is None:
         raise ValidationFailed('Invalid generation start time.')
     if timezone.is_naive(parsed):
-        parsed = timezone.make_aware(parsed, timezone.utc)
+        # django.utils.timezone.utc was removed in Django 5; a naive time is UTC.
+        parsed = timezone.make_aware(parsed, dt_timezone.utc)
     return min(max(parsed, now - timedelta(days=30)), now)
 
 

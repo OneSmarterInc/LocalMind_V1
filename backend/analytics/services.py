@@ -102,6 +102,7 @@ def student_overview(student, window=(None, None), released_only=False):
     """``released_only`` is True when the student reads their own overview:
     held quiz results then stay out of every count and average.
     Faculty and admins looking at a student see everything."""
+    from learning.services import below_pass_mark
     if released_only:
         from learning.services import settle_student_results
         settle_student_results(student)
@@ -131,7 +132,11 @@ def student_overview(student, window=(None, None), released_only=False):
             "total": total_modules,
             "completed": completed,
             "in_progress": status_counts.get("in_progress", 0),
-            "needs_review": status_counts.get("needs_review", 0),
+            # The completion rule no longer writes a "needs review" status, so
+            # count it the way faculty screens do: a released quiz score below
+            # the module's pass mark (best_quiz_percentage holds released
+            # results only, so this never exposes a held score).
+            "needs_review": below_pass_mark(progress).count(),
             "not_started": max(0, total_modules - sum(status_counts.values())),
             "completion_percentage": round(100.0 * completed / total_modules, 1) if total_modules else 0.0,
         },

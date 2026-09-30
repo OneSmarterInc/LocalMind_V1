@@ -2,7 +2,7 @@
 import hashlib
 import json
 import tempfile
-from datetime import timedelta
+from datetime import timedelta, timezone as dt_timezone
 from uuid import uuid4
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -78,6 +78,15 @@ class GenerationClaimTests(TestCase):
         self.assertEqual(self.claim(PHONE, started_at=(timezone.now() - timedelta(minutes=5)).isoformat()).status_code, 200)
         # The laptop started earlier but reached the server later: it does not win.
         self.assertEqual(self.claim(LAPTOP, started_at=early).status_code, 409)
+
+    def test_start_time_without_a_timezone_is_read_as_utc(self):
+        # Used to return 500: django.utils.timezone.utc no longer exists in
+        # Django 5. The time is taken relative to now, because start times
+        # older than 30 days are clamped and a fixed date would expire.
+        naive = (timezone.now() - timedelta(days=1)).astimezone(dt_timezone.utc).replace(tzinfo=None, microsecond=0)
+        res = self.claim(LAPTOP, started_at=naive.isoformat())
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(GenerationClaim.objects.get(document=self.doc).started_at, naive.replace(tzinfo=dt_timezone.utc))
 
     def test_take_over_moves_ownership_and_old_owner_is_then_refused(self):
         self.assertEqual(self.claim(LAPTOP).status_code, 200)

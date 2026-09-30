@@ -58,6 +58,16 @@ class StudentAnalyticsTests(Base):
         self.assertEqual(d["time"]["learning_seconds"], 300)
         self.assertGreaterEqual(d["time"]["quiz_seconds"], 120)
 
+    def test_needs_review_counts_a_released_score_below_the_pass_mark(self):
+        # The completion rule no longer writes a "needs review" status, so the
+        # student report read 0 while faculty screens counted the student.
+        self.sc.get(f"/api/student/modules/{self.module.id}/")
+        quiz, result = self.run_quiz(answers={"q1": "B", "q2": "A"})
+        self.assertLess(result["percentage"], quiz.pass_percentage)
+        d = self.sc.get("/api/student/analytics/overview/").data
+        self.assertEqual(d["modules"]["needs_review"], 1)
+        self.assertEqual(d["modules"]["completed"], 1)
+
     def test_subject_detail_lists_every_published_module(self):
         self.sc.get(f"/api/student/modules/{self.module.id}/")
         res = self.sc.get(f"/api/student/analytics/subjects/{self.subject.id}/")
