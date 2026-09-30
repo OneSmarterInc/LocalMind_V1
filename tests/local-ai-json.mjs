@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import {readFileSync, writeFileSync, mkdtempSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join, dirname} from 'node:path';
-import {fileURLToPath} from 'node:url';
+import {fileURLToPath, pathToFileURL} from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(join(root, 'frontend/src/private/device.native.ts'), 'utf8');
@@ -18,7 +18,9 @@ const body = source.slice(start, end).replace(/\(raw:string\)/, '(raw)').replace
 
 const file = join(mkdtempSync(join(tmpdir(), 'localmind-ai-')), 'extract.mjs');
 writeFileSync(file, `function requireThat(c,m){if(!c)throw new Error(m);}\n${body}`);
-const {extractJsonObject} = await import(file);
+// import() takes a URL: a plain Windows path (C:\...) is read as the
+// scheme "c:" and refused, so the test failed on Windows only.
+const {extractJsonObject} = await import(pathToFileURL(file).href);
 
 test('plain object', () => assert.deepEqual(extractJsonObject('{"a":1}'), {a: 1}));
 test('markdown json fence', () => assert.deepEqual(extractJsonObject('```json\n{"a":1}\n```'), {a: 1}));
