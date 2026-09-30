@@ -1,14 +1,20 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Picker from 'expo-document-picker';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { useAuth } from '@/auth/AuthContext';
 import { Brand } from '@/ui/Shell';
-import { Button, Card, ErrorBanner, H2, Loading, Notice, P, ProgressBar, Row, colors } from '@/ui';
+import { Button, Card, ErrorBanner, H2, Loading, Notice, P, ProgressBar, Row, colors, showToast } from '@/ui';
 import { device } from './device';
 import { deviceFit } from './deviceFit';
 import type { ModelStatus } from './device.types';
 import { chooseAndDownload, type ModelChoices } from './modelPrompts';
 import { modelSetup, useModelSetup } from './modelSetup';
+import { SETUP_REMINDER, clearPutOff, putOffSetup, setupPutOff } from './modelSkip';
+
+/** People already reminded in this run of the app, so the reminder appears
+ *  once per start rather than on every return to the app. */
+const reminded = new Set<string>();
 
 /** Every signed-in person needs the local AI model on the device they use.
  *
@@ -17,11 +23,17 @@ import { modelSetup, useModelSetup } from './modelSetup';
  * redirecting, so nothing the person had open is unmounted or lost.
  * Options: download (the size is shown; mobile data is allowed), import a
  * .gguf, or, on a computer whose model folder needs permission again, allow
- * access. Sign out is always available. A computer that cannot run the model
- * (see deviceFit) may continue without it, because blocking it would lock the
- * person out for good. */
+ * access. Sign out is always available.
+ *
+ * Anyone can continue without the model, on the laptop, Android and iOS. Only
+ * a computer that cannot run it used to be allowed to, so a phone short of
+ * storage, or an administrator who never uses AI, could not get past this
+ * screen. The choice is remembered for this account on this device (see
+ * modelSkip), a short reminder appears once per start, and the AI features
+ * themselves still say to set up the model in Offline AI. */
 export function ModelGate() {
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
+  const userId = user?.id;
   const setup = useModelSetup();
   const [status, setStatus] = useState<ModelStatus | null>(null);
   const [checked, setChecked] = useState(false);
@@ -36,13 +48,20 @@ export function ModelGate() {
     try {
       const d = await device();
       const s = await d.status();
+      if (s.installed) void clearPutOff(AsyncStorage, userId);
+      else {
+        // Read before the screen is shown, so someone who chose to continue
+        // without the model does not see it flash up on every start.
+        const later = await setupPutOff(AsyncStorage, userId);
+        if (alive.current && later) setSkipped(true);
+      }
       if (alive.current) setStatus(s);
       if (!s.installed && d.models) { const c = await d.models().catch(() => null); if (alive.current && c) setChoices(c); }
     } catch (e) {
       // If the status cannot be read, do not lock the person out.
       if (alive.current) { setStatus({ installed: true }); console.warn('[LocalMind] model status unavailable', e); }
     } finally { if (alive.current) setChecked(true); }
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
     alive.current = true; void check();
@@ -51,6 +70,13 @@ export function ModelGate() {
   }, [check]);
   // A download finished (here or in Offline AI), or the model was removed or imported there.
   useEffect(() => { void check(); }, [setup.completed, setup.changes, check]);
+
+  const putOff = checked && skipped && !status?.installed;
+  useEffect(() => {
+    if (!putOff || !userId || reminded.has(userId)) return;
+    reminded.add(userId);
+    showToast(SETUP_REMINDER);
+  }, [putOff, userId]);
 
   if (!checked) return <View style={[StyleSheet.absoluteFill, styles.cover]}><Loading /></View>;
   if (status?.installed || skipped) return null;
@@ -76,6 +102,7 @@ export function ModelGate() {
     try { const d = await device(); if (await d.grantModelFolder?.()) modelSetup.changed(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
   const busy = setup.running || importing !== null;
+  const continueWithout = () => { void putOffSetup(AsyncStorage, userId); setSkipped(true); };
   const recommended = choices?.models.find(m => m.id === choices.recommended) ?? choices?.models[0];
 
   return (
@@ -86,7 +113,7 @@ export function ModelGate() {
           <H2>Set up offline AI on this device</H2>
           <P>LocalMind writes lessons and quizzes and answers doubts with an AI model that runs on this device. Download it once to continue; your books and questions are never sent to the model publisher.</P>
           {recommended ? <P muted>Recommended for this phone: {recommended.title} · {recommended.downloadSize}. You can download it on Wi‑Fi or mobile data.</P> : null}
-          {!fit.ok ? <Notice inline tone="warning" title="This device may not run the offline AI" message={`${fit.reason} You can continue without it: reading, quizzes and sync still work.`} /> : null}
+          {!fit.ok ? <Notice inline tone="warning" title="This device may not run the offline AI" message={fit.reason} /> : null}
           {status?.needsPermission ? <Notice inline tone="warning" title="Folder access needed" message="Your model is saved in a folder on this computer. The browser needs your permission again to read it." action={<Button title="Allow folder access" small onPress={() => void allowFolder()} disabled={busy} />} /> : null}
           <ErrorBanner message={error || setup.error} />
           {note ? <Notice inline tone="success" message={note} /> : null}
@@ -102,8 +129,11 @@ export function ModelGate() {
             <Button title="Import a .gguf file" icon="folder-open-outline" variant="secondary" onPress={() => void importModel()} disabled={busy} />
           </Row>}
         </Card>
+        <P muted>Not now? Reading, quizzes and sync work without it. You can set it up any time from Offline AI.</P>
         <Row>
-          {!fit.ok ? <Button title="Continue without offline AI" variant="ghost" onPress={() => setSkipped(true)} disabled={busy} /> : null}
+          {/* A running download keeps going in the background, so continuing
+              does not stop it; an import is tied to this screen, so wait. */}
+          <Button title={setup.running ? 'Continue while it downloads' : 'Continue without offline AI'} variant="secondary" icon="arrow-forward-outline" onPress={continueWithout} disabled={importing !== null} />
           <Button title="Sign out" variant="ghost" icon="log-out-outline" onPress={() => { modelSetup.cancel(); void logout(); }} />
         </Row>
       </ScrollView>
