@@ -44,7 +44,7 @@ test('a download keeps its own state, joins instead of restarting, and finishes'
   world.finish();
   assert.equal(await first, true); assert.equal(await second, true);
   assert.deepEqual(modelSetup.get(), {running:false, progress:100, error:'', completed:1, changes:0});
-  assert.deepEqual(world.work, [['enter','LocalMind is downloading its AI model'],['leave']]);
+  assert.deepEqual(world.work, [['enter','Downloading the AI model'],['leave']]);
   assert.ok(world.progress.some(([f, s]) => f === 0.5 && /Downloading… 50%/.test(s)));
   assert.ok(seen.includes(50));
 });

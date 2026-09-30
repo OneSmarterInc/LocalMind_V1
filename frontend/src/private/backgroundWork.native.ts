@@ -22,17 +22,30 @@ type NativeBackground = {
   isSupported(): boolean;
   gpuInBackground(): boolean;
   begin(title: string, subtitle: string): Promise<boolean>;
-  update(fraction: number, subtitle: string): void;
-  end(success: boolean): void;
+  /** fraction < 0 shows a busy bar. */
+  update(fraction: number, subtitle: string, title: string): void;
+  /** readyTitle non-empty (Android): replace the progress notification with
+   *  a "ready" one the person can tap. iOS ignores it. */
+  end(success: boolean, readyTitle: string, readyText: string): void;
   addListener?(event: 'onExpired', listener: () => void): { remove(): void };
 };
 const native = requireOptionalNativeModule<NativeBackground>('LocalMindBackground');
 
-const TITLE = 'LocalMind is generating';
+const TITLE = 'LocalMind is working';
 // Jobs call the model one answer at a time with a short save in between. Keep
 // the session across that gap so the notification or iOS task does not flicker.
 const IDLE_MS = 8000;
-let active = 0, done = 0, started = false, expired = false;
+let active = 0, started = false, expired = false;
+/** What the notification shows now. The job list (jobNotifications) sets the
+ *  title and text of the job running; without a job (course doubts, the model
+ *  download) the work itself does. */
+let shown = { title: TITLE, text: '', fraction: -1 };
+let fromJob = false;
+let ready: { title: string; text: string } | null = null;
+function push() {
+  if (!started || !native) return;
+  safely(() => native.update(shown.fraction, shown.text, shown.title), undefined);
+}
 let starting: Promise<void> | undefined;
 let idle: ReturnType<typeof setTimeout> | undefined;
 let askedNotifications = false;
@@ -71,14 +84,22 @@ async function start(subtitle: string, title: string) {
   if (!safely(() => native.isSupported(), false)) return;
   await allowNotifications();
   expired = false;
-  started = await native.begin(title, subtitle).catch(() => false);
+  // A job already described itself (jobNotifications); otherwise use what the
+  // work that started the session said about itself.
+  if (!fromJob) shown = { title, text: subtitle, fraction: -1 };
+  started = await native.begin(shown.title, shown.text).catch(() => false);
+  push();
 }
 
 function stop() {
   idle = undefined;
   if (active > 0) return;
-  if (started) safely(() => native?.end(true), undefined);
-  started = false; done = 0;
+  // The "ready" message only when the person is elsewhere: on screen they can
+  // already see the lesson or quiz appear.
+  const tell = ready && AppState.currentState !== 'active' ? ready : null;
+  if (started) safely(() => native?.end(true, tell?.title ?? '', tell?.text ?? ''), undefined);
+  started = false; ready = null;
+  if (!fromJob) shown = { title: TITLE, text: '', fraction: -1 };
 }
 
 export const backgroundWork = {
@@ -94,26 +115,39 @@ export const backgroundWork = {
   },
   /** One more piece of work (an answer, the model download). Starts the
    * session when LocalMind is on screen. */
-  async enter(subtitle = 'Writing your study material', title = TITLE) {
+  async enter(subtitle = 'Starting…', title = TITLE) {
     active++;
     if (idle) { clearTimeout(idle); idle = undefined; }
     if (!started) { starting ??= start(subtitle, title).finally(() => { starting = undefined; }); await starting; }
   },
   /** One answer finished (or failed). Ends the session once nothing is waiting. */
   leave() {
-    active = Math.max(0, active - 1); done++;
+    active = Math.max(0, active - 1);
     if (active === 0 && !idle) {
       idle = setTimeout(stop, IDLE_MS);
       (idle as { unref?: () => void }).unref?.();
     }
   },
-  /** Share progress with the notification or the iOS progress bar. */
+  /** A real share of the work done (the model download). */
   progress(current: number, subtitle: string) {
-    if (!started || !native) return;
-    const total = done + Math.max(active, 1);
-    const fraction = Math.max(0, Math.min(0.99, (done + Math.max(0, Math.min(1, current))) / total));
-    safely(() => native.update(fraction, subtitle), undefined);
+    if (fromJob) return;
+    shown = { ...shown, text: subtitle, fraction: Math.max(0, Math.min(0.99, current)) };
+    push();
   },
+  /** The work's own status line ("Reading the material… 14s"), used when no
+   *  job is describing it; a job's line already contains it. */
+  detail(text: string, title?: string) {
+    if (fromJob) return;
+    shown = { title: title ?? shown.title, text, fraction: -1 };
+    push();
+  },
+  /** From the job list: the job running now, or null when none is. */
+  show(job: { title: string; text: string; fraction?: number } | null) {
+    fromJob = !!job;
+    if (job) { shown = { title: job.title, text: job.text, fraction: job.fraction ?? -1 }; push(); }
+  },
+  /** What to say when this session's lessons and quizzes are done. */
+  setReady(summary: { title: string; text: string } | null) { ready = summary; },
   /** Called when iOS ends the background task early (time, battery or the person). */
   onExpired(listener: () => void) { expiredListeners.add(listener); return () => { expiredListeners.delete(listener); }; },
 };

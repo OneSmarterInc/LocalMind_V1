@@ -97,11 +97,11 @@ export class Library {
     const checkpoint=await d.get<Checkpoint<Lesson>>(key)||{id:randomUUID(),parts:[]};
     const parts=await resumeParts({checkpoint,total:passages.length,signal,
       save:async row=>{this.guard();await d.put(key,row);this.guard();},
-      progress:done=>progress?.(`${done} of ${passages.length} lesson parts saved. Generate again after an interruption to resume.`),
+      progress:done=>progress?.(`${done} of ${passages.length} lesson parts saved`),
       generate:async index=>{
         this.guard();const source=passages[index];
         const raw=await d.complete({system:GROUNDING,prompt:`Teach this entire source passage in plain language. Explain its definitions, relationships, examples and formulas when present. Do not just name the main idea. Write one introductory sentence, one explanatory section and one takeaway. Each call covers one consecutive part of the module. Use an exact supporting quote.\nMODULE: ${section.title}${passageHeading(source)?` (this part: ${passageHeading(source)})`:''} — part ${index+1} of ${passages.length}\nSTORED BOOK REFERENCE:\n${source}`,schema:groundedSchema(COMPACT_LESSON_SCHEMA,source),maxTokens:800,temperature:0.2,signal,
-          progress:message=>progress?.(`Part ${index+1}/${passages.length} · ${message}`)});
+          progress:message=>progress?.(`Part ${index+1} of ${passages.length} · ${message}`)});
         return validateLesson(raw,source);
       }});
     const lesson:Lesson={introduction:parts[0].introduction,sections:parts.flatMap(p=>p.sections),takeaways:parts.flatMap(p=>p.takeaways)};

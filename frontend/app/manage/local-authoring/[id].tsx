@@ -93,7 +93,7 @@ function Authoring(){
    // even after the module generated perfectly well.
    const documentId=draft?.snapshot.document_id;
    if(documentId)void manage.document(documentId).then(d=>clearFailure(service,d,draft!.snapshot.remote_id||id)).catch(()=>{});
-   generationJobs.enqueue({scope:jobScope(library!.prefix),bookId:id,documentId,sectionId:id,kind:'staff-'+kind,label:`${draft?.snapshot.title||'Module'} · ${kind}`},
+   generationJobs.enqueue({scope:jobScope(library!.prefix),bookId:id,documentId,sectionId:id,kind:'staff-'+kind,label:draft?.snapshot.title||'this module'},
     (signal,progress)=>service.generate(id,kind,signal,progress,Number(quizCount),restart));
   }catch(e){setError(String(e));}
  };

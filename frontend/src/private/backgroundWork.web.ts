@@ -46,6 +46,9 @@ export const backgroundWork = {
     if (active === 0 && !idle) idle = setTimeout(markIdle, IDLE_MS);
   },
   progress(_fraction: number, _subtitle: string) { /* nothing to update in a browser */ },
+  detail(_text: string, _title?: string) { /* no notification in a browser */ },
+  show(_job: { title: string; text: string; fraction?: number } | null) { /* no notification in a browser */ },
+  setReady(_summary: { title: string; text: string } | null) { /* no notification in a browser */ },
 };
 
 /** Same shape as the phone version: the browser has no notification prompt. */

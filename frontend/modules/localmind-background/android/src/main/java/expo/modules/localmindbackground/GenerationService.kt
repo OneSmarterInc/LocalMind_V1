@@ -59,13 +59,15 @@ class GenerationService : Service() {
 
   companion object {
     private const val CHANNEL_ID = "localmind-generation"
+    private const val READY_CHANNEL_ID = "localmind-ready"
     private const val NOTIFICATION_ID = 4107
+    private const val READY_ID = 4108
     private const val EXTRA_TITLE = "title"
     private const val EXTRA_TEXT = "text"
     private const val SIX_HOURS = 6L * 60 * 60 * 1000
 
     @Volatile private var running = false
-    @Volatile private var title = "LocalMind is generating"
+    @Volatile private var title = "LocalMind is working"
     @Volatile private var text = ""
     @Volatile private var progress = -1
 
@@ -74,10 +76,13 @@ class GenerationService : Service() {
         .putExtra(EXTRA_TITLE, title)
         .putExtra(EXTRA_TEXT, text)
 
-    fun update(context: Context, fraction: Double, subtitle: String) {
+    fun update(context: Context, fraction: Double, subtitle: String, newTitle: String) {
       if (!running) return
       text = subtitle
-      progress = (fraction.coerceIn(0.0, 1.0) * 1000).toInt()
+      if (newTitle.isNotEmpty()) title = newTitle
+      // Below zero: a busy bar while an answer is written, instead of a
+      // made-up percentage that jumps back at the next part.
+      progress = if (fraction < 0) -1 else (fraction.coerceIn(0.0, 1.0) * 1000).toInt()
       val manager = NotificationManagerCompat.from(context)
       if (!manager.areNotificationsEnabled()) return
       try {
@@ -89,6 +94,32 @@ class GenerationService : Service() {
 
     fun stop(context: Context) {
       context.stopService(Intent(context, GenerationService::class.java))
+    }
+
+    /** "Lessons ready" after the work ends while LocalMind is not on screen.
+     *  Tapping it opens LocalMind. Needs the notification permission, which the
+     *  progress notification already asked for; without it, nothing is shown. */
+    fun ready(context: Context, readyTitle: String, readyText: String) {
+      ensureChannel(context)
+      val manager = NotificationManagerCompat.from(context)
+      if (!manager.areNotificationsEnabled()) return
+      val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
+      val open = launch?.let {
+        PendingIntent.getActivity(context, 1, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+      }
+      val builder = NotificationCompat.Builder(context, READY_CHANNEL_ID)
+        .setSmallIcon(context.applicationInfo.icon)
+        .setContentTitle(readyTitle)
+        .setContentText(readyText)
+        .setStyle(NotificationCompat.BigTextStyle().bigText(readyText))
+        .setAutoCancel(true)
+        .setCategory(NotificationCompat.CATEGORY_STATUS)
+      if (open != null) builder.setContentIntent(open)
+      try {
+        manager.notify(READY_ID, builder.build())
+      } catch (error: SecurityException) {
+        // Permission withdrawn: the work is saved either way.
+      }
     }
 
     private fun build(context: Context): Notification {
@@ -114,11 +145,17 @@ class GenerationService : Service() {
     private fun ensureChannel(context: Context) {
       if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
       val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-      if (manager.getNotificationChannel(CHANNEL_ID) != null) return
+      // Created every time on purpose: Android keeps the person's settings for
+      // an existing channel and only updates its name and description.
       manager.createNotificationChannel(
-        NotificationChannel(CHANNEL_ID, "Generation progress", NotificationManager.IMPORTANCE_LOW).apply {
-          description = "Shown while LocalMind writes lessons and quizzes on this phone."
+        NotificationChannel(CHANNEL_ID, "Work in progress", NotificationManager.IMPORTANCE_LOW).apply {
+          description = "Shown while LocalMind writes lessons, quizzes and answers on this phone."
           setShowBadge(false)
+        }
+      )
+      manager.createNotificationChannel(
+        NotificationChannel(READY_CHANNEL_ID, "Lessons and quizzes ready", NotificationManager.IMPORTANCE_DEFAULT).apply {
+          description = "Shown when lessons or quizzes finish while LocalMind is in the background."
         }
       )
     }

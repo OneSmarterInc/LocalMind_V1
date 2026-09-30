@@ -40,11 +40,14 @@ public class LocalMindBackgroundModule: Module {
       return self.begin(title: title, subtitle: subtitle)
     }.runOnQueue(.main)
 
-    Function("update") { (fraction: Double, subtitle: String) in
-      self.update(fraction: fraction, subtitle: subtitle)
+    // fraction < 0: keep the bar where it is while an answer is written.
+    Function("update") { (fraction: Double, subtitle: String, title: String) in
+      self.update(fraction: fraction, subtitle: subtitle, title: title)
     }
 
-    Function("end") { (success: Bool) in
+    // The "ready" message is Android only: on iOS it would need another
+    // permission prompt, so the arguments are accepted and not used.
+    Function("end") { (success: Bool, _: String, _: String) in
       self.end(success: success)
     }
   }
@@ -138,9 +141,9 @@ public class LocalMindBackgroundModule: Module {
   }
   #endif
 
-  private func update(fraction: Double, subtitle: String) {
+  private func update(fraction: Double, subtitle: String, title: String) {
     lock.lock()
-    self.fraction = max(0, min(1, fraction))
+    if fraction >= 0 { self.fraction = max(0, min(1, fraction)) }
     self.subtitle = subtitle
     let current = task
     let value = self.fraction
@@ -148,7 +151,7 @@ public class LocalMindBackgroundModule: Module {
     #if compiler(>=6.2)
     if #available(iOS 26.0, *), let continued = current as? BGContinuedProcessingTask {
       continued.progress.completedUnitCount = Int64(value * 1000)
-      continued.updateTitle(continued.title, subtitle: subtitle)
+      continued.updateTitle(title.isEmpty ? continued.title : title, subtitle: subtitle)
     }
     #endif
   }

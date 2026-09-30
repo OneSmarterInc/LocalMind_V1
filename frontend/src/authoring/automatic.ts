@@ -76,7 +76,7 @@ export async function prepareAutomatically(service:LocalAuthoring,doc:Document){
  await new GenerationClaims(service.library.owner).ensure(doc.id);
  const ctl=control(controlKey(scope,doc.id));
  for(const m of modules){const st=states[m.id!];if((st.lesson==='Paused'||st.quiz==='Paused')&&!ctl.priority.includes(m.id!))ctl.paused.add(m.id!);}
- generationJobs.enqueue({scope,bookId:doc.id,documentId:doc.id,sectionId:doc.id,kind:'staff-auto',label:`${doc.title} · lessons and quizzes`},async(signal,progress)=>{
+ generationJobs.enqueue({scope,bookId:doc.id,documentId:doc.id,sectionId:doc.id,kind:'staff-auto',label:doc.title},async(signal,progress)=>{
   const saved=await service.drafts();
   // Nothing left to do for a kind, or it already failed. A failed module is NOT
   // retried automatically: it failed for a reason another identical attempt
@@ -107,9 +107,12 @@ export async function prepareAutomatically(service:LocalAuthoring,doc:Document){
      draft=(await service.read(id))!;
      if(kind==='lesson'?draft.lesson:draft.questions?.length){state[kind]='Ready for review';await save();continue;}
      try{
-      state[kind]='Generating';await save();progress(`${m.title} · ${kind}`);
+      state[kind]='Generating';await save();
+      // "Module 2 of 5 · Lesson · Part 1 of 3 · Reading the material… 14s": where
+      // in the book, what is being written, and the step, in one line.
+      const where=`Module ${modules.indexOf(m)+1} of ${modules.length} · ${kind==='lesson'?'Lesson':'Quiz'}`;progress(where);
       // Resumes from the saved checkpoint: finished parts are never generated twice.
-      await service.generate(id,kind,sig,progress,Math.max(1,Math.min(5,Math.floor(m.source_text.trim().length/800))));
+      await service.generate(id,kind,sig,message=>progress(`${where} · ${message}`),Math.max(1,Math.min(5,Math.floor(m.source_text.trim().length/800))));
       state[kind]='Ready for review';
      }catch(e){if(sig.aborted||isClaimedElsewhere(e))throw e;state[kind]='Failed';state.error=String(e instanceof Error?e.message:e);}
      await save();

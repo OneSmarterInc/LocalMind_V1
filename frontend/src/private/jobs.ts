@@ -2,7 +2,12 @@ export const DOUBTS_PAUSED_MESSAGE = "Content generation is in progress. Ask a d
 /** App-lifetime jobs. Results are persisted by the library; no page owns cancellation. */
 export const SWEEP_MS=20000;
 export type JobState='queued'|'running'|'completed'|'failed'|'cancelled';
-export type Job={id:number;scope:string;bookId:string;sectionId:string;kind:string;label:string;documentId?:string;documentIds?:string[];state:JobState;note:string;error:string;
+export type Job={id:number;scope:string;bookId:string;sectionId:string;kind:string;
+ /** The book, module or quiz the work is for, in its own words ("Chapter 4").
+  * The job list and the phone notification add what is being done (workStatus). */
+ label:string;
+ /** What is being written, when kind alone does not say (a batch of lessons or quizzes). */
+ work?:import('./workStatus').Work;documentId?:string;documentIds?:string[];state:JobState;note:string;error:string;
  /** This job specifically is being cancelled. Per job, never shared: one row
   * cancelling must not make every other row claim it is cancelling too. */
  cancelling?:boolean};

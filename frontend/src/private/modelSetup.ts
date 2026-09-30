@@ -52,7 +52,7 @@ export const modelSetup = {
       if (percent !== lastShared) { lastShared = percent; backgroundWork.progress(p, percent >= 98 ? 'Checking the download…' : `Downloading… ${percent}%`); }
     };
     current = (async () => {
-      await backgroundWork.enter('Downloading the AI model', 'LocalMind is downloading its AI model');
+      await backgroundWork.enter('Starting the download…', 'Downloading the AI model');
       try {
         await (await device()).download(report, abort.signal, modelId);
         set({ running: false, progress: 100, completed: state.completed + 1 });

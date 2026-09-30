@@ -143,7 +143,7 @@ function waitForForeground(signal:AbortSignal,progress?:(message:string)=>void){
 }
 const KEEP_AWAKE_TAG='localmind-generation';
 async function complete(req:Completion){
- await backgroundWork.enter();
+ await backgroundWork.enter(undefined, req.activity);
  try{
   return await lock.queue(async()=>{
    for(;;){
@@ -180,7 +180,7 @@ async function answerOnce(req:Completion){
   loaded=m.uri;
  }
  cancelled(req.signal);
- req.progress?.(aiStatus('reading',0));backgroundWork.progress(0,'Reading the material…');
+ req.progress?.(aiStatus('reading',0));backgroundWork.detail(aiStatus('reading',0));
  const started=Date.now();
  // What the student sees while waiting. Reading the prompt can take half a
  // minute on a phone CPU and used to show one unchanging line; writing
@@ -188,7 +188,7 @@ async function answerOnce(req:Completion){
  // stopped at 12% and then appeared. Elapsed time is honest for both.
  let phase:AiPhase='reading';
  let ticker:ReturnType<typeof setInterval>|undefined;
- const say=()=>req.progress?.(aiStatus(phase,(Date.now()-started)/1000));
+ const say=()=>{const line=aiStatus(phase,(Date.now()-started)/1000);req.progress?.(line);backgroundWork.detail(line);};
  const messages=[{role:'system',content:req.system},{role:'user',content:req.prompt}];
  // Render once without letting the completion chat-template path override grammar
  // settings. The postinstall patch also preserves grammar/stops across the native
@@ -200,7 +200,7 @@ async function answerOnce(req:Completion){
  // Abort only when the model stops producing text, never because a slow phone
  // is still working: up to 4 minutes to read the prompt, then 60 seconds of
  // silence between tokens. A fixed 3-minute cap aborted slower phones mid-answer.
- let expired=false,tokens=0,timer:ReturnType<typeof setTimeout>|undefined;const cancel=()=>{
+ let expired=false,timer:ReturnType<typeof setTimeout>|undefined;const cancel=()=>{
   // llama.rn 0.10.0's JSI implementation returns void despite its Promise type.
   // The async wrapper handles void, rejected promises and synchronous throws.
   void (async()=>{await context?.stopCompletion();})().catch(()=>{});
@@ -230,7 +230,9 @@ async function answerOnce(req:Completion){
   // grammar_lazy: false keeps the schema binding from the first token even if
   // the runtime would otherwise defer it.
   const schema=JSON.stringify(req.schema);
-  const watch=()=>{arm(60000);tokens++;if(phase==='reading'){phase='writing';say();}if(tokens%25===0)backgroundWork.progress(Math.min(0.99,tokens/req.maxTokens),'Writing…');};
+  // The notification's bar counts finished items (workStatus), not words
+  // written against the longest answer allowed, which made it jump back.
+  const watch=()=>{arm(60000);if(phase==='reading'){phase='writing';say();}};
   const ask=async(text:string,temperature:number)=>{
    const base={prompt:text,n_predict:req.maxTokens,temperature,stop:['<|im_end|>','<|eot_id|>','</s>']};
    // Fail closed: a runtime/schema error must never silently disable grounding.
@@ -247,7 +249,7 @@ async function answerOnce(req:Completion){
    // provider makes, with the rejection reason in the conversation.
    console.info('[LocalMind AI] unusable output',{reason:first instanceof Error?first.message:String(first),sample:res.text.slice(0,240)});
    cancelled(req.signal);phase='fixing';say();
-   tokens=0;arm(240000);
+   arm(240000);
    res=await ask(await render([...messages,{role:'assistant',content:res.text.slice(0,600)},
     {role:'user',content:'That reply could not be read. Reply again with the JSON object only: no explanation, no reasoning, no markdown fences, nothing before or after it.'}]),0);
    cancelled(req.signal);checkInterrupted();requireThat(!expired && !('stopped_limit' in res && res.stopped_limit),'Local AI did not finish. No partial answer was saved.');

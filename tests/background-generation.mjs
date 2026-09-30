@@ -193,7 +193,8 @@ test('progress reaches the notification or iOS progress bar', async () => {
   const native = fakeNative(); const android = await fresh('android', native);
     await android.complete(request());
   assert.ok(native.updates.length > 0);
-  assert.ok(native.updates.every(([fraction]) => fraction >= 0 && fraction < 1));
+  // Busy bar (-1) while an answer is written, or a real share below 1.
+  assert.ok(native.updates.every(([fraction]) => fraction === -1 || (fraction >= 0 && fraction < 1)));
 });
 
 test('laptop: the tab is marked busy while answers are written, without the browser\'s "Leave site?" box', async () => {

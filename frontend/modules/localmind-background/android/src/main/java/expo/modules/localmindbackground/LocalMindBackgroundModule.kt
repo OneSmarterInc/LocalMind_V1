@@ -7,8 +7,9 @@ import expo.modules.kotlin.modules.ModuleDefinition
 
 /**
  * Keeps on-device generation running while the person uses other apps: a
- * foreground service shows a "LocalMind is generating" notification with
- * progress, and Android does not stop or slow a process that shows one.
+ * foreground service shows a notification naming the work ("Writing lessons —
+ * Chapter 4") with its progress, and Android does not stop or slow a process
+ * that shows one. When the work ends, a "ready" notification can replace it.
  * The GPU keeps working in the background on Android, so the speed is unchanged.
  */
 class LocalMindBackgroundModule : Module() {
@@ -34,12 +35,15 @@ class LocalMindBackgroundModule : Module() {
       }
     }
 
-    Function("update") { fraction: Double, subtitle: String ->
-      GenerationService.update(context, fraction, subtitle)
+    // fraction < 0: busy bar. The title follows the job that is running.
+    Function("update") { fraction: Double, subtitle: String, title: String ->
+      GenerationService.update(context, fraction, subtitle, title)
     }
 
-    Function("end") { _: Boolean ->
+    // readyTitle non-empty: say the lessons or quizzes are ready.
+    Function("end") { _: Boolean, readyTitle: String, readyText: String ->
       GenerationService.stop(context)
+      if (readyTitle.isNotEmpty()) GenerationService.ready(context, readyTitle, readyText)
     }
   }
 }

@@ -39,7 +39,7 @@ test('the laptop uses the same words as the phone, without GPU or thread counts'
 });
 
 test('course doubts show the live status instead of one fixed line', () => {
-  assert.match(read('frontend/src/private/courseDoubt.ts'), /maxTokens:650,temperature:0\.1,signal,progress\}\)/);
+  assert.match(read('frontend/src/private/courseDoubt.ts'), /maxTokens:650,temperature:0\.1,signal,progress,activity:'Answering your question'\}\)/);
   const ask = read('frontend/src/private/CourseAsk.tsx');
   assert.match(ask, /answerCourse\(user\.id,moduleId,q,conversation,signal,note=>\{if\(active\.current\)task\.setNote\(note\);\}\)/);
   assert.match(ask, /\{task\.note\|\|'Reading the module…'\}/);

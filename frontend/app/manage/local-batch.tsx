@@ -50,7 +50,7 @@ function Batch({owner}:{owner:string}){
  },[service,id]);
  const run=(kind:'lesson'|'quiz')=>{try{
   setError('');const ids=rows.map(d=>d.snapshot.module_id);
-  generationJobs.enqueue({scope:jobScope(library!.prefix),bookId:id,documentId:id,sectionId:id,kind:'staff-batch',label:`Book · local ${kind}s`},(signal,progress)=>runMissingBatch({ids,kind,signal,read:id=>service.read(id),generate:(...args)=>service.generate(...args),progress,isShared:(local,k)=>{const d=rows.find(r=>r.snapshot.module_id===local);return !!shared[d?.snapshot.remote_id||local]?.[k];}})
+  generationJobs.enqueue({scope:jobScope(library!.prefix),bookId:id,documentId:id,sectionId:id,kind:'staff-batch',label:'your book',work:kind==='lesson'?'lessons':'quizzes'},(signal,progress)=>runMissingBatch({ids,kind,signal,read:id=>service.read(id),generate:(...args)=>service.generate(...args),progress,isShared:(local,k)=>{const d=rows.find(r=>r.snapshot.module_id===local);return !!shared[d?.snapshot.remote_id||local]?.[k];}})
   );
  }catch(e){setError(String(e));}};
  return <Screen><PageHeading title="Prepare book" subtitle="Generate lessons and quizzes, then review your drafts." right={<Button title="Offline AI" variant="secondary" onPress={()=>router.push('/manage/offline-ai')}/>}/>

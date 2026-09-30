@@ -1,3 +1,4 @@
+import { jobStateLabel, jobTitle } from './workStatus';
 import {BookUploads} from '@/authoring/uploads';
 import {onConnectivityChange} from '@/offline/connectivity';
 import {LocalQuizzes} from '@/authoring/quizzes';
@@ -29,6 +30,6 @@ export function GenerationHost(){const library=useLibrary(),{user}=useAuth(),sco
 export function GenerationJobs(){const library=useLibrary(),router=useRouter(),jobs=useGenerationJobs(library?.prefix||'');
  if(!jobs.length)return null;
  return <Card><H2>Generation jobs</H2><P muted>You can read, practise and move between pages while these jobs run. The local model handles one response at a time. You can also switch to another app while they run. Closing LocalMind, or refreshing this page in a browser, interrupts unfinished jobs. Completed lesson parts and quiz questions are saved; open the book and generate again to resume.</P>
- {jobs.slice().reverse().map(j=><Card key={j.id}><Row><P>{j.label}</P><Badge value={j.state}/></Row><P muted>{j.error||j.note}</P><Row><Button title="Open book" small variant="secondary" onPress={()=>router.push(j.kind==='staff-quiz-selection'?`/manage/local-quizzes?id=${j.bookId}`:['staff-batch','staff-auto'].includes(j.kind)?`/manage/local-batch?document=${j.bookId}`:j.kind.startsWith('staff-')?`/manage/local-authoring/${j.bookId}`:`/student/private-book/${j.bookId}?section=${encodeURIComponent(j.sectionId)}&tab=${j.kind==='doubt'?'ask':j.kind}`)}/>{['queued','running'].includes(j.state)?<Button title="Cancel job" small variant="secondary" onPress={()=>generationJobs.cancel(j.id)}/>:null}</Row></Card>)}
+ {jobs.slice().reverse().map(j=><Card key={j.id}><Row><P>{jobTitle(j)}</P><Badge value={jobStateLabel(j.state)}/></Row><P muted>{j.error||j.note}</P><Row><Button title="Open book" small variant="secondary" onPress={()=>router.push(j.kind==='staff-quiz-selection'?`/manage/local-quizzes?id=${j.bookId}`:['staff-batch','staff-auto'].includes(j.kind)?`/manage/local-batch?document=${j.bookId}`:j.kind.startsWith('staff-')?`/manage/local-authoring/${j.bookId}`:`/student/private-book/${j.bookId}?section=${encodeURIComponent(j.sectionId)}&tab=${j.kind==='doubt'?'ask':j.kind}`)}/>{['queued','running'].includes(j.state)?<Button title="Cancel job" small variant="secondary" onPress={()=>generationJobs.cancel(j.id)}/>:null}</Row></Card>)}
  </Card>;
 }

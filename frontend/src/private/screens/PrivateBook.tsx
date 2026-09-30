@@ -109,7 +109,7 @@ function ModuleLearning({bookId,section,next,hasNext,initialTab,onSourceSaved,ba
  useUnsavedWarning(sourceDirty);
  const task={busy:!!current&&['queued','running'].includes(current.state),note:current?.note||'',error:localError||current?.error||'',cancel:()=>{if(current)generationJobs.cancel(current.id);}};
  const enqueue=(kind:string,run:(signal:AbortSignal,progress:(s:string)=>void)=>Promise<unknown>)=>{
-  try{setLocalError('');generationJobs.enqueue({scope:jobScope(library.prefix),bookId,sectionId:section.id,kind,label:`${section.title} · ${kind}`},run);}catch(e){setLocalError(String(e));}
+  try{setLocalError('');generationJobs.enqueue({scope:jobScope(library.prefix),bookId,sectionId:section.id,kind,label:section.title},run);}catch(e){setLocalError(String(e));}
  };
  const generateLesson=()=>{setLessonId('');backToTop();enqueue('lesson',(signal,progress)=>library.generateLesson(bookId,section.id,signal,progress));};
  const generatedQuiz=useRef('');

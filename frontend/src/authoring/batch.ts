@@ -9,6 +9,6 @@ export async function runMissingBatch(options:{ids:string[];kind:'lesson'|'quiz'
   if(options.kind==='lesson'?draft.lesson:draft.questions?.length)continue;
   // Already synchronized by someone: generating it again only duplicates work.
   if(options.isShared?.(ids[n],options.kind))continue;
-  await options.generate(ids[n],options.kind,options.signal,message=>options.progress(`Module ${n+1}/${ids.length} · ${message}`));
+  await options.generate(ids[n],options.kind,options.signal,message=>options.progress(`Module ${n+1} of ${ids.length} · ${message}`));
  }
 }
