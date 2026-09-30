@@ -6,7 +6,7 @@ import {useLibrary} from '@/private/useLibrary';
 import {device} from '@/private/device';
 import {useAuth} from '@/auth/AuthContext';
 import {LocalQuizzes} from '@/authoring/quizzes';
-import { confirmLeave } from "@/hooks/unsavedGuard";
+import { confirmLeave, discardAfterAsking } from "@/hooks/unsavedGuard";
 import { carryEditableFields } from "@/hooks/draftPersistence";
 import { useNavigation, useRouter } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -370,7 +370,7 @@ export function QuizDetailPage({ id, note }: { id: string; note?: string }) {
   const saveBarItems = (
     <>
       <Text style={{ flex: 1, fontSize: 12, color: dirty ? colors.warning : colors.muted }}>{dirty ? "Unsaved changes" : "No unsaved changes"}</Text>
-      {dirty ? <Button title="Discard" small variant="ghost" onPress={discard} /> : null}
+      {dirty ? <Button title="Discard" small variant="ghost" onPress={() => void discardAfterAsking(discard, "this quiz")} /> : null}
       {d.status === "draft" || d.status === "closed" ? <Button title={held ? "Publish corrected quiz" : "Publish quiz"} small variant="secondary" icon="checkmark" onPress={() => (held ? publishHeld.run() : setStatus.run("published"))} busy={setStatus.busy || publishHeld.busy} disabled={dirty} /> : null}
       <Button title="Save changes" small icon="save-outline" onPress={() => save.run()} busy={save.busy} disabled={!dirty || !editable} />
     </>
@@ -396,7 +396,7 @@ export function QuizDetailPage({ id, note }: { id: string; note?: string }) {
       ]} />
       <ErrorBanner message={save.error ?? setStatus.error ?? release.error ?? remove.error ?? review.error ?? publishHeld.error} />
       {leftBehind ? <Notice inline tone="warning" title="Unsaved changes were left on another quiz." message={`Your edits to ${leftBehind.label} are kept with that quiz and were not applied here.`}
-        action={<View style={{ flexDirection: "row", gap: 8 }}><Button title="Open that quiz" small variant="secondary" onPress={() => router.push(`/manage/quiz/${leftBehind.id}`)} /><Button title="Discard them" small variant="ghost" onPress={forgetLeftBehind} /></View>} /> : null}
+        action={<View style={{ flexDirection: "row", gap: 8 }}><Button title="Open that quiz" small variant="secondary" onPress={() => router.push(`/manage/quiz/${leftBehind.id}`)} /><Button title="Discard them" small variant="ghost" onPress={() => void discardAfterAsking(forgetLeftBehind, "that quiz")} /></View>} /> : null}
       {changedMeanwhile ? <Notice inline tone="warning" title="This quiz changed on the server while you were editing." message="Your edits are kept. Saving replaces the server copy; discard your edits to load the latest version." /> : null}
       {held && fixing ? <Notice inline tone="warning" title="Correcting a held quiz" message="Save your corrections, then use “Publish corrected quiz”. The quiz stays hidden from students until you publish it." /> : null}
       {note ? <Notice inline tone="warning" title="Generated with notes" message={`${note}. Review the questions, add any that are missing by hand, or generate again.`} /> : null}
@@ -466,7 +466,7 @@ export function QuizDetailPage({ id, note }: { id: string; note?: string }) {
                 <Text style={{ fontSize: 15, fontWeight: "600", color: colors.ink, marginTop: 6 }}>When can students see results?</Text>
                 <ResultsRelease value={(d.results_release ?? "immediate") as ReleaseMode} at={d.results_release_at ?? null} disabled={!editable} onChange={(m, at) => edit((z) => ({ ...z, results_release: m, results_release_at: at }))} />
                 <FormFooter note="Evaluation and result visibility are separate.">
-                  <Button title="Cancel" variant="secondary" onPress={discard} disabled={!dirty} />
+                  <Button title="Cancel" variant="secondary" onPress={() => void discardAfterAsking(discard, "this quiz")} disabled={!dirty} />
                   <Button title="Save settings" icon="checkmark" onPress={() => save.run()} busy={save.busy} disabled={!dirty || !editable} />
                 </FormFooter>
               </Card>
@@ -777,7 +777,7 @@ export function AttemptReviewPage({ attemptId, quizId }: { attemptId: string; qu
                   </View>
                 ))}
                 <FormFooter note={written.length ? "Changes use the existing faculty re-evaluation action." : "Multiple-choice answers are marked automatically."}>
-                  <Button title="Cancel" variant="secondary" onPress={discard} disabled={!dirty} />
+                  <Button title="Cancel" variant="secondary" onPress={() => void discardAfterAsking(discard, "this evaluation")} disabled={!dirty} />
                   <Button title="Save evaluation" icon="checkmark" onPress={() => save.run()} busy={save.busy} disabled={!dirty} />
                 </FormFooter>
               </Card>

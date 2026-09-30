@@ -75,3 +75,17 @@ export async function confirmLeave(leaving: "navigate" | "signOut" = "navigate")
   }
   return true;
 }
+
+
+/** Before throwing away unsaved edits from a Discard or Cancel button.
+ *
+ * Those buttons used to drop the edits on one tap, with no way back, while
+ * leaving the page with the same edits asked first. Same LocalMind pop-up on
+ * the laptop, Android and iOS. `what` names the edits: "this quiz". */
+export async function discardAfterAsking(discard: () => void | Promise<void>, what: string): Promise<boolean> {
+  const sure = await confirmAsync(`Discard your changes to ${what}?`,
+    "Your unsaved edits will be lost. This can't be undone.",
+    "Discard changes", "Keep editing", { tone: "danger", icon: "trash-outline" });
+  if (sure) await discard();
+  return sure;
+}

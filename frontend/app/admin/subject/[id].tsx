@@ -1,7 +1,7 @@
 import { deleteSubjectFlow } from "@/screens/admin/deleteSubject";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useDraft } from "@/hooks/useDraft";
-import { confirmLeave } from "@/hooks/unsavedGuard";
+import { confirmLeave, discardAfterAsking } from "@/hooks/unsavedGuard";
 import { useTabParam } from "@/hooks/useTabParam";
 import React, { useMemo, useState } from "react";
 import { Text, View } from "react-native";
@@ -74,7 +74,7 @@ function DetailsTab({ subject: s, onChanged }: { subject: any; onChanged: () => 
           <ErrorBanner message={save.error} />
           {saved && !dirty ? <Notice tone="success" message="Subject saved." /> : null}
           <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 9, paddingTop: 18, borderTopWidth: 1, borderTopColor: colors.border }}>
-            <Button title="Cancel" variant="secondary" disabled={!dirty} onPress={discard} />
+            <Button title="Cancel" variant="secondary" disabled={!dirty} onPress={() => void discardAfterAsking(discard, "this subject")} />
             <Button title="Save subject" icon="checkmark" onPress={() => save.run()} busy={save.busy} disabled={!dirty || !name.trim() || !code.trim()} />
           </View>
         </Card>
