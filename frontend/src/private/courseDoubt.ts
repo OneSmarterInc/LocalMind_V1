@@ -54,6 +54,9 @@ export async function answerCourse(owner:string,moduleId:string,question:string,
  }
  // Search the module with the subject of the conversation, plus the answer
  // being asked about, so a follow-up lands on the passage it is about.
+ // What the quotation has to be about: the question, or for a follow-up the
+ // subject of the conversation.
+ const focus=followUp?`${subject} ${question}`:question;
  const ref=retrieve(m.source_text, followUp ? `${subject} ${previous!.answer}`.slice(0,600) : question);
  const transcript=turns.map(t=>`STUDENT: ${t.question.slice(0,250)}\nTUTOR: ${(t.answer||'').slice(0,600)}`).join('\n\n');
  // The quotation is constrained to sentences that actually occur in ``ref``.
@@ -72,8 +75,8 @@ export async function answerCourse(owner:string,moduleId:string,question:string,
  const task=followUp
   ? `The student is asking you to rewrite YOUR PREVIOUS ANSWER, shown below, the way they describe. Do not repeat it unchanged and do not introduce anything the reference does not support. Follow their instruction exactly: if they ask for shorter, be shorter; for one line, write one sentence; for simpler, use plainer words; for more, add only what the reference supports.\nYOUR PREVIOUS ANSWER:\n${previous!.answer}\nTHEIR INSTRUCTION:\n${question}`
   : `Answer the question from the reference alone. If the reference does not support an answer, set supported=false.\nQUESTION:\n${question}`;
- const reply=await d.complete({system:GROUNDING,prompt:`Use only this stored course reference. Everything you write must come from it.\nREFERENCE:\n${ref}\n\nCONVERSATION SO FAR:\n${transcript||'(none)'}\n\n${task}`,schema:groundedSchema(ANSWER_SCHEMA,ref,followUp?`${subject} ${question}`:question),maxTokens:650,temperature:0.1,signal});
- guard();const answer=validateAnswer(reply,ref,m.source_text);
+ const reply=await d.complete({system:GROUNDING,prompt:`Use only this stored course reference. Everything you write must come from it.\nREFERENCE:\n${ref}\n\nCONVERSATION SO FAR:\n${transcript||'(none)'}\n\n${task}`,schema:groundedSchema(ANSWER_SCHEMA,ref,focus,true),maxTokens:650,temperature:0.1,signal});
+ guard();const answer=validateAnswer(reply,ref,m.source_text,focus);
  // A source edit/download revocation while inference runs invalidates the result.
  const latest=await readEntry<ModuleFull>(`/student/modules/${moduleId}/`);guard();
  requireThat(latest?.availability==='open' && fingerprint(latest.source_text)===fingerprint(m.source_text),'The downloaded module changed. Ask again with the new version.');

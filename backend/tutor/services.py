@@ -43,7 +43,22 @@ REFERENCE_WINDOW_WORDS = 6
 # them to allow more through. A small model will claim an answer is grounded
 # and then answer from its own training data, so these are the only real gate;
 # the system prompt is a request, not an enforcement.
-MIN_QUESTION_TERMS = 2
+# Every question with a subject of its own is judged; only a question with no
+# subject ("why?", "explain more") is left to the conversation. This used to
+# be 2, which waved every one-word subject through ("What is maths").
+MIN_QUESTION_TERMS = 1
+
+# Words that say what kind of answer is wanted, not what it is about. Keep in
+# step with GENERIC_STUDY_WORDS in frontend/src/private/core.ts.
+GENERIC_STUDY_WORDS = frozenset("""
+example examples meaning definition define defined difference differences between type types kind
+kinds role roles purpose importance important main use uses used using work works working also other
+another any every each many much more most its his her him she he i a like such get got may might will
+shall must here there know understand topic topics chapter module book reading section page
+""".split())
+# Endings that build one word from another without changing its subject.
+# "-al" and "-ics" are left out: physic/physical and math/mathematics differ.
+RELATED_ENDINGS = frozenset("er ers or ors ion ions ation ations ment ments ing ed es s ly ity ive ist ists ism".split())
 
 
 def _normalized(text):
@@ -97,18 +112,55 @@ def _content_terms(text):
     return {retrieval.stem(t) for t in tokenize(text or "")}
 
 
+def _subject_terms(question):
+    """The words of a question that name its subject, stemmed. Mirrors
+    ``subjectTerms`` in frontend/src/private/core.ts."""
+    from documents.services.chunking import tokenize
+    ignored = FOLLOW_UP_WORDS | GENERIC_STUDY_WORDS
+    words = [w for w in tokenize(question or "") if w not in ignored]
+    return {t for t in (retrieval.stem(w) for w in words) if len(t) >= 2 and t not in ignored}
+
+
+def _edit_distance(a, b):
+    row = list(range(len(b) + 1))
+    for i, ca in enumerate(a):
+        nxt = [i + 1]
+        for j, cb in enumerate(b):
+            nxt.append(min(nxt[j] + 1, row[j + 1] + 1, row[j] + (ca != cb)))
+        row = nxt
+    return row[-1]
+
+
+def _terms_meet(a, b):
+    """Equal, one built from the other with a common ending, or a small
+    misspelling that keeps the first letter and nearly the same length.
+    Mirrors ``termsMeet`` in frontend/src/private/core.ts."""
+    if a == b:
+        return True
+    short, long = (a, b) if len(a) <= len(b) else (b, a)
+    if len(short) >= 4 and long.startswith(short) and long[len(short):] in RELATED_ENDINGS:
+        return True
+    if len(short) < 5 or a[0] != b[0] or len(long) - len(short) > 1:
+        return False
+    return _edit_distance(a, b) <= (2 if len(short) >= 6 else 1)
+
+
+def _mentions_any(terms, text):
+    vocabulary = _content_terms(text)
+    return any(t in vocabulary or any(w[:1] == t[:1] and _terms_meet(t, w) for w in vocabulary) for t in terms)
+
+
 def _question_is_about(question, module_text):
     """Whether the question is even about this module.
 
     Checked against the whole module, not the retrieved passages, so a question
-    about a part that did not score well is not refused. A question with almost
-    no content words of its own ("why?", "explain more") is a follow-up and is
-    left to the conversation.
+    about a part that did not score well is not refused. A question with no
+    subject of its own ("why?", "explain more") is left to the conversation.
     """
-    asked = _content_terms(question)
+    asked = _subject_terms(question)
     if len(asked) < MIN_QUESTION_TERMS:
         return True
-    return bool(asked & _content_terms(module_text))
+    return _mentions_any(asked, module_text)
 
 
 def _invented_specifics(answer, module_text):
@@ -368,6 +420,14 @@ def ask(student, module_id, question, conversation_id=None, request=None):
         # this module in front of the student.
         logger.info("tutor.ask quotation not found in module %s; answer treated as ungrounded", module.id)
         grounded = False
+    if grounded and not _is_follow_up(question):
+        asked = _subject_terms(question)
+        if asked and not _mentions_any(asked, reference):
+            # A real sentence from the module that is not about the question
+            # is not evidence for the answer: a model answering from its own
+            # knowledge still has to quote something.
+            logger.info("tutor.ask quotation does not mention the question in module %s; treated as ungrounded", module.id)
+            grounded = False
     answer = _clean_answer(result.data.get("answer", ""))
     invented = _invented_specifics(answer, module.source_text)
     if grounded and invented:
