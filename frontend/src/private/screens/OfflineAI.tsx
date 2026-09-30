@@ -11,6 +11,7 @@ import { deviceFit } from '../deviceFit';
 import { useAuth } from '@/auth/AuthContext';
 import { MODEL } from '../modelSpec';
 import { modelSetup, useModelSetup } from '../modelSetup';
+import { confirmCancelDownload } from '../modelDialogs';
 import { chooseAndDownload, type ModelChoices } from '../modelPrompts';
 import type { ModelStatus, ModelStorage } from '../device.types';
 
@@ -83,7 +84,7 @@ export default function OfflineAI() {
       <P muted>After the model and book are installed, lesson generation, quiz generation and doubt solving run here without an internet connection or an AI API key. Checking an existing multiple-choice quiz does not need a model.</P>
       <P muted>The included download is a compact model, not a guarantee of answer quality. Compare explanations and generated questions with the original book. You may import a compatible larger GGUF when this device has enough memory.</P>
       <Row><Button title={status?.installed ? 'Download replacement model' : choices ? 'Download model' : `Download model · ${MODEL.downloadSize}`} icon="download-outline" onPress={download} disabled={busy || setup.running} /><Button title="Import a .gguf file" variant="secondary" icon="folder-open-outline" onPress={importModel} disabled={busy || setup.running} /></Row>
-      {setup.running ? <><ProgressBar value={setup.progress} /><P>{setup.progress > 0 ? `${setup.progress}% — ${setup.progress >= 98 ? 'verifying' : 'downloading'}` : 'Preparing…'}</P><P muted>You can leave this page or switch to another app; the download keeps going.</P><Button title="Cancel download" variant="secondary" onPress={() => modelSetup.cancel()} /></>
+      {setup.running ? <><ProgressBar value={setup.progress} /><P>{setup.progress > 0 ? `${setup.progress}% — ${setup.progress >= 98 ? 'verifying' : 'downloading'}` : 'Preparing…'}</P><P muted>You can leave this page or switch to another app; the download keeps going.</P><Button title="Cancel download" variant="secondary" onPress={() => { void confirmCancelDownload().then(ok => { if (ok) modelSetup.cancel(); }); }} /></>
         : busy && <><ProgressBar value={progress} /><P>{progress > 0 ? `${progress}% — ${progress >= 98 ? 'verifying' : 'working'}` : 'Preparing…'}</P><Button title="Cancel" variant="secondary" onPress={() => controller.current?.abort()} /></>}
       {status?.installed && <Button title="Remove model only" variant="secondary" disabled={busy || setup.running} onPress={() => { void run(async () => { if (await confirmAsync('Remove this local model?', 'Books, lessons and quizzes will remain. New AI work will require importing or downloading a model again.', 'Remove model', 'Keep model')) { await (await device()).removeModel(); if (alive.current) setNotice('Model removed. Your saved study material is unchanged.'); } }); }} />}
     </Card>

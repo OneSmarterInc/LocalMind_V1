@@ -49,8 +49,8 @@ test('storage that fails never locks anyone out and never hides the screen by mi
 test('the continue button is offered on every device, not only on a computer that cannot run the model', () => {
   assert.doesNotMatch(gate, /!fit\.ok \? <Button title="Continue without offline AI"/);
   assert.match(gate, /title=\{setup\.running \? 'Continue while it downloads' : 'Continue without offline AI'\}/);
-  assert.match(gate, /onPress=\{continueWithout\} disabled=\{importing !== null\}/, 'a running download does not block it');
-  assert.match(gate, /const continueWithout = \(\) => \{ void putOffSetup\(AsyncStorage, userId\); setSkipped\(true\); \}/);
+  assert.match(gate, /onPress=\{\(\) => void continueWithout\(\)\} disabled=\{importing !== null\}/, 'a running download does not block it');
+  assert.match(gate, /if \(!\(await confirmContinueWithoutModel\(modelSetup\.get\(\)\.running\)\)\) return;\s*void putOffSetup\(AsyncStorage, userId\); if \(alive\.current\) setSkipped\(true\);/);
 });
 
 test('the setup screen reads the choice before showing, clears it on install, and reminds once per start', () => {

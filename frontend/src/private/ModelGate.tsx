@@ -11,6 +11,8 @@ import type { ModelStatus } from './device.types';
 import { chooseAndDownload, type ModelChoices } from './modelPrompts';
 import { modelSetup, useModelSetup } from './modelSetup';
 import { SETUP_REMINDER, clearPutOff, putOffSetup, setupPutOff } from './modelSkip';
+import { confirmCancelDownload, confirmContinueWithoutModel } from './modelDialogs';
+import { confirmSignOut } from '@/hooks/unsavedGuard';
 
 /** People already reminded in this run of the app, so the reminder appears
  *  once per start rather than on every return to the app. */
@@ -102,7 +104,15 @@ export function ModelGate() {
     try { const d = await device(); if (await d.grantModelFolder?.()) modelSetup.changed(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
   const busy = setup.running || importing !== null;
-  const continueWithout = () => { void putOffSetup(AsyncStorage, userId); setSkipped(true); };
+  // Each choice asks first, in LocalMind's own pop-up: skipping used to
+  // happen on one tap, and Sign out here skipped the warning that signing out
+  // removes this device's offline copy (every other Sign out asks).
+  const continueWithout = async () => {
+    if (!(await confirmContinueWithoutModel(modelSetup.get().running))) return;
+    void putOffSetup(AsyncStorage, userId); if (alive.current) setSkipped(true);
+  };
+  const signOut = async () => { if (!(await confirmSignOut())) return; modelSetup.cancel(); void logout(); };
+  const cancelDownload = async () => { if (await confirmCancelDownload()) modelSetup.cancel(); };
   const recommended = choices?.models.find(m => m.id === choices.recommended) ?? choices?.models[0];
 
   return (
@@ -121,7 +131,7 @@ export function ModelGate() {
             <ProgressBar value={setup.progress} />
             <P>{setup.progress > 0 ? `${setup.progress}% — ${setup.progress >= 98 ? 'verifying' : 'downloading'}` : 'Preparing…'}</P>
             <P muted>You can switch to another app; the download keeps going.</P>
-            <Row><Button title="Cancel download" variant="secondary" onPress={() => modelSetup.cancel()} /></Row>
+            <Row><Button title="Cancel download" variant="secondary" onPress={() => void cancelDownload()} /></Row>
           </> : importing !== null ? <>
             <ProgressBar value={importing} /><P>Importing… {importing}%</P>
           </> : <Row>
@@ -133,8 +143,8 @@ export function ModelGate() {
         <Row>
           {/* A running download keeps going in the background, so continuing
               does not stop it; an import is tied to this screen, so wait. */}
-          <Button title={setup.running ? 'Continue while it downloads' : 'Continue without offline AI'} variant="secondary" icon="arrow-forward-outline" onPress={continueWithout} disabled={importing !== null} />
-          <Button title="Sign out" variant="ghost" icon="log-out-outline" onPress={() => { modelSetup.cancel(); void logout(); }} />
+          <Button title={setup.running ? 'Continue while it downloads' : 'Continue without offline AI'} variant="secondary" icon="arrow-forward-outline" onPress={() => void continueWithout()} disabled={importing !== null} />
+          <Button title="Sign out" variant="ghost" icon="log-out-outline" onPress={() => void signOut()} />
         </Row>
       </ScrollView>
     </View>
