@@ -41,7 +41,7 @@ export class Library {
     section.source=source.trim();this.guard();await d.put(this.key(bookId),validateBook(book));this.guard();
   }
   async import(file: LocalFile, shared?: { id: string; title: string; sha256?: string }, signal?: AbortSignal, progress?: (message: string) => void) {
-    cancelled(signal); this.guard(); progress?.("Reading book on this device…");
+    cancelled(signal); this.guard(); progress?.("Reading your book…");
     const d = await device(), assetSet=randomUUID();let assetPrefix='';let committed=false;
     const resolveId=async(hash:string)=>{
       const original=await d.get<PrivateBook>(this.key(hash));this.guard();

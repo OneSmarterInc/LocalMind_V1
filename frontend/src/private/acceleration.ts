@@ -21,7 +21,7 @@ export async function loadAccelerated<T>(options:{
     let observed:number|undefined;
     const engine=options.create((...args)=>{const value=offloadedLayers(args);if(value!==undefined)observed=value;});
     try {
-      options.progress?.(layers?'Loading the model on this device’s GPU…':'Loading the model on this device’s CPU…');
+      options.progress?.(layers?'Loading the AI model…':'Loading the AI model…');
       await options.load(engine,layers);
       options.signal.throwIfAborted();
       const accelerator=layers===0||observed===0?'cpu':observed!==undefined?'gpu':'unconfirmed';

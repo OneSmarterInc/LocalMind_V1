@@ -234,7 +234,7 @@ export function draftStatus(draft:Draft|undefined,kind:'lesson'|'quiz'){
   return held?syncedBy(kind==='lesson'?draft?.snapshot.institution?.lesson_by:draft?.snapshot.institution?.quiz_by):undefined;
  }
  if(draft?.shared?.[kind]===fingerprint(JSON.stringify(content)))return 'Synchronized';
- if(draft?.operation?.kind===kind&&draft.state==='pending')return 'Awaiting synchronization';
+ if(draft?.operation?.kind===kind&&draft.state==='pending')return 'Waiting to synchronize';
  if(draft?.operation?.kind===kind&&draft.state==='conflict')return 'Synchronization needs review';
  return 'Ready for review';
 }

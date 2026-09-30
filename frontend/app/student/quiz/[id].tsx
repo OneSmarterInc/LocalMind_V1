@@ -205,7 +205,7 @@ function StudentQuizEditor({ id }: { id: string }) {
   return (
     <Screen>
       <PageHeading eyebrow={eyebrow} title={q?.title ?? "Quiz"} subtitle="Focus on one question at a time." right={<Badge value={`Attempt ${attempt.attempt_number}`} tone="blue" />} />
-      {restored === null ? <Notice inline title="Restoring saved answers…" message="Your answers saved on this device are being loaded. Submitting waits until that is done." /> : null}
+      {restored === null ? <Notice inline title="Restoring your saved answers…" message="Your answers saved on this device are being loaded. Submitting waits until that is done." /> : null}
       {attempt.resumed && restored !== null ? <Notice inline title="Resuming your open attempt" message={restored ? "Your answers saved on this device were restored. Check them before you submit." : "No answers were saved on this device for this attempt, so check each question."} /> : null}
       <Split sideWidth={265}
         main={
@@ -268,7 +268,7 @@ function StudentQuizEditor({ id }: { id: string }) {
                   );
                 })}
               </View>
-              <Text style={{ fontSize: 11, color: colors.muted }}>{draftSaving ? "Saving your answers on this device…" : "Filled squares have an answer. You can come back to any question."}</Text>
+              <Text style={{ fontSize: 11, color: colors.muted }}>{draftSaving ? "Saving your answers…" : "Filled squares have an answer. You can come back to any question."}</Text>
             </Card>
             <Notice title="You are in control." message={remaining !== null ? "Nothing is submitted until you confirm on the review screen, unless the time runs out first." : "Nothing is submitted until you confirm on the review screen."} />
           </>

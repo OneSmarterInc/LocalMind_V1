@@ -12,7 +12,7 @@ export function prepareAppFiles():Promise<void>{
  if(Platform.OS!=='web'||!isOnline())return Promise.resolve();
  if(inflight)return inflight;
  if(Date.now()-lastSuccess<5*60*1000)return Promise.resolve();
- publish('Saving offline application files automatically…');
+ publish('Saving the app for offline use…');
  inflight=(async()=>{try{const note=await(await device()).prepareOffline();lastSuccess=Date.now();
   // On a plain-http address only the book reader can be kept (no service worker), so say what was actually saved.
   publish(typeof window!=='undefined'&&!window.isSecureContext?note:'Application files saved automatically. Ready to reopen offline.');}catch(e){publish(`Offline preparation will retry when connected. ${e instanceof Error?e.message:String(e)}`);}finally{inflight=null;}})();

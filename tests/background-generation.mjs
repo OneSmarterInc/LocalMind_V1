@@ -122,7 +122,7 @@ test('iOS 26 without background GPU: moves to the CPU off screen, finishes, then
   bg.onCompletion = null;
   assert.deepEqual(await answer, {ok:true});
   assert.deepEqual(bg.loads.slice(-1), [0], 'reloaded on the CPU in the background');
-  assert.ok(messages.some(m => /CPU while LocalMind is in the background/.test(m)));
+  assert.ok(messages.some(m => /Continuing more slowly while LocalMind is in the background/.test(m)));
   bg.setState('active');
   assert.deepEqual(await ios.complete(request()), {ok:true});
   assert.deepEqual(bg.loads.slice(-1), [99], 'back on the GPU once on screen');
@@ -232,8 +232,8 @@ test('the phone shows elapsed time, never a percentage of the longest answer all
     return {text:'{"ok":true}'};
   };
   await android.complete(request(undefined, s => said.push(s)));
-  assert.ok(said.some(s => /^Reading the material on this phone… \d+s$/.test(s)), said.join(' | '));
-  assert.ok(said.some(s => /^Writing the answer on this phone… \d+s$/.test(s)), said.join(' | '));
+  assert.ok(said.some(s => /^Reading the material… \d+s$/.test(s)), said.join(' | '));
+  assert.ok(said.some(s => /^Writing… \d+s$/.test(s)), said.join(' | '));
   assert.ok(!said.some(s => s.includes('%')), said.join(' | '));
   const count = said.length; await new Promise(r => setTimeout(r, 1200));
   assert.equal(said.length, count, 'the clock stops when the answer is done');

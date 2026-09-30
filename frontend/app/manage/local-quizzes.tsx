@@ -54,7 +54,7 @@ function Drafts({owner}:{owner:string}){
      <ProgressBar value={row.count?(saved/row.count)*100:0} tone={complete?'green':'amber'}/>
     </View>
     {row.error?<Notice inline tone="warning" title="Generation problem" message={row.error}/>:null}
-    {job&&(busy||job.error)?<Notice inline tone={job.error?'warning':'info'} message={job.error||job.note||'Generating questions on this device.'}/>:null}
+    {job&&(busy||job.error)?<Notice inline tone={job.error?'warning':'info'} message={job.error||job.note||'Writing questions on this device…'}/>:null}
     {row.state==='conflict'?<Notice inline tone="warning" title="Module sources changed" message="Your draft is retained. Review the updated module sources before creating a replacement quiz."/>:null}
     <Row>
      {row.state==='draft'&&row.done<row.parts.length?<Button title={row.done?'Resume generation':'Generate questions'} icon="sparkles-outline" disabled={!ready||busy} onPress={()=>generate(row)}/>:null}

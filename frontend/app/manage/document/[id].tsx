@@ -321,7 +321,7 @@ const STAGES = [
   { key: "outline", title: "Outline planned", text: "Creating a clear learning structure." },
   { key: "structure", title: "Modules created", text: "Ready for your review after processing." },
 ];
-const STAGE_LABEL: Record<string, string> = { queued: "Waiting for the parser", reading: "Reading the file", outline: "Planning the outline", structure: "Creating chapters and modules" };
+const STAGE_LABEL: Record<string, string> = { queued: "Waiting to start reading…", reading: "Reading the file…", outline: "Planning the outline…", structure: "Creating chapters and modules…" };
 
 function ProcessingCard({ doc, onOpen }: { doc: Document; onOpen: () => void }) {
   const p = doc.progress;
@@ -332,7 +332,7 @@ function ProcessingCard({ doc, onOpen }: { doc: Document; onOpen: () => void }) 
   const current = Math.max(0, STAGES.findIndex((st) => st.key === p?.stage));
   return (
     <Card>
-      <CardHead title={p ? STAGE_LABEL[p.stage] ?? "Processing" : "Starting"} action={p ? <Badge value={`Step ${p.step} of ${p.total_steps}`} tone="blue" /> : null} />
+      <CardHead title={p ? STAGE_LABEL[p.stage] ?? "Processing…" : "Starting…"} action={p ? <Badge value={`Step ${p.step} of ${p.total_steps}`} tone="blue" /> : null} />
       <ProgressBar value={p?.percent ?? 0} />
       <Text style={{ fontSize: 12, color: colors.muted }}>{p?.detail || "The page updates on its own; you can leave and come back."}</Text>
       {STAGES.map((st, i) => (
@@ -447,7 +447,7 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
   ];
   const heldCount = a?.enabled ? a.held ?? 0 : 0;
   // Count what the table below actually shows. A device draft moves through
-  // "Ready for review", then "Awaiting synchronization", then "Synchronized";
+  // "Ready for review", then "Waiting to synchronize", then "Synchronized";
   // doc.lessons.ready only counts the last stage, so a book full of drafts
   // waiting for the reviewer read "0 of 41 ready" even though every row was
   // prepared. Count lessons that are prepared on this device (any stage past
@@ -456,7 +456,7 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
   const teachable = modules.filter(teachableRows);
   const preparedLocally = teachable.filter((m) => {
     const st = lessonState(m);
-    return st === "Ready for review" || st === "Awaiting synchronization" || st.startsWith("Synchronized") || st === "Ready";
+    return st === "Ready for review" || st === "Waiting to synchronize" || st.startsWith("Synchronized") || st === "Ready";
   }).length;
   const syncedLessons = l?.ready ?? 0;
   const ready = Math.max(preparedLocally, syncedLessons);
@@ -840,7 +840,7 @@ function OutlineWorkspace({ documentId, published, onSaved, onState, lessonStatu
       {saving ? (
         // Editing waits for the save: the server assigns ids to new chapters and modules, so edits typed
         // meanwhile could not be matched to what was saved.
-        <View style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, backgroundColor: "rgba(255,255,255,0.55)", alignItems: "center", justifyContent: "center" }} accessibilityRole="progressbar" accessibilityLabel="Saving the outline">
+        <View style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, backgroundColor: "rgba(255,255,255,0.55)", alignItems: "center", justifyContent: "center" }} accessibilityRole="progressbar" accessibilityLabel="Saving the outline…">
           <Text style={{ fontSize: 13, fontWeight: "600", color: colors.ink }}>Saving the outline…</Text>
         </View>
       ) : null}
@@ -1016,7 +1016,7 @@ function LessonMark({ status }: { status?: LessonStatus }) {
  *  section, so a "generating" message never has to live next to the source text. */
 function LessonStatusBanner({ status }: { status: LessonStatus }) {
   const map: Partial<Record<LessonStatus, { icon: IconName; color: string; text: string }>> = {
-    generating: { icon: "sync-outline", color: colors.accent, text: "Generating the lesson for this module…" },
+    generating: { icon: "sync-outline", color: colors.accent, text: "Writing the lesson for this module…" },
     pending: { icon: "time-outline", color: colors.muted, text: "Lesson queued — it will be written in turn with the other modules." },
     ready: { icon: "checkmark-circle-outline", color: colors.success, text: "Lesson ready. Preview it from Lessons & quizzes." },
     failed: { icon: "alert-circle-outline", color: colors.warning, text: "Lesson generation failed. It is retried automatically, or regenerate it from Lessons & quizzes." },

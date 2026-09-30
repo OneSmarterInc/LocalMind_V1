@@ -1,3 +1,4 @@
+import { aiStatus, type AiPhase } from './aiStatus';
 import * as FS from 'expo-file-system/legacy';
 import * as SQLite from 'expo-sqlite';
 import { AppState, Platform } from 'react-native';
@@ -108,7 +109,7 @@ async function chooseAccelerator(m:Installed,options:object,progress?:(message:s
  const saved=await store.get<Accel>(ACCEL_KEY);if(saved?.model===m.hash)return saved;
  let result:Accel={model:m.hash,choice:'cpu',note:'Running on this phone’s CPU.'};
  if(await gpuCandidate()){
-  progress?.('Checking the fastest way to run the model on this phone (one time only)…');
+  progress?.('Setting up the AI model for this phone (first time only)…');
   let gpuTps=0,cpuTps=0;
   try{gpuTps=await speed(options,99);}catch{gpuTps=0;}
   try{cpuTps=await speed(options,0);}catch{cpuTps=0;}
@@ -171,7 +172,7 @@ async function answerOnce(req:Completion){
   const saved=await store.get<Accel>(ACCEL_KEY);
   const accel=offScreen()?(saved?.model===m.hash?saved:{model:m.hash,choice:'cpu' as const}):await chooseAccelerator(m,options,req.progress);cancelled(req.signal);
   const wantGpu=accel.choice==='gpu' && (!offScreen() || backgroundWork.gpuInBackground());
-  if(accel.choice==='gpu' && !wantGpu)req.progress?.('Continuing on the CPU while LocalMind is in the background…');
+  if(accel.choice==='gpu' && !wantGpu)req.progress?.('Continuing more slowly while LocalMind is in the background…');
   if(wantGpu){
    try {context=await initLlama({...options,n_gpu_layers:99});loadedLayers=99;}
    catch {cancelled(req.signal);context=await initLlama({...options,n_gpu_layers:0});loadedLayers=0;await store.put(ACCEL_KEY,{...accel,choice:'cpu',note:'GPU loading failed, so this phone now uses its CPU.'});}
@@ -179,15 +180,15 @@ async function answerOnce(req:Completion){
   loaded=m.uri;
  }
  cancelled(req.signal);
- req.progress?.('Reading the material on this phone…');backgroundWork.progress(0,'Reading the material…');
+ req.progress?.(aiStatus('reading',0));backgroundWork.progress(0,'Reading the material…');
  const started=Date.now();
  // What the student sees while waiting. Reading the prompt can take half a
  // minute on a phone CPU and used to show one unchanging line; writing
  // showed a percentage of the LONGEST answer allowed, so a short answer
  // stopped at 12% and then appeared. Elapsed time is honest for both.
- let phase:'Reading the material'|'Writing the answer'|'Rewriting the answer in the required format'='Reading the material';
+ let phase:AiPhase='reading';
  let ticker:ReturnType<typeof setInterval>|undefined;
- const say=()=>req.progress?.(`${phase} on this phone… ${Math.round((Date.now()-started)/1000)}s`);
+ const say=()=>req.progress?.(aiStatus(phase,(Date.now()-started)/1000));
  const messages=[{role:'system',content:req.system},{role:'user',content:req.prompt}];
  // Render once without letting the completion chat-template path override grammar
  // settings. The postinstall patch also preserves grammar/stops across the native
@@ -229,7 +230,7 @@ async function answerOnce(req:Completion){
   // grammar_lazy: false keeps the schema binding from the first token even if
   // the runtime would otherwise defer it.
   const schema=JSON.stringify(req.schema);
-  const watch=()=>{arm(60000);tokens++;if(phase==='Reading the material'){phase='Writing the answer';say();}if(tokens%25===0)backgroundWork.progress(Math.min(0.99,tokens/req.maxTokens),'Writing…');};
+  const watch=()=>{arm(60000);tokens++;if(phase==='reading'){phase='writing';say();}if(tokens%25===0)backgroundWork.progress(Math.min(0.99,tokens/req.maxTokens),'Writing…');};
   const ask=async(text:string,temperature:number)=>{
    const base={prompt:text,n_predict:req.maxTokens,temperature,stop:['<|im_end|>','<|eot_id|>','</s>']};
    // Fail closed: a runtime/schema error must never silently disable grounding.
@@ -245,7 +246,7 @@ async function answerOnce(req:Completion){
    // One correction pass at temperature 0, the same recovery the server's
    // provider makes, with the rejection reason in the conversation.
    console.info('[LocalMind AI] unusable output',{reason:first instanceof Error?first.message:String(first),sample:res.text.slice(0,240)});
-   cancelled(req.signal);phase='Rewriting the answer in the required format';say();
+   cancelled(req.signal);phase='fixing';say();
    tokens=0;arm(240000);
    res=await ask(await render([...messages,{role:'assistant',content:res.text.slice(0,600)},
     {role:'user',content:'That reply could not be read. Reply again with the JSON object only: no explanation, no reasoning, no markdown fences, nothing before or after it.'}]),0);

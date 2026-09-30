@@ -46,7 +46,9 @@ function CourseAskInner({moduleId}:{moduleId:string}){
   setPending(q);setQuestion('');
   void task.run(async signal=>{
    try{
-    const result=await answerCourse(user.id,moduleId,q,conversation,signal);if(signal.aborted||!active.current)return;
+    // Live status ("Reading the material… 14s"), the same words as the
+    // Private library. This thread used to show one fixed line for the whole wait.
+    const result=await answerCourse(user.id,moduleId,q,conversation,signal,note=>{if(active.current)task.setNote(note);});if(signal.aborted||!active.current)return;
     const now=new Date().toISOString();const local=!!result.local;
     const message:Message&{local?:boolean}=result.online?result.online.message:{id:result.local!.id,role:'assistant',content:result.local!.answer,grounded:result.local!.supported,source_reference:result.local!.quote,created_at:result.local!.createdAt,local:true};
     if(result.online)setConversation(result.online.conversation_id);
@@ -67,7 +69,7 @@ function CourseAskInner({moduleId}:{moduleId:string}){
   <ChatThread empty={restoring?null:<P muted>No questions yet. Ask anything about this module.</P>}>
    {[...messages.map(m=>{const notFound=m.role!=='user'&&!m.grounded;return bubble(m.id,m.role==='user'?'You':notFound?'Not in this module':m.local?'Local AI · this device':'Course tutor',m.content,m.role==='user',notFound?undefined:m.source_reference,notFound);}),
      ...(pending?[bubble('pending','You',pending,true)]:[]),
-     ...(task.busy?[<View key="thinking" style={{padding:14}}><P small muted>Reading the module…</P></View>]:[])]}
+     ...(task.busy?[<View key="thinking" style={{padding:14}}><P small muted>{task.note||'Reading the module…'}</P></View>]:[])]}
   </ChatThread>
   {doubtsBlocked?<Notice inline title="Doubts temporarily unavailable" message={DOUBTS_PAUSED_MESSAGE}/>:null}
   {restoring?<P muted>Restoring your conversation…</P>:null}<ErrorBanner message={task.error}/>

@@ -66,7 +66,7 @@ export class JobQueue{
  }
  private pump(){
   while(true){const running=this.entries.filter(j=>j.state==='running');
-   const j=this.entries.find(j=>j.state==='queued'&&!running.some(r=>conflicts(j,r))&&(this.doubtLane?(j.kind==='doubt'?!running.some(r=>r.kind==='doubt'):running.filter(r=>r.kind!=='doubt').length<this.concurrency):this.active<this.concurrency));if(!j)break;this.active++;j.state='running';j.note='Preparing on this device';this.emit();
+   const j=this.entries.find(j=>j.state==='queued'&&!running.some(r=>conflicts(j,r))&&(this.doubtLane?(j.kind==='doubt'?!running.some(r=>r.kind==='doubt'):running.filter(r=>r.kind!=='doubt').length<this.concurrency):this.active<this.concurrency));if(!j)break;this.active++;j.state='running';j.note='Starting…';this.emit();
    void(async()=>{try{await j.run!(j.controller.signal,s=>{if(!j.controller.signal.aborted){j.note=s;this.emit();}});j.state=j.controller.signal.aborted?'cancelled':'completed';j.note=j.state==='completed'?'Saved on this device':'Cancelled';}
     // A cancelled job used to keep the note it had while it was stopping, so a
     // row that had already finished still read "Cancelling…" forever.

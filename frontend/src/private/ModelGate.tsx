@@ -129,7 +129,7 @@ export function ModelGate() {
           {note ? <Notice inline tone="success" message={note} /> : null}
           {setup.running ? <>
             <ProgressBar value={setup.progress} />
-            <P>{setup.progress > 0 ? `${setup.progress}% — ${setup.progress >= 98 ? 'verifying' : 'downloading'}` : 'Preparing…'}</P>
+            <P>{setup.progress > 0 ? `${setup.progress}% — ${setup.progress >= 98 ? 'verifying' : 'downloading'}` : 'Starting the download…'}</P>
             <P muted>You can switch to another app; the download keeps going.</P>
             <Row><Button title="Cancel download" variant="secondary" onPress={() => void cancelDownload()} /></Row>
           </> : importing !== null ? <>

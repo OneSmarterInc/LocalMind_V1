@@ -1,3 +1,4 @@
+import { AI_LOADING, AI_WAITING, aiStatus } from './aiStatus';
 import { sha256 } from '@noble/hashes/sha256';
 import { persistQuietly } from '@/offline/persistentStorage';
 import { bytesToHex } from '@noble/hashes/utils';
@@ -5,7 +6,7 @@ import { MAX_BOOK_BYTES, makeReadingSections, requireThat } from './core';
 import { MODEL, MAX_MODEL_BYTES, CONTEXT_TOKENS } from './modelSpec';
 import { exceedsContext, CONTEXT_OVERFLOW_MESSAGE } from './promptBudget';
 import { PARSER_ASSET } from './generated/parserAsset';
-import { loadAccelerated, accelerationLabel, type Acceleration } from './acceleration';
+import { loadAccelerated, type Acceleration } from './acceleration';
 import { inferenceThreads } from './performance';
 import { Exclusive, cancelled } from './busy';
 import { backgroundWork } from './backgroundWork.web';
@@ -195,12 +196,12 @@ async function complete(req:Completion) {
  try { return await completeInQueue(req); } finally { backgroundWork.leave(); }
 }
 async function completeInQueue(req:Completion) {
- req.progress?.("Waiting for the local model…");
+ req.progress?.(AI_WAITING);
  return lock.queue(async()=>{
   cancelled(req.signal); const info=await store.get<Installed>(MODEL_KEY);
   requireThat(info,'Download or import a local model in Offline AI first.');
   if(!engine || loaded!==info.file) {
-    req.progress?.("Loading the model on this device…");
+    req.progress?.(AI_LOADING);
     await close(); await script('/private-assets/runtime-loader.js');
     requireThat(window.__LM_WLLAMA__,'The browser AI runtime could not be loaded.');
     const blob=await (await (await dirFor(info.location)).getFileHandle(info.file)).getFile();
@@ -221,7 +222,10 @@ async function completeInQueue(req:Completion) {
   requireThat(!exceedsContext(req.system,req.prompt,req.maxTokens),CONTEXT_OVERFLOW_MESSAGE);
   const abort=new AbortController();const cancel=()=>abort.abort();req.signal.addEventListener('abort',cancel);
   const started=Date.now();
-  const report=()=>req.progress?.(`Generating with ${accelerationLabel(acceleration,activeThreads)} · ${Math.floor((Date.now()-started)/1000)}s`);
+  // Same words as the phone; the browser runtime returns the answer whole, so
+  // reading and writing are one step here. How it runs (GPU, threads) stays
+  // in Offline AI and the console, not in a student's status line.
+  const report=()=>req.progress?.(aiStatus('working',(Date.now()-started)/1000));
   report();const ticker=setInterval(report,1000);
   const timer=setTimeout(()=>abort.abort(),180000);
   try {

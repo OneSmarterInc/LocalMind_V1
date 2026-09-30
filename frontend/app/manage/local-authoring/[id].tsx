@@ -142,7 +142,7 @@ function Authoring(){
 
   <ErrorBanner message={error||task.error||localFigures.error}/>
   {!modelReady?<Notice inline title="Set up AI before generating" message="Download or import a model in Offline AI once on this device. Your books and saved work remain available without it."/>:null}
-  {!draft?<Card><Empty icon="hourglass-outline" title="Preparing this module…" text="The source is being read from your device library."/></Card>:null}
+  {!draft?<Card><Empty icon="hourglass-outline" title="Opening this module…" text="Reading it from your library on this device."/></Card>:null}
 
   {draft?<>
    <PageTabs<Tab> value={tab} onChange={setTab} tabs={[
