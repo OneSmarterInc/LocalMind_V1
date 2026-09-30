@@ -64,12 +64,26 @@ function ModuleLearning({bookId,section,next,hasNext,initialTab,onSourceSaved,ba
  const library=useLibrary()!,router=useRouter();
  const doubtsBlocked=useDoubtsBlocked();
  const jobs=useGenerationJobs(library.prefix).filter(j=>j.bookId===bookId&&j.sectionId===section.id);
- const completed=jobs.filter(j=>j.state==='completed').map(j=>j.id).join(',');
+ // Saved work is re-read when a job for this module finishes. This used to key
+ // on the list of finished jobs, which also changes when a finished row is
+ // cleared from the job list 20 seconds later; every clearing re-read the
+ // module and blanked the chat mid-answer. The newest finished job only grows.
+ const finished=useRef(0);
+ finished.current=Math.max(finished.current,...jobs.filter(j=>j.state==='completed').map(j=>j.id));
+ const completed=finished.current;
  const [tab,setTabState]=useState<Tab>('read'),[count,setCount]=useState('6');
  const figures=useAsync(()=>library.visuals(bookId,section.id),[library,bookId,section.id]);
  const lessons=useAsync(()=>library.lessons(bookId,section.id),[library,bookId,section.id,completed]);
  const quizzes=useAsync(()=>library.quizzes(bookId,section.id),[library,bookId,section.id,completed]);
  const chats=useAsync(()=>library.chats(bookId,section.id),[library,bookId,section.id,completed]);
+ // A re-read empties the list until it returns. Shown empty, the question
+ // being answered vanished, the page shrank and jumped to the top, and the
+ // thread restarted at its oldest message. The last list stays on screen
+ // until the new one arrives. The screen is remounted per module, so this
+ // never shows another module's chats.
+ const shownChats=useRef<PrivateChat[]|null>(null);
+ if(chats.data)shownChats.current=chats.data;
+ const chatList=chats.data??shownChats.current;
  const [lessonId,setLessonId]=useState(''),[quizId,setQuizId]=useState(''),[question,setQuestion]=useState('');
  const [viewReady,setViewReady]=useState(false);const writes=useRef(Promise.resolve());
  const saveView=(key:string,value:string)=>{writes.current=writes.current.catch(()=>{}).then(()=>library.saveViewState(bookId,key,value)).catch(e=>setLocalError(String(e)));};
@@ -105,12 +119,17 @@ function ModuleLearning({bookId,section,next,hasNext,initialTab,onSourceSaved,ba
  // a reload. Asking has to clear both the box and that saved copy, or the
  // question the student just asked is still sitting there waiting to be
  // sent again.
- const ask=()=>{const q=question.trim();if(!q)return;changeQuestion('');setPending(q);enqueue('doubt',(signal,progress)=>library.ask(bookId,section.id,q,signal,progress));};
+ const askedAt=useRef('');
+ const ask=()=>{const q=question.trim();if(!q)return;askedAt.current=new Date().toISOString();changeQuestion('');setPending(q);enqueue('doubt',(signal,progress)=>library.ask(bookId,section.id,q,signal,progress));};
  // The saved answer replaces the pending bubble; a failure puts the question
  // back in the box rather than making them retype it.
- const answered=chats.data?.length??0;
- const askFailed=current?.kind==='doubt'&&(current.state==='failed'||!!current.error);
- useEffect(()=>{setPending('');},[answered]);
+ // It used to be cleared whenever the number of saved chats changed, and a
+ // re-read passes through an empty list, so the question disappeared while
+ // it was still being answered. Now it goes only when its own answer is saved.
+ useEffect(()=>{if(pending&&chatList?.some(c=>c.question===pending&&c.createdAt>=askedAt.current))setPending('');},[chatList,pending]);
+ // Stopped counts too: the question goes back in the box instead of hanging
+ // in the thread with no answer coming.
+ const askFailed=current?.kind==='doubt'&&(current.state==='failed'||current.state==='cancelled'||!!current.error);
  useEffect(()=>{if(askFailed)setPending(p=>{if(p)changeQuestion(p);return '';});
   // eslint-disable-next-line react-hooks/exhaustive-deps
  },[askFailed]);
@@ -158,7 +177,7 @@ function ModuleLearning({bookId,section,next,hasNext,initialTab,onSourceSaved,ba
    {/* The thread scrolls in its own pane so the question box stays put instead
        of being pushed further down the page by every answer. */}
    <ChatThread empty={<P muted>No questions yet. Ask anything about this section.</P>}>{[
-    ...(chats.data||[]).map(c=><Chat key={c.id} chat={c}/>),
+    ...(chatList||[]).map(c=><Chat key={c.id} chat={c}/>),
     ...(pending?[<Bubble key="pending" who="You" content={pending} mine/>]:[]),
     ...(task.busy&&currentKind==='doubt'?[<View key="working" style={{padding:14}}><P small muted>{task.note||'Reading the module…'}</P></View>]:[]),
    ]}</ChatThread>
