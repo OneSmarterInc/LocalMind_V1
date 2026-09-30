@@ -1,4 +1,5 @@
 import { sha256 } from '@noble/hashes/sha256';
+import { persistQuietly } from '@/offline/persistentStorage';
 import { bytesToHex } from '@noble/hashes/utils';
 import { MAX_BOOK_BYTES, makeReadingSections, requireThat } from './core';
 import { MODEL, MAX_MODEL_BYTES, CONTEXT_TOKENS } from './modelSpec';
@@ -309,7 +310,8 @@ const implementation:Device={...store, complete,
      return 'Book reading is saved on this device, so books can be imported without a connection. Reopening the whole app offline needs HTTPS or localhost.';
    }
    await saveParserCopy().catch(()=>{/* the service worker below also caches it */});
-   await navigator.storage.persist?.();
+   // Only where no browser prompt appears; see offline/persistentStorage.
+   await persistQuietly();
    const registration=await navigator.serviceWorker.register('/sw.js',{updateViaCache:'none'});
    await registration.update();
    const worker=registration.installing || registration.waiting || registration.active;

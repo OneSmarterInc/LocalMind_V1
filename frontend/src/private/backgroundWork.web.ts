@@ -4,8 +4,13 @@
  * background tab. What can stop it is the browser freezing or unloading a tab
  * it thinks is idle (energy or memory saver). Holding a Web Lock while
  * generating marks the tab as busy, which browsers take into account before
- * freezing or discarding it. Closing or refreshing the tab would lose the
- * answer being written, so the browser asks before leaving. */
+ * freezing or discarding it.
+ *
+ * It no longer asks before the tab is closed. That question is the browser's
+ * own "Leave site?" box, which no site can replace with its own pop-up, and
+ * the work it protected resumes by itself: lessons and quizzes continue from
+ * their last saved part, and the model download from the bytes it kept.
+ * Unsaved edits still ask (useDraft), because those would really be lost. */
 type LockManager = { request(name: string, options: { mode: 'shared' }, callback: () => Promise<void>): Promise<unknown> };
 // Jobs ask for one answer at a time with a short save in between: keep the
 // tab marked busy across that gap.
@@ -14,11 +19,8 @@ let active = 0;
 let release: (() => void) | undefined;
 let idle: ReturnType<typeof setTimeout> | undefined;
 
-function beforeUnload(event: BeforeUnloadEvent) { event.preventDefault(); event.returnValue = ''; }
-
 function markBusy() {
   if (typeof window === 'undefined') return;
-  window.addEventListener('beforeunload', beforeUnload);
   const locks = (navigator as Navigator & { locks?: LockManager }).locks;
   if (!locks?.request) return;
   const held = new Promise<void>(resolve => { release = resolve; });
@@ -28,7 +30,6 @@ function markBusy() {
 function markIdle() {
   idle = undefined;
   if (active > 0 || typeof window === 'undefined') return;
-  window.removeEventListener('beforeunload', beforeUnload);
   release?.(); release = undefined;
 }
 
@@ -46,3 +47,6 @@ export const backgroundWork = {
   },
   progress(_fraction: number, _subtitle: string) { /* nothing to update in a browser */ },
 };
+
+/** Same shape as the phone version: the browser has no notification prompt. */
+export function setNotificationExplainer(_explain: (() => Promise<boolean>) | undefined) { /* nothing to explain in a browser */ }

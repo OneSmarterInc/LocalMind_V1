@@ -11,7 +11,7 @@ import type { ModelStatus } from './device.types';
 import { chooseAndDownload, type ModelChoices } from './modelPrompts';
 import { modelSetup, useModelSetup } from './modelSetup';
 import { SETUP_REMINDER, clearPutOff, putOffSetup, setupPutOff } from './modelSkip';
-import { confirmCancelDownload, confirmContinueWithoutModel } from './modelDialogs';
+import { confirmCancelDownload, confirmContinueWithoutModel, confirmFolderAccess } from './modelDialogs';
 import { confirmSignOut } from '@/hooks/unsavedGuard';
 
 /** People already reminded in this run of the app, so the reminder appears
@@ -101,7 +101,7 @@ export function ModelGate() {
   };
   const allowFolder = async () => {
     setError('');
-    try { const d = await device(); if (await d.grantModelFolder?.()) modelSetup.changed(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    try { if (!(await confirmFolderAccess())) return; const d = await device(); if (await d.grantModelFolder?.()) modelSetup.changed(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
   const busy = setup.running || importing !== null;
   // Each choice asks first, in LocalMind's own pop-up: skipping used to

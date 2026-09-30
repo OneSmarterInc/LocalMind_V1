@@ -45,12 +45,25 @@ native?.addListener?.('onExpired', () => {
 
 function safely<T>(run: () => T, fallback: T): T { try { return run(); } catch { return fallback; } }
 
+/** LocalMind's own explanation, shown before Android's permission prompt.
+ * Registered by the app (permissionExplainers) so this file stays free of UI.
+ * Resolves true to go on to Android's prompt. */
+let explainNotifications: (() => Promise<boolean>) | undefined;
+export function setNotificationExplainer(explain: (() => Promise<boolean>) | undefined) { explainNotifications = explain; }
+
 async function allowNotifications() {
   // Android 13+: without this the service still runs, but its notification is hidden.
   if (Platform.OS !== 'android' || askedNotifications || Number(Platform.Version) < 33) return;
   askedNotifications = true;
   const permission = 'android.permission.POST_NOTIFICATIONS' as Parameters<typeof PermissionsAndroid.request>[0];
-  try { if (!(await PermissionsAndroid.check(permission))) await PermissionsAndroid.request(permission); } catch { /* keep generating */ }
+  try {
+    if (await PermissionsAndroid.check(permission)) return;
+    // Android's prompt used to appear on its own the first time AI work
+    // started, with no word from LocalMind about why. Explain first; "Not now"
+    // skips Android's prompt and the work carries on without a notification.
+    if (explainNotifications && !(await explainNotifications())) return;
+    await PermissionsAndroid.request(permission);
+  } catch { /* keep generating */ }
 }
 
 async function start(subtitle: string, title: string) {

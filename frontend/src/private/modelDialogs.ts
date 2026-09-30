@@ -26,3 +26,28 @@ export function confirmCancelDownload(): Promise<boolean> {
     'What has downloaded so far is kept. Download again later to continue from where it stopped.',
     'Stop download', 'Keep downloading', { tone: 'warning', icon: 'pause-circle-outline' });
 }
+
+/** Before the browser's folder chooser. The chooser and its \"Allow\" box are
+ *  the browser's own; this says what they are for. True: open the chooser. */
+export function confirmChooseFolder(): Promise<boolean> {
+  return confirmAsync(
+    'Choose a folder for the AI model',
+    'Your browser will open its folder chooser. Pick a folder you can find again, such as Documents. The browser then asks you to allow LocalMind to save files there: choose Allow.',
+    'Choose a folder', 'Cancel', { tone: 'primary', icon: 'folder-open-outline' });
+}
+
+/** Before the browser asks again for access to the saved model folder. */
+export function confirmFolderAccess(): Promise<boolean> {
+  return confirmAsync(
+    'Allow access to your model folder',
+    'Your AI model is saved in a folder on this computer. The browser needs your permission again to read it, and will ask next: choose Allow.',
+    'Continue', 'Not now', { tone: 'primary', icon: 'folder-open-outline' });
+}
+
+/** Before a browser that shows its own prompt is asked to protect saved data. */
+export function confirmProtectStorage(): Promise<boolean> {
+  return confirmAsync(
+    'Keep your offline data safe?',
+    'Your browser can protect LocalMind\u2019s saved books, lessons and model from automatic clean-up when the computer runs low on space. It will ask you next: choose Allow.',
+    'Continue', 'Not now', { tone: 'primary', icon: 'shield-checkmark-outline' });
+}

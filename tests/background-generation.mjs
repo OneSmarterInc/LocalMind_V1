@@ -196,7 +196,7 @@ test('progress reaches the notification or iOS progress bar', async () => {
   assert.ok(native.updates.every(([fraction]) => fraction >= 0 && fraction < 1));
 });
 
-test('laptop: the tab is marked busy and warns before closing while answers are written', async () => {
+test('laptop: the tab is marked busy while answers are written, without the browser\'s "Leave site?" box', async () => {
   const outfile = path.join(tmp, 'web-background.cjs');
   await build({entryPoints:[path.join(root,'frontend/src/private/backgroundWork.web.ts')],outfile,bundle:true,platform:'node',format:'cjs',logLevel:'silent'});
   const handlers = new Set(); const held = [];
@@ -208,12 +208,9 @@ test('laptop: the tab is marked busy and warns before closing while answers are 
     backgroundWork.enter(); backgroundWork.enter();
     assert.equal(held.length, 1, 'one lock for the session');
     assert.equal(held[0].options.mode, 'shared');
-    assert.equal(handlers.size, 1, 'closing the tab asks first');
-    const event = {defaultPrevented:false, preventDefault(){ this.defaultPrevented = true; }};
-    [...handlers][0](event);
-    assert.equal(event.defaultPrevented, true);
+    assert.equal(handlers.size, 0, 'no browser pop-up: the work resumes by itself after a close');
     backgroundWork.leave(); backgroundWork.leave();
-    assert.equal(handlers.size, 1, 'kept across the short gap between answers');
+    assert.equal(handlers.size, 0);
     backgroundWork.enter(); backgroundWork.leave();
     assert.equal(held.length, 1, 'the same lock is reused');
   } finally {

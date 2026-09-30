@@ -21,6 +21,7 @@ const fixtures={
  '@/ui':`import React from 'react';export const colors={};export const Loading=()=>React.createElement('span',{'data-loading':true});export const DialogHost=()=>null;export const ToastHost=()=>null;`,
  '@/private/GenerationJobs':`import React from 'react';export const GenerationHost=()=>React.createElement('span',{'data-generation':true});`,
  '@/private/ParserHost':`export default function ParserHost(){return null}`,
+ '@/private/permissionExplainers':`export {};`,
  '@/private/ModelGate':`import React from 'react';export const ModelGate=()=>React.createElement('span',{'data-model-gate':true});`,
  '@/ui/NativeDatePicker':`export const NativeDatePickerHost=()=>null;`,
  'react-native-safe-area-context':`export const SafeAreaProvider=({children})=>children;`,

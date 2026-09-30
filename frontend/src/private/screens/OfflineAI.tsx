@@ -11,7 +11,8 @@ import { deviceFit } from '../deviceFit';
 import { useAuth } from '@/auth/AuthContext';
 import { MODEL } from '../modelSpec';
 import { modelSetup, useModelSetup } from '../modelSetup';
-import { confirmCancelDownload } from '../modelDialogs';
+import { confirmCancelDownload, confirmChooseFolder, confirmFolderAccess, confirmProtectStorage } from '../modelDialogs';
+import { persistAfterExplaining } from '@/offline/persistentStorage';
 import { chooseAndDownload, type ModelChoices } from '../modelPrompts';
 import type { ModelStatus, ModelStorage } from '../device.types';
 
@@ -94,9 +95,9 @@ export default function OfflineAI() {
       {storage.location === 'folder' ? <P>{`In the folder you chose on this computer: ${storage.folderName}. You can see the .gguf file in File Explorer or Finder.`}</P> : null}
       {storage.location === 'browser' ? <P>{"On this computer's disk, inside this browser's private storage. It is not visible in File Explorer, and clearing this site's data in the browser deletes it."}</P> : null}
       {storage.location !== 'app' ? <P muted>{`Browser storage used by LocalMind: ${gb(storage.usedBytes)} of ${gb(storage.quotaBytes)} available. ${storage.persistent ? 'Protected from automatic clean-up.' : 'Not yet protected from automatic clean-up; select “Check and save offline app files” below to request it.'}`}</P> : null}
-      {storage.needsPermission ? <Notice tone="warning" title="Folder access needed" message="The browser needs your permission again to read the model folder." action={<Button title="Allow folder access" small disabled={busy || setup.running} onPress={() => { void run(async () => { const ok = await (await device()).grantModelFolder?.(); if (alive.current) setNotice(ok ? 'Folder access allowed. The model is ready.' : 'Access was not allowed. Allow it, or switch back to browser storage.'); }); }} />} /> : null}
+      {storage.needsPermission ? <Notice tone="warning" title="Folder access needed" message="The browser needs your permission again to read the model folder." action={<Button title="Allow folder access" small disabled={busy || setup.running} onPress={() => { void run(async () => { if (!(await confirmFolderAccess())) return; const ok = await (await device()).grantModelFolder?.(); if (alive.current) setNotice(ok ? 'Folder access allowed. The model is ready.' : 'Access was not allowed. Allow it, or switch back to browser storage.'); }); }} />} /> : null}
       {storage.canChooseFolder ? <Row>
-        <Button title={storage.location === 'folder' ? 'Choose a different folder' : 'Save model to a folder on this computer'} icon="folder-outline" variant="secondary" disabled={busy || setup.running} onPress={() => { void run(async signal => { const s = await (await device()).chooseModelFolder!(report, signal); if (alive.current) setNotice(`Model storage set to your folder “${s.folderName}”.${status?.installed ? ' The model was copied and verified.' : ' Downloads and imports will be saved there.'}`); }); }} />
+        <Button title={storage.location === 'folder' ? 'Choose a different folder' : 'Save model to a folder on this computer'} icon="folder-outline" variant="secondary" disabled={busy || setup.running} onPress={() => { void run(async signal => { if (!(await confirmChooseFolder())) return; const s = await (await device()).chooseModelFolder!(report, signal); if (alive.current) setNotice(`Model storage set to your folder “${s.folderName}”.${status?.installed ? ' The model was copied and verified.' : ' Downloads and imports will be saved there.'}`); }); }} />
         {storage.location === 'folder' ? <Button title="Use browser storage instead" variant="secondary" disabled={busy || setup.running} onPress={() => { void run(async signal => { if (!(await confirmAsync('Move the model into browser storage?', 'The model is copied and verified, then removed from your folder.', 'Move model', 'Cancel'))) return; await (await device()).useBrowserStorage!(report, signal); if (alive.current) setNotice('The model is now in browser storage.'); }); }} /> : null}
       </Row> : storage.location === 'browser' ? <P muted>Saving to a folder you choose needs Chrome or Edge on a computer. This browser keeps the model in its private storage.</P> : null}
     </Card> : null}
@@ -112,7 +113,7 @@ export default function OfflineAI() {
       {Platform.OS === 'web' && <P muted>A browser needs HTTPS or localhost, enough free storage, and the application files saved below. A plain HTTP address on another computer is not an independently installed offline app.</P>}
       {Platform.OS === 'web' && <P>{appFilesStatus}</P>}
       <P muted>Preparation runs automatically while the app is open and connected. The button below is only for a manual check or recovery.</P>
-      <Button title="Check and save offline app files" variant="secondary" disabled={busy || setup.running} onPress={() => { void run(async () => { const note = await (await device()).prepareOffline(); if (alive.current) setNotice(note); }); }} />
+      <Button title="Check and save offline app files" variant="secondary" disabled={busy || setup.running} onPress={() => { void run(async () => { if (Platform.OS === 'web') await persistAfterExplaining(confirmProtectStorage); const note = await (await device()).prepareOffline(); if (alive.current) setNotice(note); }); }} />
     </Card>
   </Screen>;
 }

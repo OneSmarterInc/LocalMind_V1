@@ -24,7 +24,7 @@ export async function chooseAndDownload(choices: ModelChoices | null, onNote?: (
   if (canChoose) {
     const picked = await choiceAsync(
       'Where should the model be saved?',
-      `${MODEL.title}: approximately ${MODEL.downloadSize}. Saving to a folder on this computer lets you see the .gguf file in File Explorer or Finder, copy it to another machine and keep it when browser data is cleared. Internet is used only for the download; your books and questions are never sent to the model publisher.`,
+      `${MODEL.title}: approximately ${MODEL.downloadSize}. Saving to a folder on this computer lets you see the .gguf file in File Explorer or Finder, copy it to another machine and keep it when browser data is cleared. If you choose a folder, your browser opens its folder chooser and then asks you to allow access: choose Allow. Internet is used only for the download; your books and questions are never sent to the model publisher.`,
       { confirm: 'Choose a folder…', extra: 'Use browser storage', cancel: 'Cancel' });
     if (picked === 'cancel') return null;
     if (picked === 'confirm') {
