@@ -1,7 +1,10 @@
 import type { Section, SourceVisual } from './core';
+import type { ModelSpec } from './modelSpec';
 export type LocalFile = { name: string; uri: string; size?: number; file?: File };
 export type Parsed = { hash: string; sections: Section[]; warnings: string[]; visuals?: SourceVisual[] };
-export type Completion = {system:string;prompt:string;schema:object;maxTokens:number;temperature:number;signal:AbortSignal;progress?:(message:string)=>void};
+export type Completion = {system:string;prompt:string;schema:object;maxTokens:number;temperature:number;signal:AbortSignal;progress?:(message:string)=>void;
+  /** Notification title when no job describes this work, e.g. "Answering your question". */
+  activity?:string};
 /** Where the model file lives. browser = the browser's private file storage
  * (on this disk, inside the browser profile); folder = a folder the user
  * chose (Chrome/Edge desktop); app = the installed app's own documents folder. */
@@ -18,7 +21,10 @@ export interface Device {
   releaseFile(file:LocalFile): Promise<void>;
   complete(req:Completion): Promise<unknown>;
   status(): Promise<ModelStatus>;
-  download(progress:(fraction:number)=>void,signal:AbortSignal):Promise<void>;
+  /** modelId picks one of models(); runtimes without models() have one download. */
+  download(progress:(fraction:number)=>void,signal:AbortSignal,modelId?:string):Promise<void>;
+  /** Native only: the downloadable models and the one recommended for this device. */
+  models?():Promise<{models:ModelSpec[];recommended:string;memoryBytes?:number}>;
   importModel(file:LocalFile,progress:(fraction:number)=>void,signal?:AbortSignal):Promise<void>;
   removeModel():Promise<void>;
   prepareOffline():Promise<string>;

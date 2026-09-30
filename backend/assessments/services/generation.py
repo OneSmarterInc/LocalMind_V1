@@ -41,6 +41,9 @@ from .answer_keys import comparable, normalize_correct_answer, require_question_
 logger = logging.getLogger("localmind.assessments")
 
 MCQ_KEYS = ["A", "B", "C", "D"]
+ALL_KEYS = ["A", "B", "C", "D", "E", "F"]
+# Hand-written (or hand-edited) quizzes: two to six options per question.
+MANUAL_OPTION_RANGE = {"min_options": 2, "max_options": 6}
 
 # Questions per model call. Three multiple-choice questions fit comfortably in
 # a small model's output budget on a CPU; open-ended ones are shorter.
@@ -90,8 +93,13 @@ def subjective_schema(n):
     }
 
 
-def normalize_questions(raw_questions):
-    """Validate and canonicalise a question list (manual or AI). Raises on problems."""
+def normalize_questions(raw_questions, *, min_options=4, max_options=4):
+    """Validate and canonicalise a question list (manual or AI). Raises on problems.
+
+    AI questions always have exactly four options (the model is prompted and
+    constrained for that). Faculty writing or editing a quiz by hand may use
+    two to six (``MANUAL_OPTION_RANGE``); options are keyed A, B, C... in order.
+    """
     if not isinstance(raw_questions, list):
         raise ValidationFailed("Questions must be a list.", code="INVALID_QUESTIONS")
     out, errors = [], []
@@ -110,19 +118,24 @@ def normalize_questions(raw_questions):
             item["source_module_id"] = str(q["source_module_id"])
         if qtype == "mcq":
             options = q.get("options") or []
-            if not isinstance(options, list) or len(options) != 4 or any(not isinstance(o, dict) for o in options):
-                errors.append(f"q{idx}: mcq needs exactly 4 options")
+            if (not isinstance(options, list) or not min_options <= len(options) <= max_options
+                    or any(not isinstance(o, dict) for o in options)):
+                need = f"exactly {min_options}" if min_options == max_options else f"{min_options} to {max_options}"
+                errors.append(f"q{idx}: mcq needs {need} options")
                 continue
+            expected_keys = list(ALL_KEYS[:len(options)])
             keys = []
             norm = []
             for pos, opt in enumerate(options):
-                key = str(opt.get("key") or MCQ_KEYS[pos]).strip().upper()
+                key = str(opt.get("key") or expected_keys[pos]).strip().upper()
                 keys.append(key)
                 norm.append({"key": key, "text": str(opt.get("text") or "").strip()})
-            if sorted(keys) != MCQ_KEYS or any(not o["text"] for o in norm):
-                errors.append(f"q{idx}: options must be A-D with text")
+            if sorted(keys) != expected_keys or any(not o["text"] for o in norm):
+                errors.append(f"q{idx}: options must be {expected_keys[0]}-{expected_keys[-1]} with text")
                 continue
-            if len({comparable(o["text"]) for o in norm}) != 4:
+            # Keep the stored order A, B, C... whatever order they arrived in.
+            norm.sort(key=lambda o: expected_keys.index(o["key"]))
+            if len({comparable(o["text"]) for o in norm}) != len(norm):
                 errors.append(f"q{idx}: options must be distinct")
                 continue
             try:

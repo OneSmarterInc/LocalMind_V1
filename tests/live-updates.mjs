@@ -129,3 +129,38 @@ test('the administrator overview shows the book picture, like the other portals'
  assert.doesNotMatch(hero[0],/\bart=/,'default art is the LocalMind book');
  assert.doesNotMatch(s,/system readiness/);
 });
+
+// Recorded on the APK: the question being answered vanished from the thread,
+// the page jumped to the top when the answer arrived, and "Latest" stayed on
+// screen at the bottom of the thread, covering the answer's last line.
+test('clearing an old job row does not re-read and blank the private chat',()=>{
+ const s=fs.readFileSync(path.join(front,'src/private/screens/PrivateBook.tsx'),'utf8');
+ assert.doesNotMatch(s,/state==='completed'\)\.map\(j=>j\.id\)\.join/,'the reload key must only grow, not shrink when a row is swept');
+ assert.match(s,/finished\.current=Math\.max\(finished\.current/);
+ assert.match(s,/const chatList=chats\.data\?\?shownChats\.current/,'the last list stays up while re-reading');
+ assert.match(s,/\(chatList\|\|\[\]\)\.map\(c=><Chat /);
+});
+test('the question being answered stays until its own answer is saved',()=>{
+ const s=fs.readFileSync(path.join(front,'src/private/screens/PrivateBook.tsx'),'utf8');
+ assert.doesNotMatch(s,/useEffect\(\(\)=>\{setPending\(''\);\},\[answered\]\)/);
+ assert.match(s,/c\.question===pending&&c\.createdAt>=askedAt\.current/);
+ assert.match(s,/current\.state==='cancelled'/,'a stopped question goes back in the box');
+});
+test('"Latest" is judged where scrolling stops and never covers the answer',()=>{
+ const s=fs.readFileSync(path.join(front,'src/private/ChatThread.tsx'),'utf8');
+ assert.match(s,/onMomentumScrollEnd=\{settle\}/);assert.match(s,/onScrollEndDrag=\{settle\}/);
+ assert.match(s,/Date\.now\(\) < following\.current/,'the thread\'s own scroll to the end is not mistaken for the reader leaving it');
+ assert.match(s,/paddingBottom: LATEST_ROOM/);
+});
+test('a refusal reads as a note, not as an answer, in both doubt threads',()=>{
+ const book=fs.readFileSync(path.join(front,'src/private/screens/PrivateBook.tsx'),'utf8');
+ assert.match(book,/who=\{chat\.supported\?'Local AI · this device':'Not in this module'\}/);
+ assert.match(book,/notFound=\{!chat\.supported\}/);
+ const course=fs.readFileSync(path.join(front,'src/private/CourseAsk.tsx'),'utf8');
+ assert.match(course,/notFound=m\.role!=='user'&&!m\.grounded/);
+});
+test('a phone gives the doubt thread more of the screen than a laptop does',()=>{
+ const s=fs.readFileSync(path.join(front,'src/private/ChatThread.tsx'),'utf8');
+ assert.match(s,/width < 600\s*\n\s*\? Math\.max\(240, Math\.min\(560, Math\.round\(height \* 0\.58\)\)\)/);
+ assert.match(s,/: Math\.max\(200, Math\.min\(440, Math\.round\(height \* 0\.45\)\)\)/,'the laptop keeps its size');
+});

@@ -46,8 +46,9 @@ export default function FacultyOverview() {
           <>
             <HeroCard eyebrow="FROM BOOK TO LEARNING" title="Make the next chapter easy to discover." text="Upload a book, review its modules, and publish when you are ready."
               action={<Button title="Upload a book" icon="cloud-upload-outline" onPress={() => router.push("/manage/document/upload")} />} />
-            <View style={{ flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", gap: 12, marginTop: 4 }}>
-              <View>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "flex-end", justifyContent: "space-between", columnGap: 12, rowGap: 6, marginTop: 4 }}>
+              {/* The text shrinks and wraps; on a narrow phone the link drops below it instead of leaving the screen. */}
+              <View style={{ flexGrow: 1, flexShrink: 1, flexBasis: 220, minWidth: 0 }}>
                 <Text style={{ fontSize: 18, fontWeight: "600", color: colors.ink }}>My subjects</Text>
                 <Text style={{ fontSize: 12, color: colors.muted, marginTop: 4 }}>Everything for a class lives together.</Text>
               </View>

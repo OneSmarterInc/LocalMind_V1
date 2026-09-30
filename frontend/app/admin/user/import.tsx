@@ -8,6 +8,8 @@ import type { ImportReport } from "@/api/types";
 import { useAction, useAsync } from "@/hooks/useAsync";
 import { Badge, Button, Card, CardHead, Column, Dropdown, ErrorBanner, FormFooter, Loading, Notice, PageHeading, Screen, Split, StepList, Table, TileIcon, colors } from "@/ui";
 import { OneTimeCredentials } from "@/ui/OneTimeCredentials";
+import { saveFileToDevice } from "@/ui/saveFile";
+import { showToast } from "@/ui/Toast";
 
 type Kind = "students" | "faculty";
 type RowT = { row: number; name: string; email: string; outcome: "Created" | "Account exists" | "Invalid email" | "Needs a fix"; todo: string };
@@ -31,6 +33,11 @@ export default function ImportPeople() {
   };
   const download = useAction(async () => {
     const data = spec.data ?? (await admin.importTemplate(kind));
+    if (Platform.OS !== "web") {
+      const saved = await saveFileToDevice(data.filename, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", data.content_base64, "base64");
+      if (saved) showToast({ tone: "success", message: `Saved ${data.filename}.` });
+      return;
+    }
     const bytes = Uint8Array.from(atob(data.content_base64), (c) => c.charCodeAt(0));
     const url = URL.createObjectURL(new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
     const a = document.createElement("a"); a.href = url; a.download = data.filename; a.click(); URL.revokeObjectURL(url);
@@ -93,7 +100,7 @@ export default function ImportPeople() {
                 <Text style={{ fontSize: 12, color: colors.ink }}><Text style={{ fontWeight: "600" }}>Required: </Text>{required.map((c) => c.name).join(", ")}</Text>
                 {optional.length ? <Text style={{ fontSize: 12, color: colors.ink }}><Text style={{ fontWeight: "600" }}>Optional: </Text>{optional.map((c) => c.name).join(", ")}</Text> : null}
                 <Text style={{ fontSize: 11, color: colors.muted }}>Common variations such as {(spec.data?.columns ?? []).flatMap((c) => c.aliases).slice(0, 3).join(", ")} are understood; other columns are ignored.</Text>
-                {Platform.OS === "web" ? <View style={{ flexDirection: "row" }}><Button title="Download template" small variant="secondary" icon="download-outline" onPress={() => download.run()} busy={download.busy} /></View> : null}
+                <View style={{ flexDirection: "row" }}><Button title={Platform.OS === "web" ? "Download template" : "Save template"} small variant="secondary" icon="download-outline" onPress={() => download.run()} busy={download.busy} /></View>
               </View>
             )) : null}
             <View style={{ borderWidth: 1.5, borderStyle: "dashed", borderColor: file ? colors.primary : "#B8CBBB", borderRadius: 12, backgroundColor: file ? colors.pale : "#F9FCF6", alignItems: "center", paddingVertical: 30, paddingHorizontal: 20, gap: 8 }}>

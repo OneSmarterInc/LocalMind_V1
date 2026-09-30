@@ -7,7 +7,7 @@ import { manage } from "@/api/endpoints";
 import type { Document } from "@/api/types";
 import { useFilterChoices } from "@/hooks/useChoices";
 import { useAction, useAsync } from "@/hooks/useAsync";
-import { Badge, Button, Card, CellText, Column, Dropdown, Empty, ErrorBanner, Input, Loading, PageHeading, Screen, Table, TableToolbar, fmtDay, RequestFailed, confirmAsync, confirmDeleteAsync } from "@/ui";
+import { Badge, Button, Card, CellText, Column, Dropdown, Empty, ErrorBanner, Input, Loading, PageHeading, Screen, Table, TableToolbar, fmtDay, RequestFailed, confirmAsync, confirmDeleteAsync, subjectLabel } from "@/ui";
 import { everyVisible } from "@/hooks/visibleInterval";
 
 export default function Books() {
@@ -75,7 +75,7 @@ export default function Books() {
       <ErrorBanner message={remove.error || restore.error} />
       <Card flush>
         <TableToolbar right={<>
-          <Dropdown value={subject} onChange={setSubject} accessibilityLabel="Filter by subject" options={[{ value: "", label: isAdmin ? "All subjects" : "All my subjects" }, ...(subjects.data ?? []).filter((s) => includeArchived || s.status !== "archived").map((s) => ({ value: s.id, label: `${s.code} · ${s.name}` }))]} />
+          <Dropdown value={subject} onChange={setSubject} accessibilityLabel="Filter by subject" options={[{ value: "", label: isAdmin ? "All subjects" : "All my subjects" }, ...(subjects.data ?? []).filter((s) => includeArchived || s.status !== "archived").map((s) => ({ value: s.id, label: subjectLabel(s.code, s.name) }))]} />
           {isAdmin ? <Dropdown value={facultyFilter} onChange={setFacultyFilter} accessibilityLabel="Filter by faculty" options={[{ value: "", label: "All faculty" }, ...facultyNames.map((n) => ({ value: n, label: n }))]} /> : null}
           {isAdmin ? <Dropdown value={includeArchived} onChange={setIncludeArchived} accessibilityLabel="Archived subjects" options={[{ value: "", label: "Active subjects" }, { value: "yes", label: "Include archived subjects" }]} /> : null}
           <Dropdown value={status} onChange={setStatus} accessibilityLabel="Filter by status" options={statuses.map((s) => ({ value: s.value, label: s.value === "" ? "Active books" : s.label }))} />

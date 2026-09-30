@@ -1,6 +1,11 @@
 import { installWebHistoryGuard } from "@/hooks/webHistory";
 import { installRandomUUID } from "@/platform/randomUUID";
 import {GenerationHost} from '@/private/GenerationJobs';
+import { ModelGate } from '@/private/ModelGate';
+// LocalMind's own pop-ups in front of the phone's permission prompts.
+import '@/private/permissionExplainers';
+// Keeps the phone notification describing the job that is running.
+import '@/private/jobNotifications';
 import ParserHost from "@/private/ParserHost";
 import { Stack, type ErrorBoundaryProps } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -76,6 +81,8 @@ export function AppNavigator() {
           <Stack.Screen name="admin" options={{ headerShown: false }} />
         </Stack.Protected>
       </Stack>
+      {/* Every signed-in person needs the local model on this device. */}
+      {workspace ? <ModelGate /> : null}
       <DialogHost />
       <ToastHost />
       {workspace ? <ParserHost /> : null}

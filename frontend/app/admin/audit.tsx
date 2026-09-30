@@ -7,6 +7,8 @@ import { useAction, useAsync } from "@/hooks/useAsync";
 import { useDebounced } from "@/hooks/useDebounced";
 import { Avatar, Badge, Button, Card, Chip, Dropdown, Empty, ErrorBanner, Input, Loading, Notice, PageHeading, RequestFailed, Row, Screen, Stat, StatRow, TableFooter, TextLink, colors, fmtDate, useWide } from "@/ui";
 import { DateTimeField } from "@/ui/DateTimeField";
+import { saveFileToDevice } from "@/ui/saveFile";
+import { showToast } from "@/ui/Toast";
 import type { Tone } from "@/ui/theme";
 
 /**
@@ -271,6 +273,12 @@ export default function Audit() {
   const summary = useAsync(() => admin.auditSummary({ ...base, today_since: todaySince }), [q, since, until, role, target?.id, person?.email]);
   const exporter = useAction(async () => {
     const data = await admin.auditExport(query);
+    if (Platform.OS !== "web") {
+      // The app has no browser download; save the CSV to a folder the person picks.
+      const saved = await saveFileToDevice(data.filename, "text/csv", data.csv);
+      if (saved) showToast({ tone: "success", message: `Saved ${data.filename}.` });
+      return data;
+    }
     const blob = new Blob([data.csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a"); a.href = url; a.download = data.filename; a.click(); URL.revokeObjectURL(url);
@@ -297,7 +305,7 @@ export default function Audit() {
   return (
     <Screen refreshing={list.loading} onRefresh={() => { list.reload(); summary.reload(); }}>
       <PageHeading eyebrow="PLATFORM ACCOUNTABILITY" title="Audit log" subtitle="Who changed what, and when, across the whole platform."
-        right={Platform.OS === "web" ? <Button title="Download CSV" icon="download-outline" small variant="secondary" busy={exporter.busy} disabled={!list.data?.count} onPress={() => exporter.run()} /> : null} />
+        right={<Button title={Platform.OS === "web" ? "Download CSV" : "Save CSV"} icon="download-outline" small variant="secondary" busy={exporter.busy} disabled={!list.data?.count} onPress={() => exporter.run()} />} />
       <ErrorBanner message={list.error ?? exporter.error} onRetry={list.error ? list.reload : undefined} />
 
       {wide ? (
@@ -387,7 +395,7 @@ export default function Audit() {
           </TableFooter>
         ) : null}
       </Card>
-      {list.data && list.data.count > 10000 && Platform.OS === "web" ? <Notice tone="info" title="Large export" message="CSV downloads include the newest 10,000 events that match your filters." /> : null}
+      {list.data && list.data.count > 10000 ? <Notice tone="info" title="Large export" message="CSV downloads include the newest 10,000 events that match your filters." /> : null}
     </Screen>
   );
 }

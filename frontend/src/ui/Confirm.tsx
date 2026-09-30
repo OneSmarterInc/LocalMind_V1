@@ -25,6 +25,7 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
+import { useKeyboardInset } from "./keyboardInset";
 import { colors, font, radius, radiusSm, space } from "./theme";
 
 type IconName = keyof typeof Ionicons.glyphMap;
@@ -148,6 +149,11 @@ export function DialogHost() {
   }, []);
 
   const current = pending[0];
+  // Lift the dialog above the on-screen keyboard (the typed-confirmation case),
+  // and stack the buttons full width on phones so long labels never clip.
+  const backdrop = useRef<View>(null);
+  const { inset: keyboardInset } = useKeyboardInset(backdrop);
+  const stacked = width < 420;
   const [typed, setTyped] = useState("");
   useEffect(() => { setTyped(""); }, [current?.id]);
   const blocked = !!current?.confirmText && typed.trim() !== current.confirmText;
@@ -179,9 +185,9 @@ export function DialogHost() {
 
   return (
     <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={() => answer(false)}>
-      <Pressable style={s.backdrop} onPress={() => answer(false)}>
+      <Pressable ref={backdrop} style={[s.backdrop, keyboardInset > 0 && { paddingBottom: keyboardInset + space.lg }]} onPress={() => answer(false)}>
         {/* Stops a tap inside the card from reaching the backdrop. */}
-        <Pressable style={[s.dialog, { maxWidth: Math.min(460, width - 32), maxHeight: height - 32 }]} onPress={() => {}}>
+        <Pressable style={[s.dialog, { maxWidth: Math.min(460, width - 32), maxHeight: height - 32 - keyboardInset }]} onPress={() => {}}>
           <ScrollView contentContainerStyle={{ gap: space.md }} keyboardShouldPersistTaps="handled">
           <View style={s.head}>
             <View style={[s.iconWrap, { backgroundColor: `${tone.color}1F`, borderColor: `${tone.color}55` }]}>
@@ -203,7 +209,7 @@ export function DialogHost() {
                 style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radiusSm, paddingHorizontal: 12, paddingVertical: 9, fontSize: 14, color: colors.ink, backgroundColor: colors.surface2 }} />
             </View>
           ) : null}
-          <View style={s.actions}>
+          <View style={[s.actions, stacked && { flexDirection: "column-reverse", alignItems: "stretch" }]}>
             {current.acknowledge ? null : (
               <Pressable
                 onPress={() => answer(false)}

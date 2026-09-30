@@ -1,3 +1,4 @@
+import { discardAfterAsking } from "@/hooks/unsavedGuard";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import { useDraft } from "@/hooks/useDraft";
 import { useBackTo } from "@/hooks/useBackTo";
@@ -95,7 +96,7 @@ export default function ManageAccount() {
                 <ErrorBanner message={save.error} />
                 {saved && !dirty ? <Notice tone="success" message="Profile saved." /> : null}
                 <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 9, paddingTop: 18, borderTopWidth: 1, borderTopColor: colors.border }}>
-                  <Button title="Cancel" variant="secondary" disabled={!dirty} onPress={discard} />
+                  <Button title="Cancel" variant="secondary" disabled={!dirty} onPress={() => void discardAfterAsking(discard, "this account")} />
                   <Button title="Save profile" icon="checkmark" onPress={() => save.run()} busy={save.busy} disabled={!dirty || !f.full_name?.trim() || !!phoneProblem(f.phone)} />
                 </View>
               </Card>

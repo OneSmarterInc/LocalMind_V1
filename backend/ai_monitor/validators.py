@@ -238,8 +238,9 @@ def check_quiz_structure(questions: list[dict]) -> Check:
         if (q.get("type") or "mcq") == "mcq":
             opts = q.get("options") or []
             keys = [str(o.get("key", "")).upper() for o in opts]
-            if len(opts) != 4 or sorted(keys) != MCQ_KEYS:
-                problems.append(f"{label}: expected options A-D, got {keys or 'none'}")
+            # AI quizzes have four options; a faculty-edited quiz may have two to six.
+            if not 2 <= len(opts) <= 6 or sorted(keys) != ["A", "B", "C", "D", "E", "F"][:len(opts)]:
+                problems.append(f"{label}: expected options A-{'ABCDEF'[min(max(len(opts), 2), 6) - 1]} (2 to 6), got {keys or 'none'}")
             texts = [str(o.get("text") or "").strip() for o in opts]
             if any(not t for t in texts):
                 problems.append(f"{label}: an option has no text")

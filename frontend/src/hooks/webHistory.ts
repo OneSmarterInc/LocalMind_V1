@@ -8,7 +8,10 @@ const paths = new Map<number, string>();
 const MAX_PATHS = 200;
 
 export function installWebHistoryGuard() {
-  if (installed || typeof window === 'undefined') return;
+  // React Native defines a global `window` but no browser history, so the
+  // presence of window alone does not mean we are in a browser. Without this
+  // check the Android app crashed on launch reading history.pushState.
+  if (installed || typeof window === 'undefined' || typeof window.history?.pushState !== 'function') return;
   installed = true;
   const history = window.history;
   const push = history.pushState.bind(history);
@@ -59,6 +62,12 @@ export function installWebHistoryGuard() {
     }
     position = target; paths.set(position, path());
   }, true);
+}
+
+/** The page the browser showed just before this one, when it was inside the app. */
+export function previousWebPath(): string | null {
+  if (!installed || typeof window === 'undefined') return null;
+  return paths.get(position - 1) ?? null;
 }
 
 export function backToKnownWebParent(target: string): boolean {

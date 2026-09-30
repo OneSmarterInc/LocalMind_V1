@@ -138,6 +138,11 @@ class LocalAuthoringView(APIView):
             if old.payload_hash != fingerprint:
                 raise Conflict('This operation ID was already used for different content.')
             return Response(old.response)
+        # One device per login writes a book's lessons and quizzes. This is the
+        # check that settles two devices that both generated offline: the
+        # first to deliver owns the book, the other is refused here.
+        from .generation_claims import enforce
+        enforce(request, module.chapter.document)
         if data.get('revision') != revision(module):
             raise Conflict('The module or its lesson changed. Keep your local draft and review the newer version.', code='AUTHORING_VERSION_CHANGED')
         if not module.source_text.strip() or module.source_missing:

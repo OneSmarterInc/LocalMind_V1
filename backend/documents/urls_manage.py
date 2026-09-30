@@ -4,6 +4,7 @@ from . import views
 from .local_authoring import LocalAuthoringView, LocalQuizView
 from .local_books import LocalBookView
 from .book_transfers import BookTransferView, BookChunkView
+from .generation_claims import GenerationClaimView
 
 urlpatterns = [
     path("local-quizzes/", LocalQuizView.as_view()),
@@ -13,6 +14,7 @@ urlpatterns = [
     path("modules/<uuid:module_id>/local-authoring/", LocalAuthoringView.as_view()),
     path("documents/", views.DocumentListUploadView.as_view(), name="documents-list"),
     path("documents/<uuid:document_id>/", views.DocumentDetailView.as_view(), name="documents-detail"),
+    path("documents/<uuid:document_id>/generation-claim/", GenerationClaimView.as_view(), name="documents-generation-claim"),
     path("documents/<uuid:document_id>/process/", views.ProcessView.as_view(), name="documents-process"),
     path("documents/<uuid:document_id>/outline/", views.OutlineView.as_view(), name="documents-outline"),
     path("documents/<uuid:document_id>/pictures/", views.DocumentPicturesView.as_view(), name="documents-pictures"),

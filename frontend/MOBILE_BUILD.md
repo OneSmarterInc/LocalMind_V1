@@ -39,6 +39,29 @@ Android: open `android/` in Android Studio (or run `cd android && ./gradlew asse
 
 iOS: `cd ios && pod install`, open `LocalMind.xcworkspace` in Xcode, select your team under Signing & Capabilities, and Archive. Or `npm run ios` for a simulator run on a Mac.
 
+Because `android/` and `ios/` are committed, EAS builds them as they are and does not re-apply `app.json`. A change to icons, splash, permissions or plugin options in `app.json` only reaches the apps after the matching folder is regenerated and committed. Regenerate one platform at a time and review the diff before committing:
+
+```bash
+npx expo prebuild --platform android --clean --no-install
+EAS_BUILD_PROFILE=production npx expo prebuild --platform ios --clean --no-install
+```
+
+The `EAS_BUILD_PROFILE=production` part matters for iOS: the `llama.rn` plugin only writes the increased-memory-limit and extended-virtual-addressing entitlements (needed for the on-device model) when it sees the production profile, and it also adds the C++20 settings the library needs to compile. On Windows PowerShell set it first with `$env:EAS_BUILD_PROFILE="production"`.
+
+## iOS builds from Windows
+
+EAS compiles iOS on Expo's Macs, so Windows is enough, but device builds need a paid Apple Developer Program membership (a free Apple ID cannot sign builds for other devices).
+
+```powershell
+cd frontend
+npx eas-cli@latest build --platform ios --profile production   # sign in with the Apple account; let EAS manage certificates
+npx eas-cli@latest submit --platform ios --latest              # uploads to App Store Connect for TestFlight
+```
+
+For the iOS Simulator on a Mac, use `npx eas-cli@latest build --platform ios --profile simulator`, download the `.tar.gz`, unpack it and drag `LocalMind.app` onto the running Simulator. This is a release build with the JavaScript embedded, so no Metro packager is needed. A Debug build (Xcode's default Run, or `npx expo run:ios` without `--configuration Release`) loads JavaScript from Metro instead, and fails with "No script URL provided" unless `npx expo start` is running. The on-device AI must still be tested on a real iPhone: the Simulator does not reflect iPhone memory limits or Metal GPU speed.
+
+TestFlight needs no device registration. The `preview` profile is ad hoc instead: register each iPhone or iPad first with `npx eas-cli@latest device:create`, then `npx eas-cli@latest build --platform ios --profile preview`. On iOS, Save CSV and Save template open the share sheet (Save to Files, AirDrop, Mail); on Android they open the folder picker.
+
 ## 5. What was configured for mobile
 
 `app.json` now carries the bundle identifier and package name, version codes, dark UI style, a navy (`#080F13`) splash and adaptive-icon background matching the theme, network permissions, `softwareKeyboardLayoutMode: resize` so forms scroll above the keyboard, and the `expo-build-properties` plugin for the cleartext/deployment-target settings. `eas.json` defines the three build profiles above. The shell already adapts to phones: tabs move to a dark bottom bar, the header shrinks and shows the brand mark, and safe-area insets are respected on notched devices.
@@ -46,3 +69,16 @@ iOS: `cd ios && pod install`, open `LocalMind.xcworkspace` in Xcode, select your
 ## Not done here
 
 This sandbox has no Android SDK, Java or Apple toolchain and cannot reach Google's Maven repository, so the APK/IPA themselves were not compiled. Everything up to that step (config, prebuild of both native projects, typecheck, lint, web export) has been run and is clean.
+
+## Generation while using other apps
+
+On-device generation keeps running when the person switches to another app (`modules/localmind-background`, used by `src/private/backgroundWork.native.ts`). It is autolinked: after pulling, run `npm install`, and on a Mac `cd ios && pod install`. EAS does both.
+
+- Android: a "LocalMind is generating" notification with progress (a foreground service of type `specialUse`) keeps the app running, GPU included. Android 13+ asks once for notification permission; if refused, generation still continues, without the visible notification. The Play Console will ask why the app uses a special-use foreground service: "On-device AI writes the lessons and quizzes the person asked for; the service runs only until that generation finishes."
+- iOS 26 and later: iOS shows a system progress bar and keeps generating in other apps. The build must be made with Xcode 26 or later; an older Xcode builds fine but pauses instead. Without background GPU access the model continues on the CPU off screen (slower) and returns to the GPU on screen.
+- Older iOS, or when iOS ends the task early: the answer pauses off screen and continues by itself when LocalMind is opened again. Nothing needs pressing.
+- Laptop: the browser tab is marked busy while generating and asks before it is closed or refreshed.
+
+Background GPU on iPhone (optional, same speed off screen): enable the Background GPU Access capability for `com.onesmarter.localmind` in the Apple Developer portal, set `"gpuInBackground": true` for `./plugins/withBackgroundGeneration` in `app.json`, then regenerate `ios/` as described above. Do not set it before the capability exists: the signed build would be rejected.
+
+QA on a real phone: start a lesson generation, switch to another app for two minutes, come back. Expect: Android notification with progress, iOS 26 progress bar at the top, older iOS "Paused while LocalMind is in the background" then automatic continuation on return. In every case the lesson finishes without pressing generate again.

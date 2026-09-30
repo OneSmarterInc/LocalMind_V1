@@ -16,14 +16,17 @@
     "prebuild": "expo prebuild --clean",
     "doctor": "npx expo-doctor",
     "prepare:private": "node scripts/prepare-private-assets.mjs",
-    "postinstall": "npm run prepare:private",
+    "patch:native": "node scripts/patch-llama-runtime.mjs",
+    "test:native": "node --test ../tests/native-runtime.mjs ../tests/background-generation.mjs",
+    "prebuild:android": "npm run patch:native",
+    "postinstall": "npm run patch:native && npm run prepare:private",
     "prestart": "npm run prepare:private",
     "preweb": "npm run prepare:private",
     "preandroid": "npm run prepare:private",
     "preios": "npm run prepare:private",
     "preexport:web": "npm run prepare:private",
     "postexport:web": "node scripts/build-offline-manifest.mjs",
-    "test:private": "node ../tests/quiz-generation.mjs && node ../tests/private-contracts.mjs && node ../tests/authoring-races.mjs && node ../tests/reliability.mjs && node ../tests/device-acceleration.mjs && node ../tests/prompt-budget.mjs && node ../tests/shared-status.mjs && node ../tests/sync-all.mjs && node ../tests/model-storage.mjs && node ../tests/generation-controls.mjs && node ../tests/unarchive-device.mjs && node ../tests/device-fit.mjs && node ../tests/lesson-sections.mjs && node ../tests/live-updates.mjs && node ../tests/portal-fixes.mjs",
+    "test:private": "node ../tests/quiz-generation.mjs && node ../tests/private-contracts.mjs && node ../tests/authoring-races.mjs && node ../tests/reliability.mjs && node ../tests/device-acceleration.mjs && node ../tests/prompt-budget.mjs && node ../tests/shared-status.mjs && node ../tests/sync-all.mjs && node ../tests/model-storage.mjs && node ../tests/generation-controls.mjs && node ../tests/unarchive-device.mjs && node ../tests/device-fit.mjs && node ../tests/lesson-sections.mjs && node ../tests/live-updates.mjs && node ../tests/portal-fixes.mjs && node ../tests/model-setup.mjs && node ../tests/portal-changes.mjs && node ../tests/model-setup-later.mjs && node ../tests/setup-dialogs.mjs && node ../tests/discard-confirm.mjs && node ../tests/permission-explainers.mjs && node ../tests/progress-wording.mjs && node ../tests/generation-status.mjs",
     "test:private:web": "playwright test -c tests/private.playwright.config.ts"
   },
   "dependencies": {
@@ -66,7 +69,9 @@
     "pdfjs-dist": "4.10.38",
     "react-native-webview": "13.15.0",
     "tesseract.js": "6.0.1",
-    "@tesseract.js-data/eng": "1.0.0"
+    "@tesseract.js-data/eng": "1.0.0",
+    "expo-device": "~8.0.10",
+    "expo-keep-awake": "~15.0.8"
   },
   "devDependencies": {
     "@types/react": "~19.1.0",

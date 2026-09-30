@@ -26,6 +26,7 @@ Boolean variables accept `true`, `1`, `yes`, `on` (case-insensitive); anything e
 | Variable | Default | Notes |
 |---|---|---|
 | `MEDIA_ROOT` | `<backend>/media` | Where uploaded books and parsed markdown live. Must be writable and persistent. |
+| `PRIVATE_LIBRARY_ROOT` | `<backend>/private-books` | Where shared private-study books are stored. Never served publicly; students download them only through the authenticated API. Must be writable by the service user, persistent, outside `MEDIA_ROOT`, and backed up with the database. Production: `/var/lib/localmind/private-books`. |
 | `MEDIA_URL` | `/media/` | Only served by Django when debugging; in production the web server serves this path, or it is not exposed at all (the API never needs clients to fetch raw files). |
 | `MAX_UPLOAD_MB` | `100` | Maximum book size; also sets Django's request body limit. |
 | `PROCESS_DOCUMENTS_INLINE` | `false` | When true, `process/` blocks until parsing finishes. Useful for single-user setups and debugging; leave false for multi-user servers so uploads return immediately. |
@@ -35,7 +36,7 @@ Boolean variables accept `true`, `1`, `yes`, `on` (case-insensitive); anything e
 | Variable | Default | Notes |
 |---|---|---|
 | `INITIAL_PASSWORD_MODE` | `shared` | `shared`: every new account, Excel import row and admin reset starts on `INITIAL_USER_PASSWORD` and must change it at first login. `unique` (opt-in): each gets its own random one-time password, returned once and shown once in the admin screens (CSV for imports). With `shared`, anyone who knows the initial password can sign in to an account its owner has not claimed yet, which the per-account lockout below limits but does not prevent. |
-| `INITIAL_USER_PASSWORD` | `Welcome@LocalMind1` | The password new and reset accounts start on (shared mode). Must satisfy Django's validators. Change it per deployment. `python manage.py reset_onboarding_passwords` puts accounts that have not chosen a password back on it. |
+| `INITIAL_USER_PASSWORD` | none in production (`Welcome@LocalMind1` only when `DJANGO_DEBUG=true` or under tests) | The password new and reset accounts start on (shared mode). Required when `DJANGO_DEBUG=false`: the server refuses to start without it, because the development value is published. Must satisfy Django's validators. Change it per deployment. `python manage.py reset_onboarding_passwords` puts accounts that have not chosen a password back on it. |
 | `LOGIN_MAX_FAILURES` | `10` | Failed sign-ins for one email, inside the window below, after which that email is refused with `429 TOO_MANY_ATTEMPTS` even with the right password. Counted from the audit log, so it holds across workers and restarts. `0` disables it. |
 | `LOGIN_LOCKOUT_MINUTES` | `15` | The sliding window for the count above. A successful sign-in resets the count. |
 | `TRUSTED_PROXY_COUNT` | `0` | Reverse proxies in front of Django. Decides which `X-Forwarded-For` entry is the client for login throttling and the audit log. `0` ignores the header (standalone launcher); `1` for one nginx or Caddy in front (set by `deploy/docker-compose.yml` and `deploy/localmind.service`). Too high lets clients forge their address. |
@@ -118,6 +119,7 @@ DJANGO_ALLOWED_HOSTS=lms.example.edu
 DJANGO_CORS_ALLOWED_ORIGINS=https://app.example.edu
 DATABASE_URL=postgres://localmind:<password>@127.0.0.1:5432/localmind
 MEDIA_ROOT=/var/lib/localmind/media
+PRIVATE_LIBRARY_ROOT=/var/lib/localmind/private-books
 INITIAL_USER_PASSWORD=<department policy>
 TRUSTED_PROXY_COUNT=1
 OLLAMA_BASE_URL=http://127.0.0.1:11434

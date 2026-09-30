@@ -13,7 +13,9 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { NavigationContext } from "@react-navigation/native";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { dismissToast, showToast, useToasts, type Toast, type ToastInput, type ToastTone } from "./toastStore";
+import { bp } from "./theme";
 
 export { dismissToast, showToast, useToasts } from "./toastStore";
 export type { ToastInput, ToastTone } from "./toastStore";
@@ -96,10 +98,13 @@ export function useTimedMessage(input: ToastInput, enabled: boolean) {
 export function ToastHost() {
   const list = useToasts();
   const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const narrow = width < 640;
   if (!list.length) return null;
+  // Below the header, whatever the status bar height (the header is 56 on phones, 76 elsewhere).
+  const top = insets.top + (width < bp.tablet ? 56 : 76) + 8;
   return (
-    <View pointerEvents="box-none" style={[st.host, narrow ? { left: 12, right: 12, top: 84 } : { right: 24, top: 88, width: 360 }]} accessibilityLiveRegion="polite">
+    <View pointerEvents="box-none" style={[st.host, narrow ? { left: 12, right: 12, top } : { right: 24, top: top + 4, width: 360 }]} accessibilityLiveRegion="polite">
       {list.map((t) => <ToastCard key={t.id} toast={t} />)}
     </View>
   );

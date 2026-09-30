@@ -2,7 +2,12 @@ export const DOUBTS_PAUSED_MESSAGE = "Content generation is in progress. Ask a d
 /** App-lifetime jobs. Results are persisted by the library; no page owns cancellation. */
 export const SWEEP_MS=20000;
 export type JobState='queued'|'running'|'completed'|'failed'|'cancelled';
-export type Job={id:number;scope:string;bookId:string;sectionId:string;kind:string;label:string;documentId?:string;documentIds?:string[];state:JobState;note:string;error:string;
+export type Job={id:number;scope:string;bookId:string;sectionId:string;kind:string;
+ /** The book, module or quiz the work is for, in its own words ("Chapter 4").
+  * The job list and the phone notification add what is being done (workStatus). */
+ label:string;
+ /** What is being written, when kind alone does not say (a batch of lessons or quizzes). */
+ work?:import('./workStatus').Work;documentId?:string;documentIds?:string[];state:JobState;note:string;error:string;
  /** This job specifically is being cancelled. Per job, never shared: one row
   * cancelling must not make every other row claim it is cancelling too. */
  cancelling?:boolean};
@@ -66,7 +71,7 @@ export class JobQueue{
  }
  private pump(){
   while(true){const running=this.entries.filter(j=>j.state==='running');
-   const j=this.entries.find(j=>j.state==='queued'&&!running.some(r=>conflicts(j,r))&&(this.doubtLane?(j.kind==='doubt'?!running.some(r=>r.kind==='doubt'):running.filter(r=>r.kind!=='doubt').length<this.concurrency):this.active<this.concurrency));if(!j)break;this.active++;j.state='running';j.note='Preparing on this device';this.emit();
+   const j=this.entries.find(j=>j.state==='queued'&&!running.some(r=>conflicts(j,r))&&(this.doubtLane?(j.kind==='doubt'?!running.some(r=>r.kind==='doubt'):running.filter(r=>r.kind!=='doubt').length<this.concurrency):this.active<this.concurrency));if(!j)break;this.active++;j.state='running';j.note='Starting…';this.emit();
    void(async()=>{try{await j.run!(j.controller.signal,s=>{if(!j.controller.signal.aborted){j.note=s;this.emit();}});j.state=j.controller.signal.aborted?'cancelled':'completed';j.note=j.state==='completed'?'Saved on this device':'Cancelled';}
     // A cancelled job used to keep the note it had while it was stopping, so a
     // row that had already finished still read "Cancelling…" forever.

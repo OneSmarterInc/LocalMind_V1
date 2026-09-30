@@ -6,7 +6,8 @@ import {jobScope,useGenerationJobs,useDoubtsBlocked} from '../useGenerationJobs'
 import React,{useCallback,useEffect,useRef,useState} from 'react';
 import {Pressable,View} from 'react-native';
 import {useLocalSearchParams,useRouter} from 'expo-router';
-import {Screen,PageHeading,Card,Row,H2,P,Button,Badge,Notice,ErrorBanner,Loading,PageTabs,Input,Split,Dropdown,confirmAsync,colors,showToast} from '@/ui';
+import {skipReason} from '@/authoring/reasons';
+import {Screen,PageHeading,Card,Row,H2,P,Button,Badge,Notice,ErrorBanner,Loading,PageTabs,Input,Split,Dropdown,confirmAsync,colors,showToast,tones} from '@/ui';
 import ChatThread from '../ChatThread';
 import {SourceVisuals} from '../SourceVisuals';
 import {SourceContent} from '@/ui/SourceContent';
@@ -39,7 +40,7 @@ export default function PrivateBook(){
  const listed=(b?.sections||[]).map((x,i)=>({x,n:i+1})).filter(({x,n})=>!needle||`${x.title} module ${n}`.toLowerCase().includes(needle));
  if(listing)return <Screen><PageHeading title={b?.title||'Private book'} subtitle={b?`${b.sections.length} modules · Personal study, saved only on this device`:'Personal study, saved only on this device'} right={<Button title="Back to library" variant="secondary" icon="arrow-back" onPress={()=>back('/student/private-library')}/>}/><ErrorBanner message={book.error} onRetry={book.reload}/>
   {book.loading&&!b?<Loading/>:null}
-  {b?.warnings.length?<Notice inline tone="warning" title="About this import" message={b.warnings.join('\n')}/>:null}
+  {b?.warnings.length?<Notice inline tone="warning" title="About this import" message={b.warnings.join('\n')} dismissKey={`import:${id}`} remember/>:null}
   {b?<Card flush>
    <View style={{padding:16,flexDirection:'row',alignItems:'center',gap:12,flexWrap:'wrap',borderBottomWidth:1,borderColor:colors.border}}>
     <Input icon="search" compact value={query} onChangeText={setQuery} placeholder="Search modules" accessibilityLabel="Search modules in this book" containerStyle={{flex:1,minWidth:220,maxWidth:420}}/>
@@ -55,7 +56,7 @@ export default function PrivateBook(){
  </Screen>;
  return <Screen scrollTopOn={`${sectionId}:${topTick}`}><PageHeading title={b?.title||'Private book'} subtitle="Personal study · Saved only on this device" right={<Button title="All modules" variant="secondary" icon="list-outline" onPress={()=>{void confirmLeave().then(ok=>{if(ok)setListing(true);});}}/>}/><ErrorBanner message={book.error} onRetry={book.reload}/>
   {book.loading&&!b?<Loading/>:null}
-  {b?.warnings.length?<Notice inline tone="warning" title="About this import" message={b.warnings.join('\n')}/>:null}
+  {b?.warnings.length?<Notice inline tone="warning" title="About this import" message={b.warnings.join('\n')} dismissKey={`import:${id}`} remember/>:null}
   {b&&s&&library?<Split side={null} main={<ModuleLearning key={`${library.prefix}:${id}:${s.id}`} bookId={id} initialTab={targetTab} onSourceSaved={book.reload} backToTop={backToTop} section={s} hasNext={b.sections.findIndex(x=>x.id===s.id)<b.sections.length-1} next={()=>{const n=b.sections.findIndex(x=>x.id===s.id)+1;if(b.sections[n])void confirmLeave().then(ok=>{if(ok)selectSection(b.sections[n].id);});}}/>}/>:null}
  </Screen>;
 }
@@ -63,12 +64,26 @@ function ModuleLearning({bookId,section,next,hasNext,initialTab,onSourceSaved,ba
  const library=useLibrary()!,router=useRouter();
  const doubtsBlocked=useDoubtsBlocked();
  const jobs=useGenerationJobs(library.prefix).filter(j=>j.bookId===bookId&&j.sectionId===section.id);
- const completed=jobs.filter(j=>j.state==='completed').map(j=>j.id).join(',');
+ // Saved work is re-read when a job for this module finishes. This used to key
+ // on the list of finished jobs, which also changes when a finished row is
+ // cleared from the job list 20 seconds later; every clearing re-read the
+ // module and blanked the chat mid-answer. The newest finished job only grows.
+ const finished=useRef(0);
+ finished.current=Math.max(finished.current,...jobs.filter(j=>j.state==='completed').map(j=>j.id));
+ const completed=finished.current;
  const [tab,setTabState]=useState<Tab>('read'),[count,setCount]=useState('6');
  const figures=useAsync(()=>library.visuals(bookId,section.id),[library,bookId,section.id]);
  const lessons=useAsync(()=>library.lessons(bookId,section.id),[library,bookId,section.id,completed]);
  const quizzes=useAsync(()=>library.quizzes(bookId,section.id),[library,bookId,section.id,completed]);
  const chats=useAsync(()=>library.chats(bookId,section.id),[library,bookId,section.id,completed]);
+ // A re-read empties the list until it returns. Shown empty, the question
+ // being answered vanished, the page shrank and jumped to the top, and the
+ // thread restarted at its oldest message. The last list stays on screen
+ // until the new one arrives. The screen is remounted per module, so this
+ // never shows another module's chats.
+ const shownChats=useRef<PrivateChat[]|null>(null);
+ if(chats.data)shownChats.current=chats.data;
+ const chatList=chats.data??shownChats.current;
  const [lessonId,setLessonId]=useState(''),[quizId,setQuizId]=useState(''),[question,setQuestion]=useState('');
  const [viewReady,setViewReady]=useState(false);const writes=useRef(Promise.resolve());
  const saveView=(key:string,value:string)=>{writes.current=writes.current.catch(()=>{}).then(()=>library.saveViewState(bookId,key,value)).catch(e=>setLocalError(String(e)));};
@@ -94,7 +109,7 @@ function ModuleLearning({bookId,section,next,hasNext,initialTab,onSourceSaved,ba
  useUnsavedWarning(sourceDirty);
  const task={busy:!!current&&['queued','running'].includes(current.state),note:current?.note||'',error:localError||current?.error||'',cancel:()=>{if(current)generationJobs.cancel(current.id);}};
  const enqueue=(kind:string,run:(signal:AbortSignal,progress:(s:string)=>void)=>Promise<unknown>)=>{
-  try{setLocalError('');generationJobs.enqueue({scope:jobScope(library.prefix),bookId,sectionId:section.id,kind,label:`${section.title} · ${kind}`},run);}catch(e){setLocalError(String(e));}
+  try{setLocalError('');generationJobs.enqueue({scope:jobScope(library.prefix),bookId,sectionId:section.id,kind,label:section.title},run);}catch(e){setLocalError(String(e));}
  };
  const generateLesson=()=>{setLessonId('');backToTop();enqueue('lesson',(signal,progress)=>library.generateLesson(bookId,section.id,signal,progress));};
  const generatedQuiz=useRef('');
@@ -104,12 +119,17 @@ function ModuleLearning({bookId,section,next,hasNext,initialTab,onSourceSaved,ba
  // a reload. Asking has to clear both the box and that saved copy, or the
  // question the student just asked is still sitting there waiting to be
  // sent again.
- const ask=()=>{const q=question.trim();if(!q)return;changeQuestion('');setPending(q);enqueue('doubt',(signal,progress)=>library.ask(bookId,section.id,q,signal,progress));};
+ const askedAt=useRef('');
+ const ask=()=>{const q=question.trim();if(!q)return;askedAt.current=new Date().toISOString();changeQuestion('');setPending(q);enqueue('doubt',(signal,progress)=>library.ask(bookId,section.id,q,signal,progress));};
  // The saved answer replaces the pending bubble; a failure puts the question
  // back in the box rather than making them retype it.
- const answered=chats.data?.length??0;
- const askFailed=current?.kind==='doubt'&&(current.state==='failed'||!!current.error);
- useEffect(()=>{setPending('');},[answered]);
+ // It used to be cleared whenever the number of saved chats changed, and a
+ // re-read passes through an empty list, so the question disappeared while
+ // it was still being answered. Now it goes only when its own answer is saved.
+ useEffect(()=>{if(pending&&chatList?.some(c=>c.question===pending&&c.createdAt>=askedAt.current))setPending('');},[chatList,pending]);
+ // Stopped counts too: the question goes back in the box instead of hanging
+ // in the thread with no answer coming.
+ const askFailed=current?.kind==='doubt'&&(current.state==='failed'||current.state==='cancelled'||!!current.error);
  useEffect(()=>{if(askFailed)setPending(p=>{if(p)changeQuestion(p);return '';});
   // eslint-disable-next-line react-hooks/exhaustive-deps
  },[askFailed]);
@@ -129,15 +149,19 @@ function ModuleLearning({bookId,section,next,hasNext,initialTab,onSourceSaved,ba
   const start=kind==='lesson'?generateLesson:generateQuiz;
   const j=jobs.slice().reverse().find(x=>x.kind===kind&&['queued','running'].includes(x.state));
   const state=j?(j.state==='queued'?'Waiting to start':'Generating'):has?'Ready':'Not generated';
+  // Same rule as faculty books: objectives pages, empty or one-line modules are
+  // not worth a lesson. Say why; the student can still generate one anyway.
+  const skip=!has&&!j?skipReason(section.title,section.source):null;
   return <View style={{borderWidth:1,borderColor:colors.border,borderRadius:10,paddingHorizontal:14,paddingVertical:12,backgroundColor:colors.surface2,gap:8}} accessibilityLiveRegion="polite">
    <View style={{flexDirection:'row',alignItems:'center',gap:10,flexWrap:'wrap'}}>
     <View style={{flex:1,minWidth:150}}><P style={{fontWeight:'600',color:colors.ink}}>{label}</P>{j?.note?<P small muted numberOfLines={2}>{j.note}</P>:null}</View>
     <Badge value={state} tone={j?'blue':has?'green':'neutral'}/>
    </View>
+   {skip?<P small muted>{skip.kind==='front-matter'?`This page lists objectives or contents, so a ${kind==='lesson'?'lesson':'quiz'} would mostly repeat it. Read it on the Read tab, or generate one anyway.`:skip.kind==='brief-source'?`This module has only a line or two of text, too little for a useful ${kind==='lesson'?'lesson':'quiz'}. You can still generate one.`:skip.message}</P>:null}
    <View style={{flexDirection:'row',alignItems:'flex-end',gap:12,flexWrap:'wrap'}}>
     {kind==='quiz'&&!j?<View style={{width:132,marginRight:14}}><Dropdown label="Questions" width="100%" value={count} onChange={v=>{if(!task.busy)setCount(v);}} options={Array.from({length:10},(_,i)=>({value:String(i+1),label:String(i+1)}))}/></View>:null}
     {j?<Button title="Pause" variant="secondary" icon="pause-outline" accessibilityLabel={`Pause ${label.toLowerCase()} generation`} onPress={()=>{generationJobs.cancel(j.id);showToast({tone:'info',title:`${label} paused`,message:'Finished parts are saved.'});}}/>
-     :<Button title={has?`Regenerate ${kind==='lesson'?'lesson':'quiz'}`:`Generate ${kind==='lesson'?'lesson':'quiz'}`} icon={has?'refresh':'sparkles-outline'} disabled={task.busy} onPress={()=>{void confirmLeave().then(ok=>{if(ok)start();});}}/>}
+     :<Button title={has?`Regenerate ${kind==='lesson'?'lesson':'quiz'}`:`Generate ${kind==='lesson'?'lesson':'quiz'}${skip&&skip.kind!=='no-source'?' anyway':''}`} icon={has?'refresh':'sparkles-outline'} disabled={task.busy||skip?.kind==='no-source'} onPress={()=>{void confirmLeave().then(ok=>{if(ok)start();});}}/>}
    </View>
    <P small muted>Runs on this device. You can leave this page while it works; pausing keeps every finished part.</P>
   </View>;
@@ -153,7 +177,7 @@ function ModuleLearning({bookId,section,next,hasNext,initialTab,onSourceSaved,ba
    {/* The thread scrolls in its own pane so the question box stays put instead
        of being pushed further down the page by every answer. */}
    <ChatThread empty={<P muted>No questions yet. Ask anything about this section.</P>}>{[
-    ...(chats.data||[]).map(c=><Chat key={c.id} chat={c}/>),
+    ...(chatList||[]).map(c=><Chat key={c.id} chat={c}/>),
     ...(pending?[<Bubble key="pending" who="You" content={pending} mine/>]:[]),
     ...(task.busy&&currentKind==='doubt'?[<View key="working" style={{padding:14}}><P small muted>{task.note||'Reading the module…'}</P></View>]:[]),
    ]}</ChatThread>
@@ -165,13 +189,15 @@ function ModuleLearning({bookId,section,next,hasNext,initialTab,onSourceSaved,ba
 /** One turn of the thread. The question sits on the right in its own bubble
  *  and the answer on the left, so a long conversation reads as a conversation
  *  rather than as a column of identical grey blocks. */
-function Bubble({who,content,mine,quote}:{who:string;content:string;mine?:boolean;quote?:string}){
- return <View style={{padding:14,borderRadius:10,backgroundColor:mine?'#EAF2ED':'#FFFFFF',borderWidth:mine?0:1,borderColor:'#E4EAE2',gap:6,alignSelf:mine?'flex-end':'stretch',maxWidth:mine?'88%':undefined}}>
+// A refusal used to look exactly like an answer. It now reads as a note, so a
+// student can tell "the book does not cover this" from something to learn.
+function Bubble({who,content,mine,quote,notFound}:{who:string;content:string;mine?:boolean;quote?:string;notFound?:boolean}){
+ return <View style={{padding:14,borderRadius:10,backgroundColor:mine?'#EAF2ED':notFound?tones.amber.bg:'#FFFFFF',borderWidth:mine?0:1,borderColor:notFound?tones.amber.border:'#E4EAE2',gap:6,alignSelf:mine?'flex-end':'stretch',maxWidth:mine?'88%':undefined}}>
   <P small muted>{who}</P><P>{content}</P>{quote?<P small muted>From the book: {quote}</P>:null}</View>;
 }
 function Chat({chat}:{chat:PrivateChat}){return <>
  <Bubble who="You" content={chat.question} mine/>
- <Bubble who="Local AI · this device" content={chat.answer} quote={chat.quote||undefined}/>
+ <Bubble who={chat.supported?'Local AI · this device':'Not in this module'} content={chat.answer} quote={chat.supported?chat.quote||undefined:undefined} notFound={!chat.supported}/>
 </>;}
 function QuizPractice({quiz}:{quiz:QuizVersion}){
  const library=useLibrary()!,task=useTask();

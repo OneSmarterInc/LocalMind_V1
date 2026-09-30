@@ -242,3 +242,40 @@ class FollowUpQuestionsTests(AskBase):
         res = self.ask("make it shorter", first.data["conversation_id"])
         self.assertEqual(res.status_code, 201, res.content)
         gw.return_value.generate.assert_called()
+
+
+class OneWordOffTopicTests(AskBase):
+    """Recorded on the phone: in a chapter that never mentions it, "What is
+    physics" was refused and "What is maths" was answered from the model's own
+    knowledge, citing an unrelated sentence. A one-word subject used to skip
+    the scope check entirely."""
+
+    @patch("tutor.services.gateway")
+    def test_a_one_word_subject_outside_the_module_never_reaches_the_model(self, gw):
+        gw.return_value.generate.return_value = answer("Maths is the study of numbers.", ref="absorbs nutrients through villi")
+        for question in ["What is maths", "What is physics"]:
+            res = self.ask(question)
+            self.assertEqual(res.status_code, 201, res.content)
+            self.assertFalse(res.data["message"]["grounded"], question)
+        gw.return_value.generate.assert_not_called()
+
+    @patch("tutor.services.gateway")
+    def test_a_one_word_subject_inside_the_module_is_answered(self, gw):
+        gw.return_value.generate.return_value = answer("Villi increase the surface area.", ref="Villi increase the surface area")
+        res = self.ask("What is villi")
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertTrue(res.data["message"]["grounded"], res.data["message"]["content"])
+
+    @patch("tutor.services.gateway")
+    def test_a_quotation_that_is_not_about_the_question_is_not_evidence(self, gw):
+        gw.return_value.generate.return_value = answer("Stomata let plants breathe.", ref="Chlorophyll absorbs sunlight to make glucose")
+        res = self.ask("What are stomata?")
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertFalse(res.data["message"]["grounded"])
+
+    def test_similar_looking_words_are_not_the_same_subject(self):
+        from tutor.services import _terms_meet
+        self.assertFalse(_terms_meet("math", "path"))
+        self.assertFalse(_terms_meet("physic", "physical"))
+        self.assertTrue(_terms_meet("encrypt", "encryption"))
+        self.assertTrue(_terms_meet("columb", "coulomb"))

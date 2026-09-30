@@ -85,7 +85,20 @@ class LocalBookView(APIView):
             raise ValidationFailed('The original file checksum does not match. The book was not saved.')
         document = None
         try:
-            document = upload_document(request.user, subject, uploaded, title, request)
+            try:
+                document = upload_document(request.user, subject, uploaded, title, request)
+            except Conflict as error:
+                # Two devices of one login imported the same book offline. The
+                # first to reach the server created it; tell this one who owns
+                # its generation so the screen can say so instead of a bare
+                # "already on this subject".
+                if error.code == 'DUPLICATE_DOCUMENT':
+                    from .generation_claims import describe, device_from
+                    from .models import GenerationClaim
+                    claim = GenerationClaim.objects.filter(actor=request.user,
+                                                           document_id=error.details.get('document_id')).first()
+                    error.details = {**error.details, 'claim': describe(claim, device_from(request))}
+                raise
             chapter = Chapter.objects.create(document=document, title=title, order=1)
             mappings = []
             for order, (key, heading, source, page) in enumerate(checked, 1):
@@ -93,6 +106,13 @@ class LocalBookView(APIView):
                                                source_text=source, start_page=page, end_page=page)
                 mappings.append({'local_id': key, 'module_id': str(module.pk),
                                  'revision': revision(module)})
+            # The device that delivers a book it generated offline owns that
+            # book's generation, in the same transaction that creates it.
+            claim = data.get('claim')
+            from .generation_claims import acquire, device_from
+            if isinstance(claim, dict) and device_from(request):
+                acquire(request.user, document, device_from(request), label=claim.get('device_label'),
+                        started_at=claim.get('started_at'), request=request)
             document.status = DocumentStatus.UNDER_REVIEW
             document.parse_mode = 'device-local'
             document.outline_source = 'device_extracted'

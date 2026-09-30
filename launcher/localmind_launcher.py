@@ -1,7 +1,7 @@
 ﻿import argparse, configparser, json, os, ssl, sys, time, urllib.error, urllib.request, webbrowser
 from pathlib import Path
 
-DEFAULT_SERVER = "https://localmind.taild0af72.ts.net"
+DEFAULT_SERVER = "https://localmind.onesmarter.com"
 INI_NAME = "LocalMind.ini"
 HEALTH_PATH = "/api/health/"
 

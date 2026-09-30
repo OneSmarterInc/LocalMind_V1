@@ -195,19 +195,19 @@ def run_processing(document_id, *, guard=None, run_id=None, raise_errors=False):
     if run_id:
         document._processing_artifact_id = run_id
     try:
-        set_progress(document_id, 1, "queued", "Waiting for the parser to be free")
+        set_progress(document_id, 1, "queued", "Waiting for another book to finish reading…")
         with _processing_lock:
             try:
-                set_progress(document_id, 2, "reading", f"Reading {document.original_name}")
+                set_progress(document_id, 2, "reading", f"Reading {document.original_name}…")
                 parsed = parse_document(document)
             finally:
                 release_document_models()
-        set_progress(document_id, 3, "outline", f"Planning an outline from {len(parsed['headings'])} headings")
+        set_progress(document_id, 3, "outline", f"Planning an outline from {len(parsed['headings'])} headings…")
         outline, source = outline_service.build_proposed_outline(document, parsed["sections"], parsed["headings"])
         chapters = outline.get("chapters") or []
         module_count = sum(len(c.get("modules") or []) for c in chapters)
         set_progress(document_id, 4, "structure",
-                     f"Creating {module_count} module{'' if module_count == 1 else 's'} across {len(chapters)} chapter{'' if len(chapters) == 1 else 's'}")
+                     f"Creating {module_count} module{'' if module_count == 1 else 's'} across {len(chapters)} chapter{'' if len(chapters) == 1 else 's'}…")
         with transaction.atomic():
             if guard: guard()
             locked = Document.objects.select_for_update().get(pk=document_id)

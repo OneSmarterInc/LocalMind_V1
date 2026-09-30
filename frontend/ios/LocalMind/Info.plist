@@ -43,7 +43,7 @@
     <key>NSAppTransportSecurity</key>
     <dict>
       <key>NSAllowsArbitraryLoads</key>
-      <true/>
+      <false/>
       <key>NSAllowsLocalNetworking</key>
       <true/>
     </dict>
@@ -58,7 +58,7 @@
     <key>RCTNewArchEnabled</key>
     <true/>
     <key>RCTRootViewBackgroundColor</key>
-    <integer>4278718227</integer>
+    <integer>4294309876</integer>
     <key>UILaunchStoryboardName</key>
     <string>SplashScreen</string>
     <key>UIRequiredDeviceCapabilities</key>
@@ -85,5 +85,13 @@
     <string>Automatic</string>
     <key>UIViewControllerBasedStatusBarAppearance</key>
     <false/>
+    <key>BGTaskSchedulerPermittedIdentifiers</key>
+    <array>
+      <string>com.onesmarter.localmind.generate.*</string>
+    </array>
+    <key>UIBackgroundModes</key>
+    <array>
+      <string>processing</string>
+    </array>
   </dict>
 </plist>

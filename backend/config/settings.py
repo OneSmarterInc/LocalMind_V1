@@ -141,6 +141,11 @@ STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_URL = env_str("MEDIA_URL", "/media/")
 MEDIA_ROOT = Path(env_str("MEDIA_ROOT", str(BASE_DIR / "media"))).resolve()
+# Shared private-study books. Kept apart from MEDIA_ROOT on purpose: media can be
+# served publicly, these files must only leave through the authenticated view.
+# Production should point this outside the code checkout (for example
+# /var/lib/localmind/private-books) and back it up with the database.
+PRIVATE_LIBRARY_ROOT = Path(env_str("PRIVATE_LIBRARY_ROOT", str(BASE_DIR / "private-books"))).resolve()
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -219,6 +224,10 @@ CSP_REPORT_ONLY = env_str("CSP_REPORT_ONLY", _DEFAULT_CSP)
 
 CORS_ALLOWED_ORIGINS = env_list("DJANGO_CORS_ALLOWED_ORIGINS", "http://localhost:8081")
 CORS_ALLOW_CREDENTIALS = False
+# Stable per-install ID the client sends so the server can tell a login's
+# laptop from its phone (see documents.generation_claims).
+from corsheaders.defaults import default_headers as _cors_default_headers
+CORS_ALLOW_HEADERS = (*_cors_default_headers, "x-localmind-device")
 
 # Origins allowed to POST to the Django admin site and any session-backed view
 # when the API sits behind a TLS-terminating proxy (scheme + host, no path).
@@ -246,11 +255,21 @@ if not DEBUG:
 DATA_UPLOAD_MAX_MEMORY_SIZE = env_int("MAX_UPLOAD_MB", 100) * 1024 * 1024
 FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024
 
+# The shared first-login password. The development default is printed in the
+# public README, so a production server (DEBUG off) must set its own; starting
+# with the published value would let anyone sign in to a fresh account.
+_INITIAL_USER_PASSWORD = env_str("INITIAL_USER_PASSWORD", "")
+if not _INITIAL_USER_PASSWORD:
+    if DEBUG or TESTING:
+        _INITIAL_USER_PASSWORD = "Welcome@LocalMind1"
+    else:
+        raise RuntimeError("INITIAL_USER_PASSWORD must be set when DJANGO_DEBUG is false.")
+
 # LocalMind domain settings
 LOCALMIND = {
     "MAX_UPLOAD_MB": env_int("MAX_UPLOAD_MB", 100),
     "ALLOWED_UPLOAD_EXTENSIONS": {".pdf", ".docx", ".doc"},
-    "INITIAL_USER_PASSWORD": env_str("INITIAL_USER_PASSWORD", "Welcome@LocalMind1"),
+    "INITIAL_USER_PASSWORD": _INITIAL_USER_PASSWORD,
     # shared (default): every new account, Excel import row and admin reset
     # starts on INITIAL_USER_PASSWORD and must change it at first login, as the
     # platform always did. unique (opt-in): each gets its own random one-time
@@ -280,6 +299,10 @@ LOCALMIND = {
     # a recycled worker and may be claimed again by the next process/ call or
     # by `manage.py requeue_stuck_documents`.
     "PROCESSING_STALE_MINUTES": env_int("PROCESSING_STALE_MINUTES", 30),
+    # One device per login owns generation for a book. A device not heard from
+    # for this long loses that ownership to the next device that asks, so a
+    # lost or wiped phone cannot hold a book forever. 0 disables expiry.
+    "GENERATION_CLAIM_STALE_HOURS": env_int("GENERATION_CLAIM_STALE_HOURS", 24),
 }
 
 AI = {

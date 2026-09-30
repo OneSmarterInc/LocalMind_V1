@@ -231,3 +231,45 @@ test('reading module retains image-only pages and long unbroken text',()=>{
  assert.equal(rows[0].visualIds[0],'v1');assert.equal(rows.map(r=>r.source).join('').length,65000);
  assert.ok(rows.every(r=>r.source.length<=c.MAX_READING_CHARS));
 });
+
+// "Ask a doubt" on a chapter it does not cover. Recorded on the APK: "What is
+// physics" was refused, "What is maths" was answered from the model's own
+// knowledge and cited an unrelated sentence about IoT devices.
+const cyber='### Notable Groups:\nHackers are individuals or groups involved in cyber-espionage, sabotage, and the spread of disinformation. They operate in the dark web marketplace for illicit goods and services, including ransomware and hacking tools.\nThe proliferation of Internet of Things (IoT) devices has introduced new vulnerabilities across various industries.\nPhysical security controls protect server rooms from intruders.\nEncryption protects data in transit. Attack paths are mapped by defenders.';
+test('a one-word off-topic question is judged, not waved through',()=>{
+ assert.deepEqual(c.subjectTerms('What is maths'),['math']);
+ assert.equal(c.questionIsAbout('What is maths',cyber),false);
+ assert.equal(c.questionIsAbout('What is physics',cyber),false);
+ assert.equal(c.questionIsAbout('Give me an example of maths',cyber),false);
+});
+test('on-topic questions still pass, including plurals, related forms and typos',()=>{
+ for(const q of ['What are hackers','What is a hacker','What is threats? What is ransomware','What is encrypting','Who are the attackers','What is the dark web','Explain IoT'])assert.equal(c.questionIsAbout(q,cyber),true,q);
+ assert.equal(c.questionIsAbout('what is columb','The SI unit of charge is the coulomb.'),true);
+ assert.equal(c.questionIsAbout('What does a villus do?','The small intestine absorbs nutrients through villi.'),true);
+});
+test('a question with no subject of its own is left to the conversation',()=>{
+ for(const q of ['why?','explain more','explain the above in short'])assert.equal(c.questionIsAbout(q,cyber),true,q);
+});
+test('similar-looking words do not count as the same subject',()=>{
+ assert.equal(c.termsMeet('math','path'),false);assert.equal(c.termsMeet('physic','physical'),false);assert.equal(c.termsMeet('math','mathematic'),false);
+ assert.equal(c.termsMeet('encrypt','encryption'),true);assert.equal(c.termsMeet('attack','attacker'),true);assert.equal(c.termsMeet('columb','coulomb'),true);
+});
+test('a doubt is only offered quotations about its question, never a heading',()=>{
+ const quotes=c.groundedSchema(c.ANSWER_SCHEMA,cyber,'What are hackers',true).properties.quote.enum;
+ assert.ok(quotes.length>0);assert.ok(quotes.every(q=>/hack/i.test(q)),quotes.join(' | '));assert.ok(!quotes.some(q=>q.includes('Notable Groups')));
+ const all=c.groundedSchema(c.ANSWER_SCHEMA,cyber,'What are hackers').properties.quote.enum;assert.ok(all.length>quotes.length,'lessons and quizzes keep the full list');
+});
+test('an answer citing an unrelated sentence is refused',()=>{
+ const raw={answer:'Maths refers to the study of numbers, quantities, and patterns.',quote:'The proliferation of Internet of Things (IoT) devices has introduced new vulnerabilities across various industries.',supported:true};
+ assert.equal(c.validateAnswer(raw,cyber,cyber,'What is maths').supported,false);
+ assert.equal(c.validateAnswer(raw,cyber,cyber).supported,true,'callers that do not pass a focus keep the old behaviour');
+});
+test('an answer whose only quotation is a heading is refused',()=>{
+ const src='Notable Groups:\nHackers operate in the dark web.';
+ assert.equal(c.validateAnswer({answer:'Hackers are groups.',quote:'Notable Groups:',supported:true},src,src,'What are hackers').supported,false);
+ assert.equal(c.validateAnswer({answer:'Hackers work in the dark web.',quote:'Hackers operate in the dark web.',supported:true},src,src,'What are hackers').supported,true);
+});
+test('module search matches singular questions to plural text',()=>{
+ const long=('Unrelated filler sentence about networks. '.repeat(90))+'\nHackers sell ransomware kits on hidden forums.';
+ assert.ok(c.retrieve(long,'What is a hacker').includes('ransomware kits'));
+});

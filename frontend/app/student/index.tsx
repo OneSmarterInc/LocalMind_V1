@@ -42,8 +42,9 @@ export default function StudentOverview() {
             ) : cat.data ? (
               <HeroCard eyebrow="WELCOME" title="Your learning starts with a subject." text="Open a subject to find its books and the modules your faculty has opened." action={<Button title="See my subjects" onPress={() => router.push("/student/subjects")} />} />
             ) : null}
-            <View style={{ flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", gap: 12, marginTop: 4 }}>
-              <View>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "flex-end", justifyContent: "space-between", columnGap: 12, rowGap: 6, marginTop: 4 }}>
+              {/* The text shrinks and wraps; on a narrow phone the link drops below it instead of leaving the screen. */}
+              <View style={{ flexGrow: 1, flexShrink: 1, flexBasis: 220, minWidth: 0 }}>
                 <Text style={{ fontSize: 18, fontWeight: "600", color: colors.ink }}>My subjects</Text>
                 <Text style={{ fontSize: 12, color: colors.muted, marginTop: 4 }}>Your books, modules, and quizzes, organized by subject.</Text>
               </View>

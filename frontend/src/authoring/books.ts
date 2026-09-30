@@ -8,8 +8,9 @@ import {device} from '@/private/device';
 import {requireThat,type Section} from '@/private/core';
 import type {LocalFile} from '@/private/device.types';
 import {LocalAuthoring} from './local';
+import {GenerationClaims,type Claim} from './claims';
 import {retainFile,originalSize,originalChunk} from './files';
-export type LocalBook={id:string;bookId:string;title:string;subjectId:string;originalName:string;modules:{id:string;sectionId:string;title:string}[];state:'local'|'pending'|'synced'|'conflict';manifest?:{id:string;subject_id:string;title:string;sha256:string;sections:Section[];reviewed:true};documentId?:string;error?:string;bytesSent?:number;totalBytes?:number};
+export type LocalBook={id:string;bookId:string;title:string;subjectId:string;originalName:string;modules:{id:string;sectionId:string;title:string}[];state:'local'|'pending'|'synced'|'conflict';manifest?:{id:string;subject_id:string;title:string;sha256:string;sections:Section[];reviewed:true;claim?:{started_at:string}};documentId?:string;error?:string;bytesSent?:number;totalBytes?:number};
 type Receipt={document_id:string;modules:{local_id:string;module_id:string;revision:string}[]};
 const syncing=new Map<string,Promise<LocalBook>>();
 export class LocalBooks {
@@ -52,7 +53,10 @@ export class LocalBooks {
   const row=await this.read(id);if(row.state==='synced')return row;
   if(!row.manifest){const book=await this.authoring.library.book(row.bookId);
    // The original parser hash is the book ID for new authoring imports.
-   row.manifest={id:row.id,subject_id:row.subjectId,title:row.title,sha256:book.sourceHash||book.id,reviewed:true,sections:book.sections.map(s=>({id:s.id,title:s.title,source:s.source,...(s.page?{page:s.page}:{})}))};
+   // A book this device already started generating offline claims its
+   // generation in the same request that creates it on the server.
+   const started=await new GenerationClaims(this.authoring.library.owner).startedAt(undefined,row.id);
+   row.manifest={id:row.id,subject_id:row.subjectId,title:row.title,sha256:book.sourceHash||book.id,reviewed:true,sections:book.sections.map(s=>({id:s.id,title:s.title,source:s.source,...(s.page?{page:s.page}:{})})),...(started?{claim:{started_at:started}}:{})};
   }
   row.state='pending';await this.save(row);return this.flush(id);
  }
@@ -80,7 +84,12 @@ export class LocalBooks {
    const receipt=await api<Receipt>('/faculty/local-books/',{method:'POST',form,timeoutMs:120000});this.authoring.library.guard();
    for(const item of row.modules){const mapping=receipt.modules.find(m=>m.local_id===item.sectionId);requireThat(mapping,'The server did not return every module. Retry synchronization.');await this.authoring.linkLocal(item.id,receipt.document_id,mapping.module_id,mapping.revision);}
    row.documentId=receipt.document_id;row.state='synced';row.error=undefined;await this.save(row);
-  }catch(e){this.authoring.library.guard();row.state=e instanceof ApiError&&e.code!=='TRANSFER_OFFSET'&&[400,403,404,409].includes(e.status)?'conflict':'pending';row.error=e instanceof Error?e.message:String(e);await this.save(row);}
+  }catch(e){this.authoring.library.guard();
+   // The same book reached the server first from another device of this
+   // login, which now owns its generation. Keep this copy's drafts here, unsent.
+   const owner=e instanceof ApiError&&e.code==='DUPLICATE_DOCUMENT'?(e.details as {claim?:Claim|null;document_id?:string}|undefined):undefined;
+   if(owner?.claim&&!owner.claim.mine)await new GenerationClaims(this.authoring.library.owner).localBookRefused(row.id,owner.document_id,owner.claim);
+   row.state=e instanceof ApiError&&e.code!=='TRANSFER_OFFSET'&&[400,403,404,409].includes(e.status)?'conflict':'pending';row.error=e instanceof Error?e.message:String(e);await this.save(row);}
   return row;
  }
  async clearTransfer(id:string){

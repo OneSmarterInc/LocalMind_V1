@@ -1,6 +1,9 @@
 import { removeBook, archiveBook, unarchiveBook } from "@/documents/remove";
 import { useBackTo } from "@/hooks/useBackTo";
 import {prepareAutomatically,preparation,clearFailure,type PreparationMap} from '@/authoring/automatic';
+import {isClaimedElsewhere} from '@/authoring/claims';
+import {failureReason,reasonForStatus} from '@/authoring/reasons';
+import {GenerationClaimNotice} from '@/authoring/GenerationClaimNotice';
 import {controlKey,generateNow,isHeld,pauseModule,setHeld,useBookControls} from '@/authoring/bookControl';
 import {generationJobs} from '@/private/jobs';
 import {jobScope,useGenerationJobs} from '@/private/useGenerationJobs';
@@ -32,6 +35,13 @@ type Selection = { ci: number; mi: number | null };
 
 type DocTab = "outline" | "pictures" | "lessons" | "publish" | "live";
 
+/** Opens a quiz from this book. Its "Back to quizzes" button returns to the
+ * Quizzes section. */
+function useOpenQuiz() {
+  const router = useRouter();
+  return (quizId: string) => { router.push({ pathname: "/manage/quiz/[id]", params: { id: quizId } }); };
+}
+
 export default function DocumentScreen() {
   const { id, tab: tabParam, module: moduleParam } = useLocalSearchParams<{ id: string; tab?: DocTab; module?: string }>();
   const router = useRouter();
@@ -40,7 +50,7 @@ export default function DocumentScreen() {
   const owner=user?.id;
   const authoring=useMemo(()=>owner?new LocalAuthoring(owner):null,[owner]);
   const [prepareError,setPrepareError]=useState("");
-  const { height } = useWindowDimensions();
+  const { height, width } = useWindowDimensions();
   const [tabChoice, setTabChoice] = useState<DocTab | null>(tabParam ?? null);
   useEffect(() => { setTabChoice(tabParam && ["outline", "pictures", "lessons", "publish", "live"].includes(tabParam) ? tabParam : null); }, [id, tabParam]);
   const [preview, setPreview] = useState<{ id: string; title: string; quizStatus: string; quizId: string | null } | null>(null);
@@ -60,7 +70,8 @@ export default function DocumentScreen() {
     // unpreparable module. The token already changes when the book's content
     // version does, so genuine new work still starts on its own; anything else
     // is a deliberate retry from the module itself.
-    void prepareAutomatically(authoring,d).catch(e=>{setPrepareError(errorMessage(e));});
+    // "Already started on another device" is shown by GenerationClaimNotice, with a take-over action.
+    void prepareAutomatically(authoring,d).catch(e=>{if(!isClaimedElsewhere(e))setPrepareError(errorMessage(e));});
   },[authoring,d,modelInstalled,owner]);
 
   useEffect(()=>{let live=true;if(!authoring||!sourceChapters)return;
@@ -163,7 +174,7 @@ export default function DocumentScreen() {
   if (!editable) {
     return (
       <Screen refreshing={doc.loading} onRefresh={doc.reload}>
-        {prepareError?<Notice inline tone="warning" title="Source preparation needs attention" message={prepareError}/>:null}{jobNotice}<ErrorBanner message={retryJob.error}/>
+        {authoring&&d?<GenerationClaimNotice documentId={d.id} onTakenOver={()=>{void prepareAutomatically(authoring,d).catch(e=>{if(!isClaimedElsewhere(e))setPrepareError(errorMessage(e));});}}/>:null}{prepareError?<Notice inline tone="warning" title="Source preparation needs attention" message={prepareError}/>:null}{jobNotice}<ErrorBanner message={retryJob.error}/>
         <ErrorBanner message={doc.error} onRetry={doc.reload} />
         {doc.loading && !d ? <Loading /> : null}
         {d ? (
@@ -276,6 +287,8 @@ export default function DocumentScreen() {
     <Screen>
       {jobNotice}<ErrorBanner message={retryJob.error}/>
       <PageHeading eyebrow="BOOKS & MODULES" title={d!.title} subtitle={subtitle} right={<Row style={{ gap: 8, alignItems: "center" }}>{backToBooks}{statusBadge}</Row>} />
+      {authoring?<GenerationClaimNotice documentId={d!.id} onTakenOver={()=>{void prepareAutomatically(authoring,d!).catch(e=>{if(!isClaimedElsewhere(e))setPrepareError(errorMessage(e));});}}/>:null}
+      {prepareError?<Notice inline tone="warning" title="Source preparation needs attention" message={prepareError}/>:null}
       {!live ? stepper(tab === "publish" ? 2 : 1) : null}
       <ErrorBanner message={tabError ?? doc.error ?? act.error ?? remove.error} onRetry={doc.error ? doc.reload : undefined} />
       <PageTabs<DocTab> value={tab} onChange={setTab} tabs={[
@@ -288,7 +301,7 @@ export default function DocumentScreen() {
       {tab === "outline" ? (
         <>
           {d.outline_quality?.source_sections ? <Notice title={`${d.outline_quality.covered_sections} of ${d.outline_quality.source_sections} extracted sections accounted for`} message={[d.outline_quality.coverage_note,...(d.outline_quality.warnings||[])].filter(Boolean).join(' ')} tone={d.outline_quality.warnings?.length ? 'warning' : 'info'} /> : null}
-          <Notice title="One module at a time." message="Choose a module on the left. Edit its title and source on the right. Save explicitly before leaving." />
+          <Notice title="One module at a time." message={width >= 900 ? "Choose a module on the left. Edit its title and source on the right. Save explicitly before leaving." : "Choose a module, then edit its title and source. Save explicitly before leaving."} />
           {missingSource ? <Notice inline tone="warning" title="Modules without text" message={`${missingSource} module${missingSource === 1 ? " has" : "s have"} no source text but ${missingSource === 1 ? "is" : "are"} kept because a quiz, an assignment or student work refers to ${missingSource === 1 ? "it" : "them"}. Students do not see ${missingSource === 1 ? "it" : "them"}. Paste text to bring ${missingSource === 1 ? "it" : "them"} back.`} /> : null}
           {live ? <Notice inline tone="warning" title="This book is live." message="Saved changes reach enrolled students immediately, and a module a student has already worked through cannot be removed." /> : null}
           <View onLayout={(e) => setEditorTop(e.nativeEvent.layout.y)} style={{ height: editorHeight, borderWidth: 1, borderColor: colors.border, borderRadius: 13, overflow: "hidden", backgroundColor: "#FFFFFF" }}>
@@ -308,7 +321,7 @@ const STAGES = [
   { key: "outline", title: "Outline planned", text: "Creating a clear learning structure." },
   { key: "structure", title: "Modules created", text: "Ready for your review after processing." },
 ];
-const STAGE_LABEL: Record<string, string> = { queued: "Waiting for the parser", reading: "Reading the file", outline: "Planning the outline", structure: "Creating chapters and modules" };
+const STAGE_LABEL: Record<string, string> = { queued: "Waiting to start reading…", reading: "Reading the file…", outline: "Planning the outline…", structure: "Creating chapters and modules…" };
 
 function ProcessingCard({ doc, onOpen }: { doc: Document; onOpen: () => void }) {
   const p = doc.progress;
@@ -319,7 +332,7 @@ function ProcessingCard({ doc, onOpen }: { doc: Document; onOpen: () => void }) 
   const current = Math.max(0, STAGES.findIndex((st) => st.key === p?.stage));
   return (
     <Card>
-      <CardHead title={p ? STAGE_LABEL[p.stage] ?? "Processing" : "Starting"} action={p ? <Badge value={`Step ${p.step} of ${p.total_steps}`} tone="blue" /> : null} />
+      <CardHead title={p ? STAGE_LABEL[p.stage] ?? "Processing…" : "Starting…"} action={p ? <Badge value={`Step ${p.step} of ${p.total_steps}`} tone="blue" /> : null} />
       <ProgressBar value={p?.percent ?? 0} />
       <Text style={{ fontSize: 12, color: colors.muted }}>{p?.detail || "The page updates on its own; you can leave and come back."}</Text>
       {STAGES.map((st, i) => (
@@ -343,6 +356,7 @@ type ModuleRow = OutlineModule & { chapter: string; number: number };
 type Preview = { id: string; title: string; quizStatus: string; quizId: string | null };
 
 function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsBusy, onQueueQuizzes, quizzesBusy, onRetryQuiz, retryBusy, error, onPreview }: { automatic: PreparationMap; modelInstalled:boolean; doc: Document; onQueueLessons: () => void; lessonsBusy: boolean; onQueueQuizzes: () => void; quizzesBusy: boolean; onRetryQuiz: (moduleId: string) => void; retryBusy: boolean; error: string | null; onPreview: (p: Preview) => void }) {
+  const openQuiz = useOpenQuiz();
   const router = useRouter();
   const {user}=useAuth(),owner=user?.id;
   const service=useMemo(()=>owner?new LocalAuthoring(owner):null,[owner]);
@@ -360,10 +374,13 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
   const jobs=useGenerationJobs(prefix);
   const bookRunning=jobs.some(j=>(j.documentId===doc.id||j.bookId===doc.id)&&j.kind==='staff-auto'&&['queued','running'].includes(j.state));
   const running=controls.running;
-  const start=useCallback(async()=>{if(!service)return;if(await isHeld(prefix,doc.id))await setHeld(prefix,doc.id,false);setHeldState(false);await prepareAutomatically(service,doc);},[service,prefix,doc]);
+  const start=useCallback(async()=>{if(!service)return false;if(await isHeld(prefix,doc.id))await setHeld(prefix,doc.id,false);setHeldState(false);
+    // Another device of this login owns the book: the claim notice at the top says so and offers Take over.
+    try{return await prepareAutomatically(service,doc);}catch(e){if(isClaimedElsewhere(e)){showToast({tone:"warning",title:"Generation already started on another device",message:"See the notice at the top of this page to continue here."});return false;}throw e;}
+  },[service,prefix,doc]);
   const genNow=useAction(async(id:string)=>{if(!service)return;await clearFailure(service,doc,id);generateNow(ctlKey,id);await start();});
   const pauseAll=useAction(async()=>{await setHeld(prefix,doc.id,true);setHeldState(true);await generationJobs.cancelDocument(scope,doc.id);showToast({tone:"info",title:"Generation paused",message:"Everything finished so far is saved. Resume continues from each module's saved point."});});
-  const resumeAll=useAction(async()=>{await start();showToast({tone:"success",title:"Generation resumed",message:"Each module continues from its saved point."});});
+  const resumeAll=useAction(async()=>{if(await start())showToast({tone:"success",title:"Generation resumed",message:"Each module continues from its saved point."});});
   const rowState=(m:ModuleRow):'running'|'paused'|'queued'|'failed'|null=>{
     if(!teachableRows(m))return null;
     const a=automatic[m.id!];const kinds=[a?.lesson,a?.quiz];
@@ -399,9 +416,11 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
   };
   const columns: Column<ModuleRow>[] = [
     { key: "m", label: "Module", flex: 1.9, render: (m) => <CellText title={m.title} sub={`Module ${m.number}`} /> },
-    { key: "l", label: "Lesson", flex: 0.8, render: (m) => <Badge value={status(m,"lesson")} tone={/^(Ready|Synchronized)/.test(status(m,"lesson"))?"green":"neutral"} /> },
-    { key: "q", label: "Quiz", flex: 0.9, render: (m) => <Badge value={status(m,"quiz")} tone={/^(Ready|Synchronized)/.test(status(m,"quiz"))?"green":m.quiz_status==="failed_final"?"red":"neutral"} /> },
-    { key: "draft", label: "Saved work", flex: 1.1, render: (m) => {const d=local(m.id!);return <CellText title={d?.lesson?"Lesson draft saved":"No lesson draft"} sub={automatic[m.id!]?.error||(d?.questions?`${d.questions.length} quiz questions saved`:"No quiz draft")}/>;} },
+    // Every skipped or failed badge says why, so a module without a lesson
+    // reads as explained rather than broken.
+    { key: "l", label: "Lesson", flex: 0.8, render: (m) => <StatusWithReason value={status(m,"lesson")} error={automatic[m.id!]?.error} tone={/^(Ready|Synchronized)/.test(status(m,"lesson"))?"green":"neutral"} /> },
+    { key: "q", label: "Quiz", flex: 0.9, render: (m) => <StatusWithReason value={status(m,"quiz")} error={automatic[m.id!]?.error} tone={/^(Ready|Synchronized)/.test(status(m,"quiz"))?"green":m.quiz_status==="failed_final"?"red":"neutral"} /> },
+    { key: "draft", label: "Saved work", flex: 1.1, render: (m) => {const d=local(m.id!);const err=automatic[m.id!]?.error;return <CellText title={d?.lesson?"Lesson draft saved":"No lesson draft"} sub={err?failureReason(err).short:(d?.questions?`${d.questions.length} quiz questions saved`:"No quiz draft")}/>;} },
     // A row can carry up to five buttons (Generate now, Pause, Open module,
     // Preview lesson, Review or Retry quiz). Without flexWrap they sat on one
     // line, made the row wider than the card and put the whole table behind a
@@ -415,9 +434,9 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
           return <><Button title="Generate now" small icon="play-outline" busy={genNow.busy} accessibilityLabel={`Generate ${m.title} now`} onPress={()=>genNow.run(m.id!)} /><Button title="Pause" small variant="secondary" icon="pause-outline" accessibilityLabel={`Pause ${m.title}`} onPress={()=>pauseModule(ctlKey,m.id!)} /></>;
         })()}
         <Button title="Open module" small variant="secondary" onPress={()=>router.push(`/manage/local-authoring/${local(m.id!)?.snapshot.module_id||m.id}`)}/>
-        <Button title="Preview" small variant="secondary" disabled={m.lesson_status === "none"} accessibilityLabel={`Preview the lesson for ${m.title}`} onPress={() => onPreview({ id: m.id!, title: m.title, quizStatus: m.quiz_status ?? "off", quizId: m.auto_quiz_id ?? null })} />
+        <Button title="Preview" small variant="secondary" disabled={m.lesson_status === "none"} accessibilityLabel={m.lesson_status === "none" ? `Preview unavailable: ${m.title} has no lesson yet${reasonForStatus(status(m,"lesson"))?`. ${reasonForStatus(status(m,"lesson"))!.short}`:""}` : `Preview the lesson for ${m.title}`} onPress={() => onPreview({ id: m.id!, title: m.title, quizStatus: m.quiz_status ?? "off", quizId: m.auto_quiz_id ?? null })} />
         {m.quiz_status === "held" && m.auto_quiz_id
-          ? <Button title="Review quiz" small variant="secondary" onPress={() => router.push(`/manage/quiz/${m.auto_quiz_id}`)} />
+          ? <Button title="Review quiz" small variant="secondary" onPress={() => openQuiz(m.auto_quiz_id!)} />
           : null}
         {/* A quiz that exhausted its retries has no way back without this. */}
         {m.quiz_status === "failed_final"
@@ -428,7 +447,7 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
   ];
   const heldCount = a?.enabled ? a.held ?? 0 : 0;
   // Count what the table below actually shows. A device draft moves through
-  // "Ready for review", then "Awaiting synchronization", then "Synchronized";
+  // "Ready for review", then "Waiting to synchronize", then "Synchronized";
   // doc.lessons.ready only counts the last stage, so a book full of drafts
   // waiting for the reviewer read "0 of 41 ready" even though every row was
   // prepared. Count lessons that are prepared on this device (any stage past
@@ -437,7 +456,7 @@ function ReadinessTab({ automatic, modelInstalled, doc, onQueueLessons, lessonsB
   const teachable = modules.filter(teachableRows);
   const preparedLocally = teachable.filter((m) => {
     const st = lessonState(m);
-    return st === "Ready for review" || st === "Awaiting synchronization" || st.startsWith("Synchronized") || st === "Ready";
+    return st === "Ready for review" || st === "Waiting to synchronize" || st.startsWith("Synchronized") || st === "Ready";
   }).length;
   const syncedLessons = l?.ready ?? 0;
   const ready = Math.max(preparedLocally, syncedLessons);
@@ -821,7 +840,7 @@ function OutlineWorkspace({ documentId, published, onSaved, onState, lessonStatu
       {saving ? (
         // Editing waits for the save: the server assigns ids to new chapters and modules, so edits typed
         // meanwhile could not be matched to what was saved.
-        <View style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, backgroundColor: "rgba(255,255,255,0.55)", alignItems: "center", justifyContent: "center" }} accessibilityRole="progressbar" accessibilityLabel="Saving the outline">
+        <View style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, backgroundColor: "rgba(255,255,255,0.55)", alignItems: "center", justifyContent: "center" }} accessibilityRole="progressbar" accessibilityLabel="Saving the outline…">
           <Text style={{ fontSize: 13, fontWeight: "600", color: colors.ink }}>Saving the outline…</Text>
         </View>
       ) : null}
@@ -875,6 +894,7 @@ function OutlineTree({ chapters, selection, outlineSource, onSelect, onCollapse,
         style={[{ flex: 1, minHeight: 0 }, Platform.OS === "web" && ({ overflowY: "auto" } as object)]}
         contentContainerStyle={{ paddingHorizontal: 8, paddingBottom: space.xl }}
         keyboardShouldPersistTaps="handled"
+        nestedScrollEnabled
       >
         {needle && rows.length === 0 ? <Empty text="Nothing in this outline matches that." icon="search-outline" /> : null}
         {rows.map(({ chapter: ch, index: ci, modules }) => (
@@ -929,7 +949,7 @@ function ModulePane({ number, module: m, index, count, onChange, onMove, onRemov
   const heading = headings.find((h) => h.index === m.source_heading_index);
   const pages = heading?.start_page ? `Source pages ${heading.start_page}${heading.end_page && heading.end_page !== heading.start_page ? `–${heading.end_page}` : ""}` : "Source pages not recorded";
   return (
-    <ScrollView style={[{ flex: 1, minHeight: 0 }, Platform.OS === "web" && ({ overflowY: "auto" } as object)]} contentContainerStyle={{ gap: 14, paddingBottom: 12 }} keyboardShouldPersistTaps="handled">
+    <ScrollView style={[{ flex: 1, minHeight: 0 }, Platform.OS === "web" && ({ overflowY: "auto" } as object)]} contentContainerStyle={{ gap: 14, paddingBottom: 12 }} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
       <Row style={{ justifyContent: "space-between" }}>
         {onBack ? <Button title="Outline" icon="chevron-back" small variant="ghost" onPress={onBack} /> : null}
         <Text style={{ fontSize: 10, fontWeight: "700", letterSpacing: 1.8, color: colors.muted }}>MODULE {String(number).padStart(2, "0")}</Text>
@@ -996,7 +1016,7 @@ function LessonMark({ status }: { status?: LessonStatus }) {
  *  section, so a "generating" message never has to live next to the source text. */
 function LessonStatusBanner({ status }: { status: LessonStatus }) {
   const map: Partial<Record<LessonStatus, { icon: IconName; color: string; text: string }>> = {
-    generating: { icon: "sync-outline", color: colors.accent, text: "Generating the lesson for this module…" },
+    generating: { icon: "sync-outline", color: colors.accent, text: "Writing the lesson for this module…" },
     pending: { icon: "time-outline", color: colors.muted, text: "Lesson queued — it will be written in turn with the other modules." },
     ready: { icon: "checkmark-circle-outline", color: colors.success, text: "Lesson ready. Preview it from Lessons & quizzes." },
     failed: { icon: "alert-circle-outline", color: colors.warning, text: "Lesson generation failed. It is retried automatically, or regenerate it from Lessons & quizzes." },
@@ -1068,6 +1088,7 @@ function ModuleLessonPanel({ moduleId, textEdited }: { moduleId: string; textEdi
 
 /** The module's automatic quiz: open it, or have it written again. */
 function AutoQuizControls({ moduleId, status, quizId }: { moduleId: string; status: string; quizId: string | null }) {
+  const openQuiz = useOpenQuiz();
   const router = useRouter();
   const shown = status;
   const again = useAction(async () => { router.push(`/manage/local-authoring/${moduleId}`); });
@@ -1077,7 +1098,7 @@ function AutoQuizControls({ moduleId, status, quizId }: { moduleId: string; stat
   return (
     <View style={{ gap: 4 }}>
       <Row>
-        {quizId && (shown === "ready" || shown === "held") ? <Button title={shown === "held" ? "Review quiz" : "Open quiz"} icon="open-outline" small variant="secondary" onPress={() => router.push(`/manage/quiz/${quizId}`)} /> : null}
+        {quizId && (shown === "ready" || shown === "held") ? <Button title={shown === "held" ? "Review quiz" : "Open quiz"} icon="open-outline" small variant="secondary" onPress={() => openQuiz(quizId)} /> : null}
         {!busy ? <Button title={label} icon="refresh-outline" small variant="ghost" onPress={() => again.run()} busy={again.busy} /> : null}
         <Text style={[ws.hint, { flex: 1 }]}>
           {shown === "checking" ? "Written; the AI monitor is checking it before students can see it." :
@@ -1110,6 +1131,7 @@ function ChapterPane({ chapter, index, count, onChange, onMove, onRemove, onAddM
       style={[{ flex: 1, minHeight: 0 }, Platform.OS === "web" && ({ overflowY: "auto" } as object)]}
       contentContainerStyle={{ gap: space.md, paddingBottom: space.lg }}
       keyboardShouldPersistTaps="handled"
+      nestedScrollEnabled
     >
       <Row>
         {onBack ? <Button title="Outline" icon="chevron-back" small variant="ghost" onPress={onBack} /> : null}
@@ -1272,6 +1294,17 @@ function ModuleSourceVisualsPanel({ moduleId }: { moduleId: string }) {
       {!q.loading && !q.error && !visuals.length
         ? <Text style={{ fontSize: 11.5, color: colors.muted }}>No picture was extracted for these pages. Page banners, watermarks, navigation codes and blocks of equations are left out on purpose; the Pictures tab lists everything the book produced.</Text>
         : <SourceFigures visuals={visuals} />}
+    </View>
+  );
+}
+
+/** A status badge with its reason underneath when the module was skipped or failed. */
+function StatusWithReason({ value, tone, error }: { value: string; tone: "green" | "neutral" | "red"; error?: string }) {
+  const why = reasonForStatus(value, error);
+  return (
+    <View style={{ gap: 4, minWidth: 0, alignItems: "flex-start" }}>
+      <Badge value={value} tone={why && why.kind === "failed" ? "red" : tone} />
+      {why ? <Text style={{ fontSize: 11, lineHeight: 15, color: colors.muted }} numberOfLines={3}>{why.short}</Text> : null}
     </View>
   );
 }

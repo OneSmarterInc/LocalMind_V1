@@ -1,0 +1,6 @@
+{
+  "name": "localmind-background",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Keeps LocalMind's on-device generation running while the person uses other apps (Android foreground service, iOS 26 continued processing)."
+}

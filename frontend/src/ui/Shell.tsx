@@ -2,7 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import type { BottomTabBarProps, BottomTabHeaderProps, BottomTabNavigationOptions } from "@react-navigation/bottom-tabs";
 import { usePathname, useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
-import { Modal, Platform, Pressable, PressableStateCallbackType, ScrollView, StyleSheet, Text, TouchableWithoutFeedback, View, useWindowDimensions } from "react-native";
+import { Image, Modal, Platform, Pressable, PressableStateCallbackType, ScrollView, StyleSheet, Text, TouchableWithoutFeedback, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/auth/AuthContext";
 import { useBackTo } from "@/hooks/useBackTo";
@@ -11,6 +11,7 @@ import { useOnline } from "@/offline/connectivity";
 import { Avatar, SIDEBAR_WIDTH } from "./index";
 import { forgetSection, recallSection, rememberSection } from "./sectionMemory";
 import { bp, colors } from "./theme";
+import { useKeyboardOpen } from "./keyboardInset";
 
 export type IconName = keyof typeof Ionicons.glyphMap;
 type PressState = PressableStateCallbackType & { hovered?: boolean };
@@ -78,16 +79,15 @@ export type PortalMeta = {
 /* Brand                                                               */
 /* ------------------------------------------------------------------ */
 
+// The LocalMind mark (assets/images/brand-mark.png, cut from the app icon with
+// a transparent background so it sits on any page colour).
+const BRAND_MARK = require("../../assets/images/brand-mark.png");
+
 export function Brand({ size = 23 }: { size?: number }) {
-  const cell = Math.round(size * 0.62);
+  const mark = Math.round(size * 1.45);
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }} accessibilityLabel="LocalMind">
-      <View style={{ width: cell * 2 + 3, flexDirection: "row", flexWrap: "wrap", gap: 3, transform: [{ rotate: "-6deg" }] }}>
-        <View style={[s.markCell, { width: cell, height: cell, backgroundColor: colors.primary }]} />
-        <View style={[s.markCell, { width: cell, height: cell, backgroundColor: "#79A289", borderTopRightRadius: 10 }]} />
-        <View style={[s.markCell, { width: cell, height: cell, backgroundColor: "#ADC4A8" }]} />
-        <View style={[s.markCell, { width: cell, height: cell, backgroundColor: colors.primary }]} />
-      </View>
+      <Image source={BRAND_MARK} style={{ width: mark, height: mark }} resizeMode="contain" accessibilityIgnoresInvertColors />
       <Text style={{ fontSize: size, letterSpacing: -0.8, color: colors.ink, fontWeight: "700" }}>Localmind<Text style={{ color: "#8DAB91" }}>.</Text></Text>
     </View>
   );
@@ -121,13 +121,73 @@ const routeTitle = (o: BottomTabNavigationOptions, fallback: string) => (typeof 
 export function ShellTabBar(props: BottomTabBarProps & { meta: PortalMeta }) {
   const { width } = useWindowDimensions();
   const open = useNavDrawer();
-  if (width >= bp.desktop) return <Sidebar {...props} />;
-  if (!open) return <View style={{ height: 0 }} />;
-  return (
+  if (width >= bp.desktop) return <><Sidebar {...props} /><HelpHost meta={props.meta} /></>;
+  const drawer = open ? (
     <Modal transparent animationType="fade" visible onRequestClose={closeNav}>
       <TouchableWithoutFeedback onPress={closeNav} accessibilityLabel="Close navigation"><View style={s.scrim} /></TouchableWithoutFeedback>
       <View style={s.drawer}><Sidebar {...props} onNavigate={closeNav} /></View>
     </Modal>
+  ) : null;
+  // Phones: the first four sections sit in a bottom bar, one tap away; "More"
+  // opens the full menu. Tablets keep the menu button only.
+  if (width < bp.tablet) return <>{drawer}<BottomBar {...props} /><HelpHost meta={props.meta} /></>;
+  return <>{drawer ?? <View style={{ height: 0 }} />}<HelpHost meta={props.meta} /></>;
+}
+
+const SHORT: Record<string, string> = { "Books & modules": "Books", "My subjects": "Subjects", "My progress": "Progress", "AI monitoring": "Monitoring" };
+
+/** Press handler shared by the sidebar and the bottom bar. */
+function usePressSection({ state, descriptors, navigation, meta }: BottomTabBarProps & { meta: PortalMeta }) {
+  const active = state.routes[state.index];
+  const current = active?.name;
+  const section = (descriptors[active?.key]?.options as { section?: string } | undefined)?.section;
+  const isFocused = (name: string) => current === name || section === name;
+  const press = (route: BottomTabBarProps["state"]["routes"][number], after?: () => void) => {
+    const focused = isFocused(route.name);
+    const e = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
+    if (e.defaultPrevented) return;
+    const saved = focused ? undefined : recallSection(meta.homePath, route.name);
+    if (focused) forgetSection(meta.homePath, route.name);
+    void confirmLeave().then((ok) => {
+      if (!ok) return;
+      if (saved) navigation.navigate(saved.name, saved.params);
+      else navigation.navigate(route.name, route.params);
+    });
+    after?.();
+  };
+  return { press, isFocused, current };
+}
+
+function BottomBar(props: BottomTabBarProps & { meta: PortalMeta }) {
+  const insets = useSafeAreaInsets();
+  const keyboard = useKeyboardOpen();
+  const { press, isFocused } = usePressSection(props);
+  const drawerOpen = useNavDrawer();
+  if (keyboard) return null;
+  const main = visibleRoutes(props).filter((r) => r.name !== "profile");
+  const first = main.slice(0, 4);
+  const inFirst = first.some((r) => isFocused(r.name));
+  const item = (key: string, label: string, focused: boolean, onPress: () => void, icon: React.ReactNode) => (
+    <Pressable key={key} onPress={onPress} accessibilityRole="tab" accessibilityLabel={label} accessibilityState={{ selected: focused }} style={{ flex: 1 }}>
+      {({ pressed }) => (
+        <View style={[s.bbItem, pressed && { opacity: 0.7 }]}>
+          <View style={[s.bbPill, focused && { backgroundColor: colors.pale }]}>{icon}</View>
+          <Text style={{ fontSize: 11, color: focused ? colors.primary : colors.muted, fontWeight: focused ? "600" : "400" }} numberOfLines={1}>{label}</Text>
+        </View>
+      )}
+    </Pressable>
+  );
+  return (
+    <View style={[s.bottomBar, { paddingBottom: Math.max(insets.bottom, 6), height: 60 + Math.max(insets.bottom, 6) }]} accessibilityRole="tablist">
+      {first.map((route) => {
+        const o = props.descriptors[route.key].options;
+        const focused = isFocused(route.name);
+        const c = focused ? colors.primary : colors.muted;
+        const title = routeTitle(o, route.name);
+        return item(route.key, SHORT[title] ?? title, focused, () => press(route), o.tabBarIcon ? o.tabBarIcon({ focused, color: c, size: 21 }) : null);
+      })}
+      {item("more", "More", drawerOpen || !inFirst, openNav, <Ionicons name="grid-outline" size={21} color={drawerOpen || !inFirst ? colors.primary : colors.muted} />)}
+    </View>
   );
 }
 
@@ -145,6 +205,7 @@ function Sidebar({ state, descriptors, navigation, meta, onNavigate }: BottomTab
     if (section && current) rememberSection(meta.homePath, section, current, activeParams);
   }, [meta.homePath, section, current, activeParams]);
   const main = routes.filter((r) => r.name !== "profile");
+  const sectionPress = usePressSection({ state, descriptors, navigation, meta } as BottomTabBarProps & { meta: PortalMeta });
   const pathname = usePathname();
   const go = async (path: string) => { if (isCurrentPage(path, pathname)) { onNavigate?.(); return; } if (!(await confirmLeave())) return; onNavigate?.(); router.push(path as never); };
   return (
@@ -156,22 +217,10 @@ function Sidebar({ state, descriptors, navigation, meta, onNavigate }: BottomTab
         {main.map((route) => {
           const o = descriptors[route.key].options;
           const focused = current === route.name || section === route.name;
-          const onPress = () => {
-            const e = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
-            if (e.defaultPrevented) return;
-            // Already inside this section: pressing it again means "back to the
-            // list", the same as pressing an active tab anywhere else. Coming
-            // from another section reopens the page that was left behind.
-            const saved = focused ? undefined : recallSection(meta.homePath, route.name);
-            if (focused) forgetSection(meta.homePath, route.name);
-            // Unsaved work asks Save / Discard / Stay before the sidebar leaves the page.
-            void confirmLeave().then((ok) => {
-              if (!ok) return;
-              if (saved) navigation.navigate(saved.name, saved.params);
-              else navigation.navigate(route.name, route.params);
-            });
-            onNavigate?.();
-          };
+          // Already inside this section: pressing it again means "back to the
+          // list". Coming from another section reopens the page left behind.
+          // Unsaved work asks Save / Discard / Stay before leaving the page.
+          const onPress = () => sectionPress.press(route, onNavigate);
           return <NavItem key={route.key} label={routeTitle(o, route.name)} icon={o.tabBarIcon} focused={focused} onPress={onPress} />;
         })}
       </View>
@@ -199,7 +248,7 @@ function NavItem({ label, icon, iconName, focused, onPress }: { label: string; i
       {(st: PressState) => {
         const c = focused ? colors.primaryDark : st.hovered ? colors.ink : "#66746B";
         return (
-          <View style={[s.navItem, st.hovered && !focused && { backgroundColor: "#F3F6F2" }, focused && s.navItemOn]}>
+          <View style={[s.navItem, (st.hovered || st.pressed) && !focused && { backgroundColor: "#EEF3EC" }, focused && s.navItemOn]}>
             {icon ? icon({ focused, color: c, size: 20 }) : iconName ? <Ionicons name={iconName} size={20} color={c} /> : null}
             <Text style={{ color: c, fontSize: 13, fontWeight: focused ? "600" : "400" }}>{label}</Text>
           </View>
@@ -214,12 +263,15 @@ function NavItem({ label, icon, iconName, focused, onPress }: { label: string; i
 /* ------------------------------------------------------------------ */
 
 function Sheet({ visible, title, onClose, children, width = 520 }: { visible: boolean; title: string; onClose: () => void; children: React.ReactNode; width?: number }) {
-  const { height } = useWindowDimensions();
+  const { height, width: screenWidth } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  // Phones: slides up from the bottom, within thumb reach.
+  const bottom = Platform.OS !== "web" && screenWidth < bp.tablet;
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType={bottom ? "slide" : "fade"} onRequestClose={onClose}>
       <TouchableWithoutFeedback onPress={onClose}><View style={s.overlay} /></TouchableWithoutFeedback>
-      <View style={[s.sheetWrap, { pointerEvents: "box-none" }]}>
-        <View style={[s.sheet, { maxWidth: width, maxHeight: height - 32 }]} accessibilityRole="none" accessibilityViewIsModal>
+      <View style={[s.sheetWrap, bottom && { justifyContent: "flex-end", padding: 0 }, { pointerEvents: "box-none" }]}>
+        <View style={[s.sheet, { maxWidth: width, maxHeight: height - 32 }, bottom && { maxWidth: undefined, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, paddingBottom: 20 + insets.bottom }]} accessibilityRole="none" accessibilityViewIsModal>
           <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 16 }}>
             <Text style={{ flex: 1, fontSize: 18, fontWeight: "600", color: colors.ink }} accessibilityRole="header">{title}</Text>
             <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close" hitSlop={8}><Ionicons name="close" size={20} color={colors.muted} /></Pressable>
@@ -260,16 +312,14 @@ function HelpDialog({ visible, steps, onClose, onGo }: { visible: boolean; steps
 export function ShellHeader({ route, options, meta }: BottomTabHeaderProps & { meta: PortalMeta }) {
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const router = useRouter();
   const online = useOnline();
   const back = useBackTo();
   const desktop = width >= bp.desktop;
   const narrow = width < bp.tablet;
-  const help = useHelpOpen();
   const extras = options as ShellExtras;
 
   return (
-    <View style={[s.topbar, { paddingTop: insets.top, height: 76 + insets.top, paddingHorizontal: narrow ? 14 : 28 }]}>
+    <View style={[s.topbar, { paddingTop: insets.top, height: (narrow ? 56 : 76) + insets.top, paddingHorizontal: narrow ? 14 : 28 }]}>
       {!desktop ? (
         <Pressable onPress={openNav} accessibilityRole="button" accessibilityLabel="Open navigation menu" style={s.iconBtn}>
           <Ionicons name="menu" size={19} color={colors.ink} />
@@ -294,10 +344,24 @@ export function ShellHeader({ route, options, meta }: BottomTabHeaderProps & { m
           <Text style={{ fontSize: 11, color: colors.muted }}>{online ? "Connected" : "Server unavailable"}</Text>
         </View>
       ) : null}
-      <UserMenu compact={narrow} profilePath={meta.profilePath} />
-      <HelpDialog visible={help} steps={meta.help} onClose={closeHelp} onGo={(p) => { closeHelp(); void confirmLeave().then((ok) => { if (ok) router.push(p as never); }); }} />
+      <View>
+        <UserMenu compact={narrow} profilePath={meta.profilePath} />
+        {narrow ? <View style={[s.avatarDot, !online && { backgroundColor: colors.warning }]} accessibilityLabel={online ? "Connected" : "Server unavailable"} /> : null}
+      </View>
     </View>
   );
+}
+
+/**
+ * "Your first three steps", mounted once per portal (from ShellTabBar). It used
+ * to live in ShellHeader, but every tab the person has visited stays mounted
+ * with its own header, so one "Open guide" opened one sheet per visited tab,
+ * stacked on top of each other.
+ */
+function HelpHost({ meta }: { meta: PortalMeta }) {
+  const router = useRouter();
+  const help = useHelpOpen();
+  return <HelpDialog visible={help} steps={meta.help} onClose={closeHelp} onGo={(p) => { closeHelp(); void confirmLeave().then((ok) => { if (ok) router.push(p as never); }); }} />;
 }
 
 export function UserMenu({ compact, profilePath }: { compact?: boolean; profilePath: string }) {
@@ -338,7 +402,7 @@ function MenuLink({ icon, label, onPress, danger }: { icon: IconName; label: str
   return (
     <Pressable onPress={onPress} accessibilityRole="button">
       {(st: PressState) => (
-        <View style={[s.menuLink, st.hovered && { backgroundColor: danger ? "#FFF6F4" : "#F4F7F1" }]}>
+        <View style={[s.menuLink, (st.hovered || st.pressed) && { backgroundColor: danger ? "#FFF0EE" : "#EEF3EC" }]}>
           <Ionicons name={icon} size={17} color={c} />
           <Text style={{ color: c, fontSize: 13, fontWeight: "600", flex: 1 }}>{label}</Text>
           {!danger ? <Ionicons name="chevron-forward" size={14} color={colors.muted} /> : null}
@@ -368,7 +432,6 @@ export function useShell(meta: PortalMeta) {
 }
 
 const s = StyleSheet.create({
-  markCell: { borderRadius: 3 },
   sidebar: { width: SIDEBAR_WIDTH, backgroundColor: colors.sidebar, borderRightWidth: 1, borderRightColor: colors.border, flexGrow: 0 },
   sidebarInner: { paddingHorizontal: 13, paddingBottom: 20, flexGrow: 1 },
   portalLabel: { marginHorizontal: 11, marginBottom: 26, flexDirection: "row", alignItems: "center", gap: 8 },
@@ -389,5 +452,9 @@ const s = StyleSheet.create({
   crumbText: { fontSize: 12, color: colors.text, flexShrink: 1 },
   status: { flexDirection: "row", alignItems: "center", gap: 6 },
   statusDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#41835A" },
+  avatarDot: { position: "absolute", right: -1, bottom: -1, width: 11, height: 11, borderRadius: 6, borderWidth: 2, borderColor: "#FFFFFF", backgroundColor: "#41835A" },
+  bottomBar: { flexDirection: "row", backgroundColor: "#FFFFFF", borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 6, paddingHorizontal: 4 },
+  bbItem: { alignItems: "center", gap: 3, paddingVertical: 2 },
+  bbPill: { width: 56, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center" },
   menuLink: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 9, borderWidth: 1, borderColor: colors.border },
 });

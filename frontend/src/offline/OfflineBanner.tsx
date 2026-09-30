@@ -1,10 +1,10 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
-import React, { createContext, useContext } from "react";
+import React, { createContext, useContext, useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { confirmLeave } from "@/hooks/unsavedGuard";
 import { colors, tones } from "@/ui/theme";
-import { useOnline } from "./connectivity";
+import { onConnectivityChange, useOnline } from "./connectivity";
 import { useSyncState } from "./sync";
 
 /** Student page headings show connection status, not a claim that local AI needs a server. */
@@ -18,12 +18,23 @@ function when(iso: string | null) {
     : d.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 }
 
+// A closed banner stays closed for the rest of that offline (or syncing)
+// spell and comes back the next time the connection drops: that is a new
+// situation the student should hear about.
+let episode = 0;
+let wasOnline = true;
+let closedEpisode = -1;
+onConnectivityChange((online) => { if (online !== wasOnline) episode += 1; wasOnline = online; });
+
 export function OfflineBanner() {
   const enabled = useContext(OfflineNoticeContext);
   const online = useOnline();
   const sync = useSyncState();
   const router = useRouter();
+  const [, rerender] = useState(0);
+  useEffect(() => onConnectivityChange(() => rerender((n) => n + 1)), []);
   if (!enabled || (online && !(sync.running && !sync.lastSync))) return null;
+  if (closedEpisode === episode) return null;
   const t = online ? tones.green : tones.amber;
   const saved = when(sync.lastSync);
   return (
@@ -38,6 +49,10 @@ export function OfflineBanner() {
       {!online ? <Pressable onPress={() => { void confirmLeave().then(ok => { if (ok) router.push("/student/offline"); }); }} accessibilityRole="button" style={{ borderWidth: 1, borderColor: colors.border, backgroundColor: "#FFFFFF", borderRadius: 8, paddingHorizontal: 11, paddingVertical: 7 }}>
         <Text style={{ color: colors.ink, fontSize: 12, fontWeight: "600" }}>What works offline</Text>
       </Pressable> : null}
+      <Pressable onPress={() => { closedEpisode = episode; rerender((n) => n + 1); }} accessibilityRole="button" accessibilityLabel="Close this notice" hitSlop={12}
+        style={{ width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", alignSelf: "flex-start" }}>
+        <Ionicons name="close" size={18} color={t.fg} />
+      </Pressable>
     </View>
   );
 }

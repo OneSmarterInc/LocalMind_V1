@@ -28,7 +28,7 @@ export function AccountProblem() {
       {note ? <Text style={{ color: "#A33936", fontSize: 14 }}>{note}</Text> : null}
       <View style={{ flexDirection: "row", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
         <Pressable accessibilityRole="button" onPress={() => { void retry(); }} style={{ backgroundColor: "#236148", paddingVertical: 10, paddingHorizontal: 18, borderRadius: 8, opacity: busy ? 0.6 : 1 }}>
-          <Text style={{ color: "#FFFFFF", fontWeight: "600" }}>{busy ? "Checking…" : "Try again"}</Text>
+          <Text style={{ color: "#FFFFFF", fontWeight: "600" }}>{busy ? "Checking your account…" : "Try again"}</Text>
         </Pressable>
         <Pressable accessibilityRole="button" onPress={() => { void logout(); }} style={{ borderWidth: 1, borderColor: "#B8CBBB", paddingVertical: 10, paddingHorizontal: 18, borderRadius: 8 }}>
           <Text style={{ color: "#21382E", fontWeight: "600" }}>Sign out (removes offline copies on this device)</Text>

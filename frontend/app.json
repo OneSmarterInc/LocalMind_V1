@@ -14,7 +14,7 @@
       "buildNumber": "1",
       "infoPlist": {
         "NSAppTransportSecurity": {
-          "NSAllowsArbitraryLoads": true,
+          "NSAllowsArbitraryLoads": false,
           "NSAllowsLocalNetworking": true
         },
         "NSLocalNetworkUsageDescription": "LocalMind connects to your institution's LocalMind server on the local network.",
@@ -25,7 +25,7 @@
       "package": "com.onesmarter.localmind",
       "versionCode": 1,
       "adaptiveIcon": {
-        "backgroundColor": "#080F13",
+        "backgroundColor": "#F4F6EF",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -51,9 +51,9 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#080F13",
+          "backgroundColor": "#F4F6EF",
           "dark": {
-            "backgroundColor": "#080F13"
+            "backgroundColor": "#F4F6EF"
           }
         }
       ],
@@ -61,7 +61,7 @@
         "expo-build-properties",
         {
           "android": {
-            "usesCleartextTraffic": true
+            "usesCleartextTraffic": false
           },
           "ios": {
             "deploymentTarget": "15.1"
@@ -75,7 +75,19 @@
           "enableEntitlements": true,
           "entitlementsProfile": "production",
           "forceCxx20": true,
-          "enableOpenCL": true
+          "enableOpenCLAndHexagon": true
+        }
+      ],
+      [
+        "./plugins/withBackgroundGeneration",
+        {
+          "gpuInBackground": false
+        }
+      ],
+      [
+        "./plugins/withAsyncStorageSize",
+        {
+          "sizeMB": 2048
         }
       ]
     ],
@@ -84,11 +96,13 @@
       "reactCompiler": true
     },
     "extra": {
-      "apiUrl": "http://127.0.0.1:8000",
+      "apiUrl": "https://localmind.onesmarter.com",
+      "router": {},
       "eas": {
-        "projectId": "<run: eas init>"
+        "projectId": "e5015405-bc24-4a01-904f-2b59e727f797"
       }
     },
-    "backgroundColor": "#F5F7F4"
+    "backgroundColor": "#F5F7F4",
+    "owner": "internshiponesmarter"
   }
 }

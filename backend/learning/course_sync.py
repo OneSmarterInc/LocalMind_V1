@@ -80,11 +80,11 @@ class CourseSyncView(APIView):
             except (ValueError, TypeError):
                 raise ValidationFailed('A valid module ID is required.')
             module = services.resolve_accessible_module(request.user, module_id)
-            if kind in ('read','lesson'):
-                progress = services.record_module_view(request.user, module)
+            if kind in ('read', 'lesson'):
                 if kind == 'lesson':
-                    progress.lesson_viewed_at = timezone.now()
-                    progress.save(update_fields=['lesson_viewed_at','updated_at'])
+                    services.record_lesson_view(request.user, module)
+                else:
+                    services.record_module_view(request.user, module)
                 response = {'recorded': True, 'kind':kind, 'module_id':str(module.pk)}
             else:
                 seconds = data.get('seconds')

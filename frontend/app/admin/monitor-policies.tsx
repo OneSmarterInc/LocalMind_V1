@@ -1,3 +1,4 @@
+import { discardAfterAsking } from "@/hooks/unsavedGuard";
 import { useDraft } from "@/hooks/useDraft";
 import { useBackTo } from "@/hooks/useBackTo";
 import React, { useMemo, useState } from "react";
@@ -100,7 +101,7 @@ export default function MonitorPolicies() {
           {changed.length || dirty ? (
             <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap", padding: 12, borderRadius: 10, backgroundColor: colors.primary }} accessibilityLiveRegion="polite">
               <Text style={{ color: "#FFFFFF", fontWeight: "600", flex: 1, minWidth: 160 }}>{changed.length} unsaved change{changed.length === 1 ? "" : "s"}{anyInvalid ? ". Fix the highlighted confidence first." : ""}</Text>
-              <Button title="Discard" small variant="secondary" onPress={discard} />
+              <Button title="Discard" small variant="secondary" onPress={() => void discardAfterAsking(discard, "the monitoring policies")} />
               <Button title="Save changes" small variant="secondary" icon="checkmark" disabled={!changed.length || anyInvalid} busy={save.busy} onPress={() => save.run()} />
             </View>
           ) : saved ? <Text style={{ fontSize: 12, color: colors.muted }}>Policies saved.</Text> : null}

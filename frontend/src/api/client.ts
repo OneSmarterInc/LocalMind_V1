@@ -3,6 +3,7 @@ import { Platform } from "react-native";
 import { configurePing, reportConnectionFailure, reportOnline } from "@/offline/connectivity";
 import { offlineScope, readEntry, writeEntry } from "@/offline/store";
 import { getItem, migrateLegacy, setItem } from "./storage";
+import { deviceId, loadedDeviceId } from "./deviceIdentity";
 
 export class ApiError extends Error {
   code: string; status: number; details?: Record<string, unknown>;
@@ -45,6 +46,8 @@ export const currentSession = () => session;
 export const tokenStore = {
   get: () => tokens,
   async load() {
+    // Load the device ID now so every later request can send it without waiting.
+    await deviceId().catch(() => {});
     const legacy = await migrateLegacy(LEGACY_KEY);
     if (legacy) { try { await tokenStore.set(JSON.parse(legacy)); return tokens; } catch { /* fall through */ } }
     const [access, refresh, session_id] = await Promise.all([getItem(K.access), getItem(K.refresh), getItem(K.session)]);
@@ -146,6 +149,9 @@ export async function api<T = unknown>(path: string, opts: Options = {}): Promis
   const headers: Record<string, string> = {};
   if (!form) headers["Content-Type"] = "application/json";
   if (auth && tokens?.access) headers.Authorization = `Bearer ${tokens.access}`;
+  // Lets the server tell this login's laptop from its phone (generation claims).
+  // Loaded once at startup by tokenStore.load(); read synchronously so no request waits on storage.
+  if (auth) { const id = loadedDeviceId(); if (id) headers["X-LocalMind-Device"] = id; else void deviceId().catch(() => {}); }
   let res: Response;
   const controller = new AbortController();
   const cancel = () => controller.abort();

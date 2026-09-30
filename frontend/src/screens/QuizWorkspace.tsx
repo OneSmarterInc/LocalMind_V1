@@ -6,7 +6,7 @@ import {useLibrary} from '@/private/useLibrary';
 import {device} from '@/private/device';
 import {useAuth} from '@/auth/AuthContext';
 import {LocalQuizzes} from '@/authoring/quizzes';
-import { confirmLeave } from "@/hooks/unsavedGuard";
+import { confirmLeave, discardAfterAsking } from "@/hooks/unsavedGuard";
 import { carryEditableFields } from "@/hooks/draftPersistence";
 import { useNavigation, useRouter } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -21,7 +21,7 @@ import { useDraft } from "@/hooks/useDraft";
 import {
   Badge, Button, Card, CardHead, CellText, Column, DangerZone, DetailList, Dropdown, Empty, ErrorBanner, FormFooter, Grid, Input, Loading,
   Notice, OptionCard, PageHeading, PageTabs, Row, Screen, Split, StepList, Table, TableToolbar, TextLink, Tone, colors, alertAsync, confirmAsync, confirmDeleteAsync, fmtSeconds, pct,
-RequestFailed, } from "@/ui";
+RequestFailed, subjectLabel } from "@/ui";
 import { DateTimeField } from "@/ui/DateTimeField";
 import { ResultsRelease, type ReleaseMode } from "@/ui/ResultsRelease";
 import { resultVisible } from "@/ui/releaseState";
@@ -73,7 +73,7 @@ export function QuizListPage() {
       <ErrorBanner message={list.error} onRetry={list.reload} />
       <Card flush>
         <TableToolbar right={<>
-          <Dropdown value={subject} onChange={v=>{setSubject(v);setBook('');}} accessibilityLabel="Filter by subject" options={[{ value: "", label: "All subjects" }, ...(subjects.data ?? []).map((s) => ({ value: s.id, label: `${s.code} · ${s.name}` }))]} />
+          <Dropdown value={subject} onChange={v=>{setSubject(v);setBook('');}} accessibilityLabel="Filter by subject" options={[{ value: "", label: "All subjects" }, ...(subjects.data ?? []).map((s) => ({ value: s.id, label: subjectLabel(s.code, s.name) }))]} />
           <Dropdown value={book} onChange={setBook} accessibilityLabel="Filter by book" options={[{value:"",label:"All books"},...(books.data??[]).map(b=>({value:b.id,label:b.title}))]} />
           <Dropdown value={status} onChange={setStatus} accessibilityLabel="Filter by status" options={[{ value: "", label: "All statuses" }, { value: "published", label: "Published" }, { value: "draft", label: "Draft" }, { value: "held", label: "Held for review" }, { value: "closed", label: "Closed" }]} />
         </>}>
@@ -101,7 +101,7 @@ export function SourceModuleChooser({ subjectId, onSubject, value, onChange }: {
   const books = [...new Set((modules.data ?? []).map((m) => m.document_title))];
   return (
     <>
-      <Dropdown label="Subject" value={subjectId} onChange={(v) => { onSubject(v); onChange([]); }} placeholder="Choose a subject" width="100%" options={active.map((s) => ({ value: s.id, label: `${s.code} · ${s.name}` }))} />
+      <Dropdown label="Subject" value={subjectId} onChange={(v) => { onSubject(v); onChange([]); }} placeholder="Choose a subject" width="100%" options={active.map((s) => ({ value: s.id, label: subjectLabel(s.code, s.name) }))} />
       <View style={{ gap: 6 }}>
         <Text style={{ fontSize: 12, fontWeight: "600", color: colors.ink }}>Source modules <Text style={{ color: colors.danger, fontWeight: "400" }}>*</Text></Text>
         <Text style={{ fontSize: 11, color: colors.muted }}>Select one module or combine several from the same subject. No extra dropdown is needed for a single module.</Text>
@@ -133,10 +133,26 @@ function CheckRow({ label, meta, checked, onPress }: { label: string; meta?: str
 
 /** The one placeholder a hand-written quiz opens with, so the editor is not
  *  empty. Defined once because the save path has to recognise it again. */
+// Hand-written multiple-choice questions take two to six options, keyed A-F in
+// order. (AI-generated questions are always written with four.)
+const OPTION_KEYS = ["A", "B", "C", "D", "E", "F"];
+const MIN_OPTIONS = 2, MAX_OPTIONS = OPTION_KEYS.length;
+type Opt = { key: string; text: string };
+/** Re-letter options A, B, C... and carry the correct answer to its new letter.
+ * Removing the correct option clears the answer so the author must choose again. */
+function reletter(options: Opt[], correct: string | undefined, removedIndex?: number) {
+  const oldKeys = options.map((o) => o.key);
+  const kept = options.filter((_, j) => j !== removedIndex);
+  const next = kept.map((o, j) => ({ ...o, key: OPTION_KEYS[j] }));
+  const at = correct ? oldKeys.indexOf(correct) : -1;
+  const correctAt = at < 0 || at === removedIndex ? -1 : removedIndex !== undefined && at > removedIndex ? at - 1 : at;
+  return { options: next, correct_answer: correctAt >= 0 ? OPTION_KEYS[correctAt] : "" };
+}
+
 const STARTER_QUESTION = () => ({ type: "mcq" as const, question: "Replace this question", options: ["A", "B", "C", "D"].map((k) => ({ key: k, text: `Option ${k}` })), correct_answer: "A", explanation: "" });
 const isStarterQuestion = (x: { question?: string; options?: { text?: string }[] }) =>
   (x.question ?? "").trim().toLowerCase() === "replace this question"
-  || (x.options ?? []).filter((o) => /^option [a-d]$/i.test((o.text ?? "").trim())).length >= 4;
+  || (x.options ?? []).filter((o) => /^option [a-f]$/i.test((o.text ?? "").trim())).length >= 4;
 
 function OptionCardLike({ checked, onPress, children, label }: { checked: boolean; onPress: () => void; children: React.ReactNode; label?: string }) {
   return (
@@ -231,6 +247,14 @@ const carryOver = new Map<string, Quiz>();
 
 export function QuizDetailPage({ id, note }: { id: string; note?: string }) {
   const router = useRouter();
+  // "Back to quizzes" always returns to the Quizzes section, however the quiz
+  // was opened (the list, a book, a link). It never guesses from browser or
+  // navigation history, which used to send people to Books & modules.
+  // Same button and target on the laptop, Android and iOS.
+  const backTo = useBackTo();
+  const navigation = useNavigation();
+  const goBack = () => backTo("/manage/quizzes");
+  useEffect(() => { navigation.setOptions({ backTo: "/manage/quizzes", backLabel: "Back to quizzes" }); }, [navigation]);
   const q = useAsync(() => manage.quiz(id), [id]);
   const subjects = useAsync(() => manage.subjects(), []);
   const modules = useSubjectModules(q.data?.subject_id);
@@ -259,7 +283,7 @@ export function QuizDetailPage({ id, note }: { id: string; note?: string }) {
     const starter = (draft.questions ?? []).findIndex(isStarterQuestion);
     if (starter >= 0) {
       await alertAsync(`Question ${starter + 1} is still the starter question`,
-        "A new quiz opens with one placeholder so there is something to edit. Write the question and its four options in your own words, then save.",
+        "A new quiz opens with one placeholder so there is something to edit. Write the question and its options (two to six) in your own words, then save.",
         "Back to the question");
       return false;
     }
@@ -343,26 +367,36 @@ export function QuizDetailPage({ id, note }: { id: string; note?: string }) {
   const subtitle = [code, first?.document_title, sources.length > 1 ? `${sources.length} modules` : first ? `Module ${first.number}` : null, `Version ${d.version}`].filter(Boolean).join(" · ");
   const held = !!d.held_for_review;
 
+  const saveBarItems = (
+    <>
+      <Text style={{ flex: 1, fontSize: 12, color: dirty ? colors.warning : colors.muted }}>{dirty ? "Unsaved changes" : "No unsaved changes"}</Text>
+      {dirty ? <Button title="Discard" small variant="ghost" onPress={() => void discardAfterAsking(discard, "this quiz")} /> : null}
+      {d.status === "draft" || d.status === "closed" ? <Button title={held ? "Publish corrected quiz" : "Publish quiz"} small variant="secondary" icon="checkmark" onPress={() => (held ? publishHeld.run() : setStatus.run("published"))} busy={setStatus.busy || publishHeld.busy} disabled={dirty} /> : null}
+      <Button title="Save changes" small icon="save-outline" onPress={() => save.run()} busy={save.busy} disabled={!dirty || !editable} />
+    </>
+  );
   const saveBar = (
     <View style={[{ flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap", paddingVertical: 13, paddingHorizontal: 18, borderWidth: 1, borderColor: colors.border, borderRadius: 12, backgroundColor: "#FFFFFFF2" },
       Platform.OS === "web" ? ({ position: "sticky", bottom: 14, zIndex: 10, boxShadow: "0 8px 30px rgba(27,59,42,0.08)" } as object) : null]}>
-      <Text style={{ flex: 1, fontSize: 12, color: dirty ? colors.warning : colors.muted }}>{dirty ? "Unsaved changes" : "No unsaved changes"}</Text>
-      {dirty ? <Button title="Discard" small variant="ghost" onPress={discard} /> : null}
-      {d.status === "draft" || d.status === "closed" ? <Button title={held ? "Publish corrected quiz" : "Publish quiz"} small variant="secondary" icon="checkmark" onPress={() => (held ? publishHeld.run() : setStatus.run("published"))} busy={setStatus.busy || publishHeld.busy} disabled={dirty} /> : null}
-      <Button title="Save changes" small icon="save-outline" onPress={() => save.run()} busy={save.busy} disabled={!dirty || !editable} />
+      {saveBarItems}
     </View>
   );
 
+  // Android has no sticky positioning: the same bar is pinned below the page there.
+  const pinBar = Platform.OS !== "web" && tab === "questions";
   return (
-    <Screen refreshing={q.loading} onRefresh={q.reload}>
-      <PageHeading eyebrow="QUIZ WORKSPACE" title={d.title || "Untitled quiz"} subtitle={subtitle} right={<Badge value={st.label} tone={st.tone} />} />
+    <Screen refreshing={q.loading} onRefresh={q.reload} footer={pinBar ? <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>{saveBarItems}</View> : undefined}>
+      {/* Top left, above the title: the page's one-time messages appear top right
+          and would otherwise sit on top of it for their first few seconds. */}
+      <PageHeading eyebrow="QUIZ WORKSPACE" title={d.title || "Untitled quiz"} subtitle={subtitle} right={<Badge value={st.label} tone={st.tone} />}
+        below={<Button title="Back to quizzes" variant="secondary" icon="arrow-back" onPress={goBack} />} />
       <PageTabs<Tab> value={tab} onChange={setTab} tabs={[
         { key: "questions", label: "Questions" }, { key: "sources", label: "Source modules" },
         { key: "settings", label: "Settings & release" }, { key: "attempts", label: "Student attempts", count: d.attempt_count ? d.attempt_count : null },
       ]} />
       <ErrorBanner message={save.error ?? setStatus.error ?? release.error ?? remove.error ?? review.error ?? publishHeld.error} />
       {leftBehind ? <Notice inline tone="warning" title="Unsaved changes were left on another quiz." message={`Your edits to ${leftBehind.label} are kept with that quiz and were not applied here.`}
-        action={<View style={{ flexDirection: "row", gap: 8 }}><Button title="Open that quiz" small variant="secondary" onPress={() => router.push(`/manage/quiz/${leftBehind.id}`)} /><Button title="Discard them" small variant="ghost" onPress={forgetLeftBehind} /></View>} /> : null}
+        action={<View style={{ flexDirection: "row", gap: 8 }}><Button title="Open that quiz" small variant="secondary" onPress={() => router.push(`/manage/quiz/${leftBehind.id}`)} /><Button title="Discard them" small variant="ghost" onPress={() => void discardAfterAsking(forgetLeftBehind, "that quiz")} /></View>} /> : null}
       {changedMeanwhile ? <Notice inline tone="warning" title="This quiz changed on the server while you were editing." message="Your edits are kept. Saving replaces the server copy; discard your edits to load the latest version." /> : null}
       {held && fixing ? <Notice inline tone="warning" title="Correcting a held quiz" message="Save your corrections, then use “Publish corrected quiz”. The quiz stays hidden from students until you publish it." /> : null}
       {note ? <Notice inline tone="warning" title="Generated with notes" message={`${note}. Review the questions, add any that are missing by hand, or generate again.`} /> : null}
@@ -393,7 +427,7 @@ export function QuizDetailPage({ id, note }: { id: string; note?: string }) {
               </>
             }
           />
-          {saveBar}
+          {pinBar ? null : saveBar}
         </>
       ) : null}
 
@@ -432,7 +466,7 @@ export function QuizDetailPage({ id, note }: { id: string; note?: string }) {
                 <Text style={{ fontSize: 15, fontWeight: "600", color: colors.ink, marginTop: 6 }}>When can students see results?</Text>
                 <ResultsRelease value={(d.results_release ?? "immediate") as ReleaseMode} at={d.results_release_at ?? null} disabled={!editable} onChange={(m, at) => edit((z) => ({ ...z, results_release: m, results_release_at: at }))} />
                 <FormFooter note="Evaluation and result visibility are separate.">
-                  <Button title="Cancel" variant="secondary" onPress={discard} disabled={!dirty} />
+                  <Button title="Cancel" variant="secondary" onPress={() => void discardAfterAsking(discard, "this quiz")} disabled={!dirty} />
                   <Button title="Save settings" icon="checkmark" onPress={() => save.run()} busy={save.busy} disabled={!dirty || !editable} />
                 </FormFooter>
               </Card>
@@ -500,20 +534,37 @@ function QuestionsEditor({ quiz, editable, edit, editQ }: { quiz: Quiz; editable
           <Input label="Question" required multiline value={qq.question} editable={editable} onChangeText={(v) => editQ(i, (x) => ({ ...x, question: v }))} style={{ minHeight: 70 }} />
           {qq.type === "mcq" ? (
             <>
-              <Text style={{ fontSize: 12, color: colors.muted }}>Select the correct answer.</Text>
+              <Text style={{ fontSize: 12, color: qq.correct_answer ? colors.muted : colors.danger }}>
+                {qq.correct_answer ? "Select the correct answer." : "Select the correct answer before saving."}
+              </Text>
               {qq.options?.map((o, oi) => {
                 const on = qq.correct_answer === o.key;
+                const canRemove = editable && (qq.options?.length ?? 0) > MIN_OPTIONS;
                 return (
-                  <View key={o.key} style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 8, borderWidth: 1, borderRadius: 9, borderColor: on ? "#82A58B" : colors.border, backgroundColor: on ? "#F1F6EF" : "#FFFFFF" }}>
-                    <Pressable onPress={() => editable && editQ(i, (x) => ({ ...x, correct_answer: o.key }))} accessibilityRole="radio" accessibilityLabel={`Mark ${o.key} correct`} accessibilityState={{ checked: on }}
+                  <View key={`${qq.id ?? i}-${oi}`} style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 8, borderWidth: 1, borderRadius: 9, borderColor: on ? "#82A58B" : colors.border, backgroundColor: on ? "#F1F6EF" : "#FFFFFF" }}>
+                    <Pressable onPress={() => editable && editQ(i, (x) => ({ ...x, correct_answer: o.key }))} accessibilityRole="radio" accessibilityLabel={`Mark ${o.key} correct`} accessibilityState={{ checked: on }} hitSlop={8}
                       style={{ width: 16, height: 16, borderRadius: 8, borderWidth: on ? 5 : 1.5, borderColor: on ? colors.primary : "#9AAA9D" }} />
                     <Text style={{ fontSize: 12, fontWeight: "600", color: colors.muted, width: 14 }}>{o.key}</Text>
                     <TextInput value={o.text} editable={editable} accessibilityLabel={`Option ${o.key}`}
                       onChangeText={(v) => editQ(i, (x) => ({ ...x, options: (x.options ?? []).map((p, pj) => (pj === oi ? { ...p, text: v } : p)) }))}
-                      style={{ flex: 1, borderWidth: 1, borderColor: "#D8E0D7", borderRadius: 7, paddingHorizontal: 10, paddingVertical: 7, fontSize: 12, color: colors.ink, backgroundColor: "#FFFFFF" }} />
+                      style={{ flex: 1, minWidth: 0, borderWidth: 1, borderColor: "#D8E0D7", borderRadius: 7, paddingHorizontal: 10, paddingVertical: 7, fontSize: 12, color: colors.ink, backgroundColor: "#FFFFFF" }} />
+                    {canRemove ? (
+                      <Pressable onPress={() => editQ(i, (x) => ({ ...x, ...reletter((x.options ?? []) as Opt[], x.correct_answer, oi) }))}
+                        accessibilityRole="button" accessibilityLabel={`Remove option ${o.key}`} hitSlop={10}
+                        style={{ width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center" }}>
+                        <Ionicons name="close" size={16} color={colors.muted} />
+                      </Pressable>
+                    ) : null}
                   </View>
                 );
               })}
+              {editable ? (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <Button title="Add option" small variant="secondary" icon="add" disabled={(qq.options?.length ?? 0) >= MAX_OPTIONS}
+                    onPress={() => editQ(i, (x) => ({ ...x, ...reletter([...((x.options ?? []) as Opt[]), { key: "", text: "" }], x.correct_answer) }))} />
+                  <Text style={{ fontSize: 11, color: colors.muted }}>{`${qq.options?.length ?? 0} of ${MAX_OPTIONS} options · at least ${MIN_OPTIONS}`}</Text>
+                </View>
+              ) : null}
               <Input label="Explanation" value={qq.explanation ?? ""} editable={editable} onChangeText={(v) => editQ(i, (x) => ({ ...x, explanation: v }))} />
             </>
           ) : (
@@ -726,7 +777,7 @@ export function AttemptReviewPage({ attemptId, quizId }: { attemptId: string; qu
                   </View>
                 ))}
                 <FormFooter note={written.length ? "Changes use the existing faculty re-evaluation action." : "Multiple-choice answers are marked automatically."}>
-                  <Button title="Cancel" variant="secondary" onPress={discard} disabled={!dirty} />
+                  <Button title="Cancel" variant="secondary" onPress={() => void discardAfterAsking(discard, "this evaluation")} disabled={!dirty} />
                   <Button title="Save evaluation" icon="checkmark" onPress={() => save.run()} busy={save.busy} disabled={!dirty} />
                 </FormFooter>
               </Card>

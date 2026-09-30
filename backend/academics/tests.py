@@ -325,3 +325,29 @@ class ArchivedSubjectFacultyScopeTests(TestCase):
         admin_docs = client_for(make_admin()).get("/api/faculty/documents/").data
         admin_docs = admin_docs["results"] if isinstance(admin_docs, dict) else admin_docs
         self.assertEqual(len(admin_docs), 1)
+
+
+class SubjectListFacultyNamesTests(TestCase):
+    """Books & modules shows each book's faculty and lets an administrator
+    filter by faculty; both read faculty_names from /faculty/subjects/."""
+
+    def setUp(self):
+        self.admin = make_admin()
+        self.ada = make_faculty(email="ada@example.com", name="Ada Lovelace")
+        self.alan = make_faculty(email="alan@example.com", name="Alan Turing")
+        self.subject = make_subject(code="CS101")
+        self.other = make_subject(code="CS102", name="Networks")
+        assign(self.ada, self.subject)
+        assign(self.alan, self.subject)
+        assign(self.alan, self.other)
+
+    def names(self, user):
+        res = client_for(user).get("/api/faculty/subjects/")
+        self.assertEqual(res.status_code, 200)
+        return {row["code"]: row["faculty_names"] for row in res.data}
+
+    def test_administrator_sees_every_subjects_faculty(self):
+        self.assertEqual(self.names(self.admin), {"CS101": ["Ada Lovelace", "Alan Turing"], "CS102": ["Alan Turing"]})
+
+    def test_faculty_see_names_on_their_own_subjects(self):
+        self.assertEqual(self.names(self.ada), {"CS101": ["Ada Lovelace", "Alan Turing"]})

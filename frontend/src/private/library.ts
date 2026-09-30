@@ -8,7 +8,7 @@ import { device } from './device';
 import { cancelled } from './busy';
 import { avoidList } from './promptBudget';
 import type { LocalFile } from './device.types';
-import { isFollowUp, MAX_READING_CHARS, MAX_SECTION_CHARS, ANSWER_SCHEMA, groundedSchema, GROUNDING, COMPACT_LESSON_SCHEMA, COMPACT_MCQ_SCHEMA, compactMcqBatchSchema, markQuiz, requireThat, bookReference, pageSource, lessonPassages, headingPassages, passageHeading, text, validateAnswer, validateBook, validateLesson, validateMCQ, type PrivateBook, type Lesson, type MCQ, type SourceVisual } from './core';
+import { isFollowUp, notInModule, questionIsAbout, MAX_READING_CHARS, MAX_SECTION_CHARS, ANSWER_SCHEMA, groundedSchema, GROUNDING, COMPACT_LESSON_SCHEMA, COMPACT_MCQ_SCHEMA, compactMcqBatchSchema, markQuiz, requireThat, bookReference, pageSource, lessonPassages, headingPassages, passageHeading, text, validateAnswer, validateBook, validateLesson, validateMCQ, type PrivateBook, type Lesson, type MCQ, type SourceVisual } from './core';
 export type QuizVersion = { id: string; bookId: string; sectionId: string; createdAt: string; requestedCount?: number; questions: MCQ[] };
 export type LessonVersion = { id: string; sectionId: string; createdAt: string; lesson: Lesson };
 export type PracticeResult = { id: string; quizId: string; createdAt: string; answers: Record<string, number> } & ReturnType<typeof markQuiz>;
@@ -41,7 +41,7 @@ export class Library {
     section.source=source.trim();this.guard();await d.put(this.key(bookId),validateBook(book));this.guard();
   }
   async import(file: LocalFile, shared?: { id: string; title: string; sha256?: string }, signal?: AbortSignal, progress?: (message: string) => void) {
-    cancelled(signal); this.guard(); progress?.("Reading book on this device…");
+    cancelled(signal); this.guard(); progress?.("Reading your book…");
     const d = await device(), assetSet=randomUUID();let assetPrefix='';let committed=false;
     const resolveId=async(hash:string)=>{
       const original=await d.get<PrivateBook>(this.key(hash));this.guard();
@@ -97,11 +97,11 @@ export class Library {
     const checkpoint=await d.get<Checkpoint<Lesson>>(key)||{id:randomUUID(),parts:[]};
     const parts=await resumeParts({checkpoint,total:passages.length,signal,
       save:async row=>{this.guard();await d.put(key,row);this.guard();},
-      progress:done=>progress?.(`${done} of ${passages.length} lesson parts saved. Generate again after an interruption to resume.`),
+      progress:done=>progress?.(`${done} of ${passages.length} lesson parts saved`),
       generate:async index=>{
         this.guard();const source=passages[index];
         const raw=await d.complete({system:GROUNDING,prompt:`Teach this entire source passage in plain language. Explain its definitions, relationships, examples and formulas when present. Do not just name the main idea. Write one introductory sentence, one explanatory section and one takeaway. Each call covers one consecutive part of the module. Use an exact supporting quote.\nMODULE: ${section.title}${passageHeading(source)?` (this part: ${passageHeading(source)})`:''} — part ${index+1} of ${passages.length}\nSTORED BOOK REFERENCE:\n${source}`,schema:groundedSchema(COMPACT_LESSON_SCHEMA,source),maxTokens:800,temperature:0.2,signal,
-          progress:message=>progress?.(`Part ${index+1}/${passages.length} · ${message}`)});
+          progress:message=>progress?.(`Part ${index+1} of ${passages.length} · ${message}`)});
         return validateLesson(raw,source);
       }});
     const lesson:Lesson={introduction:parts[0].introduction,sections:parts.flatMap(p=>p.sections),takeaways:parts.flatMap(p=>p.takeaways)};
@@ -218,14 +218,27 @@ export class Library {
     const transcript = turns.map(t => `STUDENT: ${t.question.slice(0, 250)}\nTUTOR: ${(t.answer || '').slice(0, 600)}`).join('\n\n');
     const d = await device(), reference = bookReference(b.sections, sectionId, followUp ? `${subject} ${previous!.answer}`.slice(0, 600) : question);
     generationJobs.requireDoubtsAvailable();
+    // Refused here, before the model is loaded, when the passages found for
+    // the question never mention what it asks about. The search falls back to
+    // the opening of the module when nothing matches, and the model then
+    // answered an off-topic question ("What is maths" in a cybersecurity
+    // chapter) from its own knowledge, after half a minute of reading.
+    if (!followUp && !questionIsAbout(question, reference)) {
+      console.info('[doubt] refused before generating: the passages found never mention the question');
+      const row: PrivateChat = { id: randomUUID(), question, answer: notInModule(), quote: '', supported: false, createdAt: new Date().toISOString() };
+      await d.put(`${this.work(bookId)}chat:${sectionId}:${row.id}`, row); this.guard(); return row;
+    }
+    const focus = followUp ? `${subject} ${question}` : question;
     // A follow-up is an instruction about the previous answer. Saying so, and
     // showing that answer, is what turns "in detail" into a fuller version
     // instead of the same paragraph or a refusal.
     const task = followUp
       ? `The student is asking you to rewrite YOUR PREVIOUS ANSWER, below, the way they describe. Do not repeat it unchanged and do not add anything the reference does not support. Follow their instruction: shorter means shorter, one line means one sentence, simpler means plainer words, in detail means more of what the reference says about it.\nYOUR PREVIOUS ANSWER:\n${previous!.answer}\nTHEIR INSTRUCTION:\n${question}`
       : `Answer the question from the reference alone, in at most 120 words. If the reference does not contain the answer, set supported=false.\nSTUDENT QUESTION:\n${question}`;
-    const raw = await d.complete({ system: GROUNDING, prompt: `Use only this stored book reference. Everything you write must come from it.\nSTORED BOOK REFERENCE:\n${reference}\n\nCONVERSATION SO FAR:\n${transcript || '(none)'}\n\n${task}`, schema: groundedSchema(ANSWER_SCHEMA, reference, followUp ? `${subject} ${question}` : question), maxTokens: followUp ? 600 : 420, temperature: 0.1, signal, progress });
-    const answer = validateAnswer(raw, reference); await this.book(bookId); requireThat(!signal.aborted, 'Cancelled');
+    const raw = await d.complete({ system: GROUNDING, prompt: `Use only this stored book reference. Everything you write must come from it.\nSTORED BOOK REFERENCE:\n${reference}\n\nCONVERSATION SO FAR:\n${transcript || '(none)'}\n\n${task}`, schema: groundedSchema(ANSWER_SCHEMA, reference, focus, true), maxTokens: followUp ? 600 : 420, temperature: 0.1, signal, progress });
+    // Invented names are judged against the whole book, since the reference
+    // can draw on any of its modules; the quotation must be about the question.
+    const answer = validateAnswer(raw, reference, b.sections.map(x => x.source).join('\n\n'), focus); await this.book(bookId); requireThat(!signal.aborted, 'Cancelled');
     const row: PrivateChat = { id: randomUUID(), question, ...answer, createdAt: new Date().toISOString() };
     await d.put(`${this.work(bookId)}chat:${sectionId}:${row.id}`, row); this.guard(); return row;
   }
