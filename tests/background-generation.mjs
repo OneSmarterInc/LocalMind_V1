@@ -221,3 +221,23 @@ test('laptop: the tab is marked busy and warns before closing while answers are 
     if (previousNavigator) Object.defineProperty(globalThis, 'navigator', previousNavigator); else delete globalThis.navigator;
   }
 });
+
+// Recorded on the APK: 22 seconds of one unchanging "Reading the material"
+// line, then "Writing… 6%", "12%" and the answer. The percentage was of the
+// longest answer allowed, not of this answer.
+test('the phone shows elapsed time, never a percentage of the longest answer allowed', async () => {
+  const native = fakeNative(); const android = await fresh('android', native);
+  const said = [];
+  bg.onCompletion = async (ctx, params, onToken) => {
+    await new Promise(r => setTimeout(r, 1100));
+    for (let i = 0; i < 30; i++) onToken?.({token:'x'});
+    await new Promise(r => setTimeout(r, 1100));
+    return {text:'{"ok":true}'};
+  };
+  await android.complete(request(undefined, s => said.push(s)));
+  assert.ok(said.some(s => /^Reading the material on this phone… \d+s$/.test(s)), said.join(' | '));
+  assert.ok(said.some(s => /^Writing the answer on this phone… \d+s$/.test(s)), said.join(' | '));
+  assert.ok(!said.some(s => s.includes('%')), said.join(' | '));
+  const count = said.length; await new Promise(r => setTimeout(r, 1200));
+  assert.equal(said.length, count, 'the clock stops when the answer is done');
+});

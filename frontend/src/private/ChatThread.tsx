@@ -22,10 +22,14 @@ const LATEST_ROOM = 44;
 
 export default function ChatThread({ children, empty }: { children: React.ReactNode; empty?: React.ReactNode }) {
   const scroller = useRef<ScrollView>(null);
-  const { height } = useWindowDimensions();
+  const { height, width } = useWindowDimensions();
   // Tall enough to hold a couple of exchanges, never so tall that the input is
-  // pushed off a laptop screen or a phone.
-  const maxHeight = Math.max(200, Math.min(440, Math.round(height * 0.45)));
+  // pushed off a laptop screen or a phone. On a phone 45% held about one
+  // answer, so a student scrolled the page and the thread in turn to read it;
+  // a narrow screen now gives the thread more of its height.
+  const maxHeight = width < 600
+    ? Math.max(240, Math.min(560, Math.round(height * 0.58)))
+    : Math.max(200, Math.min(440, Math.round(height * 0.45)));
   const count = React.Children.count(children);
   // Follow new turns only while the reader is at the bottom; someone who
   // scrolled up to reread an answer is not yanked away, and gets a button back.

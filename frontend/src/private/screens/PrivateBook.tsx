@@ -7,7 +7,7 @@ import React,{useCallback,useEffect,useRef,useState} from 'react';
 import {Pressable,View} from 'react-native';
 import {useLocalSearchParams,useRouter} from 'expo-router';
 import {skipReason} from '@/authoring/reasons';
-import {Screen,PageHeading,Card,Row,H2,P,Button,Badge,Notice,ErrorBanner,Loading,PageTabs,Input,Split,Dropdown,confirmAsync,colors,showToast} from '@/ui';
+import {Screen,PageHeading,Card,Row,H2,P,Button,Badge,Notice,ErrorBanner,Loading,PageTabs,Input,Split,Dropdown,confirmAsync,colors,showToast,tones} from '@/ui';
 import ChatThread from '../ChatThread';
 import {SourceVisuals} from '../SourceVisuals';
 import {SourceContent} from '@/ui/SourceContent';
@@ -189,13 +189,15 @@ function ModuleLearning({bookId,section,next,hasNext,initialTab,onSourceSaved,ba
 /** One turn of the thread. The question sits on the right in its own bubble
  *  and the answer on the left, so a long conversation reads as a conversation
  *  rather than as a column of identical grey blocks. */
-function Bubble({who,content,mine,quote}:{who:string;content:string;mine?:boolean;quote?:string}){
- return <View style={{padding:14,borderRadius:10,backgroundColor:mine?'#EAF2ED':'#FFFFFF',borderWidth:mine?0:1,borderColor:'#E4EAE2',gap:6,alignSelf:mine?'flex-end':'stretch',maxWidth:mine?'88%':undefined}}>
+// A refusal used to look exactly like an answer. It now reads as a note, so a
+// student can tell "the book does not cover this" from something to learn.
+function Bubble({who,content,mine,quote,notFound}:{who:string;content:string;mine?:boolean;quote?:string;notFound?:boolean}){
+ return <View style={{padding:14,borderRadius:10,backgroundColor:mine?'#EAF2ED':notFound?tones.amber.bg:'#FFFFFF',borderWidth:mine?0:1,borderColor:notFound?tones.amber.border:'#E4EAE2',gap:6,alignSelf:mine?'flex-end':'stretch',maxWidth:mine?'88%':undefined}}>
   <P small muted>{who}</P><P>{content}</P>{quote?<P small muted>From the book: {quote}</P>:null}</View>;
 }
 function Chat({chat}:{chat:PrivateChat}){return <>
  <Bubble who="You" content={chat.question} mine/>
- <Bubble who="Local AI · this device" content={chat.answer} quote={chat.quote||undefined}/>
+ <Bubble who={chat.supported?'Local AI · this device':'Not in this module'} content={chat.answer} quote={chat.supported?chat.quote||undefined:undefined} notFound={!chat.supported}/>
 </>;}
 function QuizPractice({quiz}:{quiz:QuizVersion}){
  const library=useLibrary()!,task=useTask();

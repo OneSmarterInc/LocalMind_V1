@@ -181,6 +181,13 @@ async function answerOnce(req:Completion){
  cancelled(req.signal);
  req.progress?.('Reading the material on this phone…');backgroundWork.progress(0,'Reading the material…');
  const started=Date.now();
+ // What the student sees while waiting. Reading the prompt can take half a
+ // minute on a phone CPU and used to show one unchanging line; writing
+ // showed a percentage of the LONGEST answer allowed, so a short answer
+ // stopped at 12% and then appeared. Elapsed time is honest for both.
+ let phase:'Reading the material'|'Writing the answer'|'Rewriting the answer in the required format'='Reading the material';
+ let ticker:ReturnType<typeof setInterval>|undefined;
+ const say=()=>req.progress?.(`${phase} on this phone… ${Math.round((Date.now()-started)/1000)}s`);
  const messages=[{role:'system',content:req.system},{role:'user',content:req.prompt}];
  // Render once without letting the completion chat-template path override grammar
  // settings. The postinstall patch also preserves grammar/stops across the native
@@ -216,12 +223,13 @@ async function answerOnce(req:Completion){
  await activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(()=>{});
  arm(240000);req.signal.addEventListener('abort',cancel);
  try {
+  ticker=setInterval(say,1000);
   cancelled(req.signal);
   if(offScreen())onScreenChange('background');checkInterrupted();
   // grammar_lazy: false keeps the schema binding from the first token even if
   // the runtime would otherwise defer it.
   const schema=JSON.stringify(req.schema);
-  const watch=()=>{arm(60000);tokens++;if(tokens%25===0){const percent=Math.min(99,Math.round(tokens/req.maxTokens*100));req.progress?.(`Writing on this phone… ${percent}%`);backgroundWork.progress(tokens/req.maxTokens,`Writing… ${percent}%`);}};
+  const watch=()=>{arm(60000);tokens++;if(phase==='Reading the material'){phase='Writing the answer';say();}if(tokens%25===0)backgroundWork.progress(Math.min(0.99,tokens/req.maxTokens),'Writing…');};
   const ask=async(text:string,temperature:number)=>{
    const base={prompt:text,n_predict:req.maxTokens,temperature,stop:['<|im_end|>','<|eot_id|>','</s>']};
    // Fail closed: a runtime/schema error must never silently disable grounding.
@@ -237,7 +245,7 @@ async function answerOnce(req:Completion){
    // One correction pass at temperature 0, the same recovery the server's
    // provider makes, with the rejection reason in the conversation.
    console.info('[LocalMind AI] unusable output',{reason:first instanceof Error?first.message:String(first),sample:res.text.slice(0,240)});
-   cancelled(req.signal);req.progress?.('Rewriting the answer in the required format…');
+   cancelled(req.signal);phase='Rewriting the answer in the required format';say();
    tokens=0;arm(240000);
    res=await ask(await render([...messages,{role:'assistant',content:res.text.slice(0,600)},
     {role:'user',content:'That reply could not be read. Reply again with the JSON object only: no explanation, no reasoning, no markdown fences, nothing before or after it.'}]),0);
@@ -246,7 +254,7 @@ async function answerOnce(req:Completion){
   }
   console.info('[LocalMind AI]',{runtime:'native',runtimePatch:'grammar-stops-v1',validation:'json-parsed',accelerator:context.gpu?'gpu':'cpu',elapsedMs:Date.now()-started,outputCharacters:res.text.length});
   return restored;
- }catch(e){if(interrupted&&!req.signal.aborted)throw new Interrupted('restart');if(expired&&!req.signal.aborted)throw new Error('Local AI stopped responding. No incomplete response was saved. Completed lesson parts and quiz questions are retained; generate again to resume.');throw e;}finally{clearTimeout(timer);req.signal.removeEventListener('abort',cancel);appState?.remove();stopExpired?.();deactivateKeepAwake(KEEP_AWAKE_TAG);}
+ }catch(e){if(interrupted&&!req.signal.aborted)throw new Interrupted('restart');if(expired&&!req.signal.aborted)throw new Error('Local AI stopped responding. No incomplete response was saved. Completed lesson parts and quiz questions are retained; generate again to resume.');throw e;}finally{clearInterval(ticker);clearTimeout(timer);req.signal.removeEventListener('abort',cancel);appState?.remove();stopExpired?.();deactivateKeepAwake(KEEP_AWAKE_TAG);}
 }
 const implementation:Device={...store,complete,
  async parse(f, signal, progress, saveVisual){

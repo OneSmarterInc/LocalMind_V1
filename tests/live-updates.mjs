@@ -152,3 +152,15 @@ test('"Latest" is judged where scrolling stops and never covers the answer',()=>
  assert.match(s,/Date\.now\(\) < following\.current/,'the thread\'s own scroll to the end is not mistaken for the reader leaving it');
  assert.match(s,/paddingBottom: LATEST_ROOM/);
 });
+test('a refusal reads as a note, not as an answer, in both doubt threads',()=>{
+ const book=fs.readFileSync(path.join(front,'src/private/screens/PrivateBook.tsx'),'utf8');
+ assert.match(book,/who=\{chat\.supported\?'Local AI · this device':'Not in this module'\}/);
+ assert.match(book,/notFound=\{!chat\.supported\}/);
+ const course=fs.readFileSync(path.join(front,'src/private/CourseAsk.tsx'),'utf8');
+ assert.match(course,/notFound=m\.role!=='user'&&!m\.grounded/);
+});
+test('a phone gives the doubt thread more of the screen than a laptop does',()=>{
+ const s=fs.readFileSync(path.join(front,'src/private/ChatThread.tsx'),'utf8');
+ assert.match(s,/width < 600\s*\n\s*\? Math\.max\(240, Math\.min\(560, Math\.round\(height \* 0\.58\)\)\)/);
+ assert.match(s,/: Math\.max\(200, Math\.min\(440, Math\.round\(height \* 0\.45\)\)\)/,'the laptop keeps its size');
+});

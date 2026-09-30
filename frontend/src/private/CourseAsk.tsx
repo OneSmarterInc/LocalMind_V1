@@ -6,7 +6,7 @@ import {useRouter} from 'expo-router';
 import {useAuth} from '@/auth/AuthContext';
 import {student} from '@/api/endpoints';
 import type {Message} from '@/api/types';
-import {Card,H2,P,Input,Button,Row,Notice,ErrorBanner} from '@/ui';
+import {Card,H2,P,Input,Button,Row,Notice,ErrorBanner,tones} from '@/ui';
 import ChatThread from './ChatThread';
 import {answerCourse,localCourseHistory} from './courseDoubt';
 import {useTask} from './useTask';
@@ -59,12 +59,13 @@ function CourseAskInner({moduleId}:{moduleId:string}){
    }
   });
  };
- const bubble=(key:string,who:string,content:string,mine:boolean,quote?:string)=>
-  <View key={key} style={{padding:14,borderRadius:10,backgroundColor:mine?'#EAF2ED':'#FFFFFF',borderWidth:mine?0:1,borderColor:'#E4EAE2',gap:6,alignSelf:mine?'flex-end':'stretch',maxWidth:mine?'88%':undefined}}>
+ // A refusal reads as a note, not as an answer (see PrivateBook's Bubble).
+ const bubble=(key:string,who:string,content:string,mine:boolean,quote?:string,notFound?:boolean)=>
+  <View key={key} style={{padding:14,borderRadius:10,backgroundColor:mine?'#EAF2ED':notFound?tones.amber.bg:'#FFFFFF',borderWidth:mine?0:1,borderColor:notFound?tones.amber.border:'#E4EAE2',gap:6,alignSelf:mine?'flex-end':'stretch',maxWidth:mine?'88%':undefined}}>
    <P small muted>{who}</P><P>{content}</P>{quote?<P small muted>From the module: {quote}</P>:null}</View>;
  return <Card><H2>Ask a doubt</H2><Notice title="AI on this device" message="Questions are answered locally from your course source. Course conversations save on this device and synchronize with your institution when connected."/>
   <ChatThread empty={restoring?null:<P muted>No questions yet. Ask anything about this module.</P>}>
-   {[...messages.map(m=>bubble(m.id,m.role==='user'?'You':m.local?'Local AI · this device':'Course tutor',m.content,m.role==='user',m.source_reference)),
+   {[...messages.map(m=>{const notFound=m.role!=='user'&&!m.grounded;return bubble(m.id,m.role==='user'?'You':notFound?'Not in this module':m.local?'Local AI · this device':'Course tutor',m.content,m.role==='user',notFound?undefined:m.source_reference,notFound);}),
      ...(pending?[bubble('pending','You',pending,true)]:[]),
      ...(task.busy?[<View key="thinking" style={{padding:14}}><P small muted>Reading the module…</P></View>]:[])]}
   </ChatThread>
