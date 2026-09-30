@@ -1,7 +1,7 @@
 """Persistent-queue integration and grading request/worker separation."""
 from datetime import timedelta
 from unittest.mock import patch
-from django.test import TestCase, TransactionTestCase, override_settings
+from django.test import TestCase, TransactionTestCase, override_settings, SimpleTestCase
 from django.db import connection, transaction
 from django.utils import timezone
 from core.testing import make_student, make_faculty, make_subject, assign, enroll, make_published_document, MCQ, SUBJ
@@ -73,3 +73,24 @@ class GradeWorkerTests(TransactionTestCase):
         self.submit();self.attempt.refresh_from_db()
         with self.assertRaises(Conflict):assessments.re_evaluate(self.faculty,self.attempt)
         self.attempt.refresh_from_db();self.assertIsNone(self.attempt.percentage)
+
+
+class RowLockQueryTests(SimpleTestCase):
+    """PostgreSQL refuses FOR UPDATE on the nullable side of an outer join, which
+    select_related adds for an optional foreign key; SQLite ignores row locks, so
+    the suite on SQLite never sees it. Every locked query that also joins must
+    say which rows it locks. The grading worker missed this and failed every
+    AI-graded answer on PostgreSQL."""
+
+    def test_locked_queries_that_join_lock_only_their_own_rows(self):
+        import re
+        from pathlib import Path
+        root = Path(__file__).resolve().parent.parent
+        offenders = []
+        for path in root.rglob("*.py"):
+            if "migrations" in path.parts or path.name.startswith("tests") or ".venv" in path.parts:
+                continue
+            for number, line in enumerate(path.read_text(encoding="utf-8", errors="ignore").splitlines(), 1):
+                if re.search(r"select_for_update\((?!.*of=)", line) and "select_related" in line:
+                    offenders.append(f"{path.relative_to(root)}:{number}")
+        self.assertEqual(offenders, [], "use select_for_update(of=(\"self\",)) when the query also uses select_related")

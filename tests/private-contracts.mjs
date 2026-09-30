@@ -273,3 +273,18 @@ test('module search matches singular questions to plural text',()=>{
  const long=('Unrelated filler sentence about networks. '.repeat(90))+'\nHackers sell ransomware kits on hidden forums.';
  assert.ok(c.retrieve(long,'What is a hacker').includes('ransomware kits'));
 });
+
+// A vague first question ("explain in short") has no subject to focus on, so
+// every sentence of the passage was on offer, including the "[Chapter 4 ·
+// Reading 2]" label bookReference writes above it.
+test('the reading title label is never offered or accepted as a quotation',()=>{
+ const sections=[{id:'r2',title:'Chapter 4 · Reading 2',source:'Hackers are individuals or groups involved in cyber-espionage. They sell ransomware kits on hidden forums.'}];
+ const ref=c.bookReference(sections,'r2','explain in short');
+ assert.match(ref,/^\[Chapter 4 · Reading 2\]/);
+ const quotes=c.groundedSchema(c.ANSWER_SCHEMA,ref,'explain in short',true).properties.quote.enum;
+ assert.ok(quotes.length>0);assert.ok(!quotes.some(q=>q.includes('Reading 2]')),quotes.join(' | '));
+ assert.equal(c.isHeadingQuote('[Chapter 4 · Reading 2]'),true);
+ assert.equal(c.validateAnswer({answer:'Hackers are groups.',quote:'[Chapter 4 · Reading 2]',supported:true},ref,ref,'explain in short').supported,false);
+ const lesson=c.groundedSchema(c.LESSON_SCHEMA??c.ANSWER_SCHEMA,'Plain book text only. Another sentence here.').properties;
+ assert.ok(lesson,'lessons and quizzes are unaffected');
+});

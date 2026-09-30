@@ -305,6 +305,9 @@ export function isHeadingQuote(quote: string): boolean {
   const q = quote.trim();
   if (!q) return true;
   if (/^#{1,6}\s/.test(q) || /:$/.test(q)) return true;
+  // "[Chapter 4 · Reading 2]" is the label bookReference puts above each
+  // passage, not a sentence from the book.
+  if (/^\[[^\]\n]*\]$/.test(q)) return true;
   return (q.match(/[\p{L}\p{N}]+/gu) || []).length < 4 && !/[.!?]$/.test(q);
 }
 
@@ -455,7 +458,12 @@ export function groundedSchema(base: object, source: string, focus='', onlyAbout
   // quote something it did not mean — or to fail. When the caller says what the
   // quotation is for, the most relevant candidates are offered instead, then
   // put back into source order so the enum still reads naturally.
+  // The "[Module title]" lines bookReference writes above each passage are
+  // LocalMind's labels, not book text; a vague first question ("explain in
+  // short", nothing to focus on) could otherwise cite one as its source.
   let unique=[...new Set(candidates)];
+  const bookText=unique.filter(q=>!/^\[[^\]\n]*\]$/.test(q.trim()));
+  if(bookText.length)unique=bookText;
   // For a doubt, only sentences about the question are offered. With the
   // whole passage on offer the model had to quote something even when the
   // book did not cover the question, and picked a heading ("Notable Groups:")

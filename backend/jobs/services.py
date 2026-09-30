@@ -99,7 +99,12 @@ def perform(job):
             raise RuntimeError("The local evaluator is unavailable. Answers remain saved; no false zero/pass was recorded.")
         with transaction.atomic():
             guard()
-            attempt = AssessmentAttempt.objects.select_for_update().select_related("assessment__module", "student").get(pk=attempt.id)
+            # Lock only the attempt row. A quiz's module is optional, and
+            # PostgreSQL refuses FOR UPDATE on the nullable side of the join
+            # select_related adds, so every AI-graded answer failed there
+            # (SQLite ignores row locks, which hid it). Same form as
+            # assessments.services.assessments.
+            attempt = AssessmentAttempt.objects.select_for_update(of=("self",)).select_related("assessment__module", "student").get(pk=attempt.id)
             if attempt.status == AttemptStatus.EVALUATED: return {"already_finished": True}
             _finalize(attempt, score, results, False)
         return {"evaluated": True}

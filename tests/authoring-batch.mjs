@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
 import {mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {join,resolve} from 'node:path';
+import {dirname,join,resolve} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
 import {createRequire} from 'node:module';
 import test from 'node:test';
 const tmp=mkdtempSync(join(tmpdir(),'lm-batch-'));
-const compiled=spawnSync(process.execPath,['frontend/node_modules/typescript/bin/tsc','--strict','--target','ES2022','--module','commonjs','--skipLibCheck','--outDir',tmp,'frontend/src/authoring/batch.ts','frontend/src/authoring/quizSections.ts'],{encoding:'utf8'});
+// Paths are resolved from the repository root, so the test runs the same from
+// the root or from frontend/ (where npm run test:private starts).
+const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
+const compiled=spawnSync(process.execPath,['frontend/node_modules/typescript/bin/tsc','--strict','--target','ES2022','--module','commonjs','--skipLibCheck','--outDir',tmp,'frontend/src/authoring/batch.ts','frontend/src/authoring/quizSections.ts'],{cwd:root,encoding:'utf8'});
 assert.equal(compiled.status,0,compiled.stdout+compiled.stderr);
 const {runMissingBatch}=createRequire(import.meta.url)(resolve(tmp,'batch.js'));
 process.on('exit',()=>rmSync(tmp,{recursive:true,force:true}));
