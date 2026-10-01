@@ -92,3 +92,13 @@ test('the build steps, ABIs, minimum Android version and signing are written dow
   for (const needle of ['-PreactNativeArchitectures=arm64-v8a', 'arm64-v8a', '7.0 (API 24)', 'LOCALMIND_UPLOAD_STORE_FILE', 'CN=Android Debug', 'blockedPermissions', 'Never commit'])
     assert.ok(doc.includes(needle), needle);
 });
+
+test('iOS carries the same version and build number as Android', () => {
+  const plist = read('ios/LocalMind/Info.plist');
+  const pbx = read('ios/LocalMind.xcodeproj/project.pbxproj');
+  assert.equal(plist.match(/<key>CFBundleShortVersionString<\/key>\s*<string>([^<]+)<\/string>/)[1], app.version);
+  assert.equal(plist.match(/<key>CFBundleVersion<\/key>\s*<string>([^<]+)<\/string>/)[1], String(app.ios.buildNumber));
+  assert.equal(String(app.ios.buildNumber), String(app.android.versionCode));
+  for (const m of pbx.matchAll(/MARKETING_VERSION = ([^;]+);/g)) assert.equal(m[1], app.version);
+  for (const m of pbx.matchAll(/CURRENT_PROJECT_VERSION = ([^;]+);/g)) assert.equal(m[1], String(app.ios.buildNumber));
+});

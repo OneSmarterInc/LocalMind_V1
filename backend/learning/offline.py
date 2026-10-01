@@ -111,8 +111,15 @@ class StudentOfflineBundleView(APIView):
         for row in scores:
             entries[f"/student/quiz-attempts/{row['id']}/"] = row
         body = json.dumps(entries, sort_keys=True, cls=DjangoJSONEncoder)
+        version = hashlib.sha256(body.encode()).hexdigest()[:32]
+        # The app sends the version it already holds. When nothing changed it
+        # gets a few bytes back instead of the whole course again (it used to
+        # download everything every minute). Older apps don't send "since" and
+        # get the full bundle, as before.
+        if request.query_params.get("since") == version:
+            return Response({"version": version, "generated_at": timezone.now(), "unchanged": True})
         return Response({
-            "version": hashlib.sha256(body.encode()).hexdigest()[:32],
+            "version": version,
             "generated_at": timezone.now(),
             "entries": json.loads(body),
         })

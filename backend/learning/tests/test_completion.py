@@ -63,6 +63,22 @@ class ModuleCompletionTests(TestCase):
         self.assertIsNotNone(ModuleProgress.objects.get(student=self.student, module=self.module).completed_at)
         self.assertFalse(ModuleProgress.objects.filter(student=self.student, module=self.other).exists())
 
+    def test_offline_bundle_answers_unchanged_instead_of_sending_it_again(self):
+        # The app used to download the whole course every minute. It now sends
+        # the version it holds and gets a few bytes back when nothing changed.
+        self.ready_lesson()
+        first = self.sc.get("/api/student/offline/")
+        self.assertEqual(first.status_code, 200)
+        version = first.data["version"]
+        self.assertTrue(first.data["entries"])
+        same = self.sc.get("/api/student/offline/", {"since": version})
+        self.assertEqual(same.status_code, 200)
+        self.assertEqual(same.data, {"version": version, "generated_at": same.data["generated_at"], "unchanged": True})
+        stale = self.sc.get("/api/student/offline/", {"since": "an-older-version"})
+        self.assertEqual(stale.data["version"], version)
+        self.assertEqual(stale.data["entries"], first.data["entries"])
+        self.assertNotIn("unchanged", stale.data)
+
     def test_offline_download_does_not_count_as_reading(self):
         self.ready_lesson()
         self.assertEqual(self.sc.get("/api/student/offline/").status_code, 200)

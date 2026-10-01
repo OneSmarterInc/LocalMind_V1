@@ -35,7 +35,7 @@ The `preview` profile produces a sideloadable APK you can hand to students direc
 
 `android/` and `ios/` are already generated (`npx expo prebuild`) and checked in for convenience. To rebuild them from scratch after changing `app.json`, run `npm run prebuild`.
 
-Android: open `android/` in Android Studio (or run `cd android && ./gradlew assembleRelease`) and the APK lands in `android/app/build/outputs/apk/release/`. Sign it with your own keystore for distribution; the debug build installs as-is on a developer-mode phone. Or simply `npm run android` with a device plugged in.
+Android: for tester APKs, signing and permissions, follow **Tester APKs from a Windows laptop** below. Don't hand out debug-signed builds.
 
 iOS: `cd ios && pod install`, open `LocalMind.xcworkspace` in Xcode, select your team under Signing & Capabilities, and Archive. Or `npm run ios` for a simulator run on a Mac.
 
@@ -101,6 +101,18 @@ LOCALMIND_UPLOAD_KEY_PASSWORD=your-key-password
 - For EAS builds, run `eas credentials` once for Android instead; EAS keeps the key and signs with it.
 
 The signing setup lives in `plugins/withReleaseSigning.js`, so it survives `npm run prebuild` (`expo prebuild --clean`), which deletes and regenerates `android/`.
+
+### iOS version numbers
+
+The iOS build carries the same version as Android. Raise them together: `app.json` → `expo.version` and `expo.ios.buildNumber`, `ios/LocalMind/Info.plist` → `CFBundleShortVersionString` and `CFBundleVersion`, and `ios/LocalMind.xcodeproj/project.pbxproj` → `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` (both build configurations). `tests/android-release.mjs` checks they agree.
+
+### Google Play: foreground service declaration
+
+LocalMind declares a foreground service of type **specialUse** so lesson, quiz and answer writing keeps going when the person switches apps. Google Play asks for a justification in the Play Console (App content → Foreground service permissions) before release. Text to use:
+
+> LocalMind writes lessons, quizzes and answers with an AI model that runs entirely on the phone; nothing is sent to a server. Writing one lesson takes one to several minutes. While it runs, LocalMind shows an ongoing notification naming the work ("Writing lessons — Chapter 4") with its progress, so the person can switch apps without losing it. The service starts only when the person starts that work, stops as soon as it finishes or is cancelled, and is never started in the background on its own. No other foreground service type fits on-device AI generation.
+
+The manifest's subtype text (`PROPERTY_SPECIAL_USE_FGS_SUBTYPE`) says the same in one line. The video the Console asks for can be a screen recording of starting a book's generation, switching apps, and the notification updating.
 
 ### Permissions in the release build
 

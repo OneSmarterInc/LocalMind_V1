@@ -40,11 +40,11 @@ export async function chooseAndDownload(choices: ModelChoices | null, onNote?: (
     const other = choices.models.find(m => m.id !== best.id);
     const memory = choices.memoryBytes ? `This phone has about ${gb(choices.memoryBytes)} of memory. ` : '';
     const picked = await choiceAsync('Which local AI model?',
-      `${memory}Recommended: ${best.title} (${best.downloadSize}). ${best.summary}${other ? `\n\nAlternative: ${other.title} (${other.downloadSize}). ${other.summary}` : ''}\n\nThe download keeps going if you switch to another app, and continues where it stopped if the connection drops. Your books and questions are never sent to the model publisher.`,
+      `${memory}Recommended: ${best.title} (${best.downloadSize}). ${best.summary}${other ? `\n\nAlternative: ${other.title} (${other.downloadSize}). ${other.summary}` : ''}\n\nOn mobile data the download uses that much of your data allowance, so Wi-Fi is better if you have it. The download keeps going if you switch to another app, and continues where it stopped if the connection drops. Your books and questions are never sent to the model publisher.`,
       { confirm: 'Download recommended', extra: other ? `Download ${other.id === 'quality' ? 'better quality' : 'faster'} model` : 'Cancel', cancel: 'Cancel' });
     if (picked === 'cancel' || (picked === 'extra' && !other)) return null;
     modelId = picked === 'extra' ? other!.id : best.id;
-  } else if (!canChoose && !(await confirmAsync('Download local AI?', `${MODEL.title}: approximately ${MODEL.downloadSize}. Internet is used only to download the model. It will run on this device; your books and questions are not sent to the model publisher.`, 'Download', 'Cancel'))) {
+  } else if (!canChoose && !(await confirmAsync('Download local AI?', `${MODEL.title}: approximately ${MODEL.downloadSize}. Internet is used only to download the model; on mobile data it uses that much of your data allowance, so Wi-Fi is better. It will run on this device; your books and questions are not sent to the model publisher.`, 'Download', 'Cancel'))) {
     return null;
   }
   return modelSetup.download(modelId);

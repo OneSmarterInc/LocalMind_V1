@@ -7,7 +7,7 @@ import { ApiError, tokenStore } from "@/api/client";
 import { META, clearAll, readEntry, setOfflineScope, writeEntry } from "@/offline/store";
 import { clearSectionMemory } from "@/ui/sectionMemory";
 import { clearSessionExpired, markSessionExpired } from "./sessionNotice";
-import { startOfflineSync, stopOfflineSync, syncNow } from "@/offline/sync";
+import { startOfflineSync, stopOfflineSync, syncIfStale } from "@/offline/sync";
 import { auth as authApi } from "@/api/endpoints";
 import type { LoginResponse, Role, User } from "@/api/types";
 
@@ -87,7 +87,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const sub = AppState.addEventListener("change", (s) => {
       if (s === "active") {
         if (user) authApi.heartbeat(sessionId).catch(() => {});
-        if (user && !user.must_change_password) void syncNow();  // back in the app: refresh the offline copy
+        if (user && !user.must_change_password) void syncIfStale();  // back in the app: refresh the offline copy unless it is under two minutes old
         start();
       } else stop();
     });
