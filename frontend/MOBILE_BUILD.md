@@ -78,6 +78,8 @@ Android installs an update only when its `versionCode` is higher. Before each bu
 
 ### Signing with your own upload key
 
+**Current policy (1 Oct 2026):** tester APKs are signed with the Android debug key, and every tester APK is built **on the same laptop**, so each new build installs over the last one and testers keep their downloaded AI model and offline data. The Gradle line "LocalMind: no upload key configured; release builds are signed with the debug key" is therefore expected. Create the upload key below **only when preparing a Google Play release**; until then, nothing in this section needs doing. If tester builds ever have to come from a second laptop, create the key first and use it on both.
+
 Release builds are signed with the key named in **your own** `~/.gradle/gradle.properties`. Without it they fall back to the public Android debug key and Gradle prints a warning; Google Play refuses those, and a debug-signed APK built on one laptop will not install over one built on another.
 
 One time, create the key **outside the repository** (keytool comes with Android Studio's JDK):
