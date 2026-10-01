@@ -1,8 +1,8 @@
 # LocalMind: Product Requirements Document (PRD)
 
-**Version:** 2.0, 30 Sep 2026
-**Repository:** github.com/OneSmarterInc/LocalMind_V1, branch `main` (at `cc9fff2` when written)
-**Suggested location in the repository:** `docs/PRD.md`
+**Version:** 2.1, 1 Oct 2026
+**Repository:** github.com/OneSmarterInc/LocalMind_V1, branch `main` (code last verified at `cc9fff2`; this version written at `a0176e9`)
+**Master copy:** `docs/PRD.md` in the repository. Change it only there, through a branch and pull request. Any copy kept elsewhere (a project's files, a chat) is a read-only snapshot; if it differs from the repository, the repository wins.
 **Owner:** Anshuman (product and code decisions)
 
 ---
@@ -220,12 +220,11 @@ Applies to the Private library and course doubts, on the device and on the serve
 | # | Issue | Severity | Status |
 |---|---|---|---|
 | 1 | **staffBundle polls the whole teaching corpus every 60 s** (`frontend/src/offline/sync.ts`) | Critical | Separate ticket coming; costly on mobile data |
-| 2 | Getting Started guide: no "download the model" step for faculty, "a few minutes" timing, TXT listed, wrong menu labels | High (documentation) | Corrections list written; PDF not yet corrected |
-| 3 | Own Android upload key not yet created; Play Console specialUse justification not written | Needed before Play Store | Steps in `frontend/MOBILE_BUILD.md` |
-| 4 | Wording review p9 (162 texts) | Low | Parked by the owner |
-| 5 | `/manage` route disposition | Product question | Undecided |
-| 6 | iOS build number still 1 | Low | Raise with the next iOS build |
-| 7 | Optional: mobile-data warning before the model download | Improvement | Not started |
+| 2 | Own Android upload key not yet created; Play Console specialUse justification not written | Needed before Play Store | Steps in `frontend/MOBILE_BUILD.md` |
+| 3 | Wording review p9 (162 texts) | Low | Parked by the owner |
+| 4 | `/manage` route disposition | Product question | Undecided |
+| 5 | iOS build number still 1 | Low | Raise with the next iOS build |
+| 6 | Optional: mobile-data warning before the model download | Improvement | Not started |
 
 ---
 
@@ -245,6 +244,7 @@ Applies to the Private library and course doubts, on the device and on the serve
 | Tests | 11 unwired test files now run (`local-ai-json` + 10 older) | `c3afac7`, `90968ca` |
 | APK | Debug-key signing path, overlay/storage permissions, version 1.0.1 (2), pinned phone model, build docs | `90968ca` |
 | Windows | `local-ai-json` and `editor-state` tests failed on Windows paths | `90968ca`, `cc9fff2` |
+| Getting Started guide | No model-download step for faculty, "a few minutes" timing, TXT listed, five faculty steps against three on the Overview, Synchronize all location, phone model size, Quick help cause, orphaned table row | `84d65ee` |
 
 ---
 
@@ -295,3 +295,4 @@ Applies to the Private library and course doubts, on the device and on the serve
 | Date | Change |
 |---|---|
 | 30 Sep 2026 | v2.0: rewritten after PR #5, audit follow-ups, PostgreSQL grading fix, APK review and Windows test fixes. Adds grounding rules, completion rule, pop-up policy, notifications, invariants 9–14, Do Not Flag 1–27. Earlier notes that "lessons are generated in the background on the server when a book is uploaded" are **superseded** by device authoring (section 5) |
+| 1 Oct 2026 | v2.1: the PRD is in the repository as `docs/PRD.md`, which is the master copy (header). The Getting Started guide corrections are resolved (`84d65ee`): moved from section 14 to section 15, and the remaining open issues renumbered |
