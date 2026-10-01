@@ -1,7 +1,7 @@
 # LocalMind: Product Requirements Document (PRD)
 
-**Version:** 2.3, 1 Oct 2026
-**Repository:** github.com/OneSmarterInc/LocalMind_V1, branch `main` (code last verified with the open-items patch of 1 Oct 2026; this version written on top of `766950e`)
+**Version:** 2.2, 1 Oct 2026
+**Repository:** github.com/OneSmarterInc/LocalMind_V1, branch `main` (code last verified at `cc9fff2`; this version written at `3dbeb31`)
 **Master copy:** `docs/PRD.md` in the repository. Change it only there, through a branch and pull request. Any copy kept elsewhere (a project's files, a chat) is a read-only snapshot; if it differs from the repository, the repository wins.
 **Owner:** Anshuman (product and code decisions)
 
@@ -212,7 +212,6 @@ Applies to the Private library and course doubts, on the device and on the serve
 | 25 | Off-topic doubts refused before the AI runs; refusals shown as an amber note | Grounding rules, section 8 | `frontend/src/private/core.ts`, `library.ts` |
 | 26 | No CI set up on the `ui/portal-improvements` branch | Owner's decision; don't raise again | — |
 | 27 | `draft_persistence.test.cjs` isn't in an npm script | It runs through `scripts/check_offline_study.py` | `scripts/` |
-| 28 | The offline copy refreshes every 15 minutes (on sign-in, reconnect, and returning to the app after 2+ minutes too), not every minute; no timed refresh while hidden or under Data Saver | Online screens always read live from the server; the copy only matters offline, and the old 1-minute poll was the costliest traffic in the app | `frontend/src/offline/sync.ts` |
 
 ---
 
@@ -220,9 +219,12 @@ Applies to the Private library and course doubts, on the device and on the serve
 
 | # | Issue | Severity | Status |
 |---|---|---|---|
-| 1 | Own Android upload key not yet created (Play Console specialUse justification text is ready in `frontend/MOBILE_BUILD.md`) | Needed before Play Store | Owner creates the key |
-| 2 | Wording review p9 (162 texts) | Low | Parked by the owner |
-| 3 | `/manage` route disposition | Product question | Undecided |
+| 1 | **staffBundle polls the whole teaching corpus every 60 s** (`frontend/src/offline/sync.ts`) | Critical | Separate ticket coming; costly on mobile data |
+| 2 | Own Android upload key not yet created; Play Console specialUse justification not written | Needed before Play Store | Steps in `frontend/MOBILE_BUILD.md` |
+| 3 | Wording review p9 (162 texts) | Low | Parked by the owner |
+| 4 | `/manage` route disposition | Product question | Undecided |
+| 5 | iOS build number still 1 | Low | Raise with the next iOS build |
+| 6 | Optional: mobile-data warning before the model download | Improvement | Not started |
 
 ---
 
@@ -244,10 +246,6 @@ Applies to the Private library and course doubts, on the device and on the serve
 | Windows | `local-ai-json` and `editor-state` tests failed on Windows paths | `90968ca`, `cc9fff2` |
 | Getting Started guide | No model-download step for faculty, "a few minutes" timing, TXT listed, five faculty steps against three on the Overview, Synchronize all location, phone model size, Quick help cause, orphaned table row | `84d65ee` |
 | Tooling | `npm run typecheck` and `npm run lint` failed on a clean install with scripts disabled (generated parser files missing); both now run `prepare:private` first (`pretypecheck`, `prelint`). If `lint` still shows the two errors on an old checkout, delete `frontend/.expo/cache/eslint/` once | `5581194` |
-| Offline sync | The offline copy refreshed every minute: staff fetched the whole teaching corpus one request at a time (~260 a minute for a two-book teacher) and rewrote storage each time; students downloaded the whole course. Now a full refresh every 15 min while on screen, queued course work retried every minute, nothing while hidden, no timed refresh under Data Saver, staff storage rewritten only when the copy changes, and students get `{"unchanged": true}` from `/api/student/offline/?since=<version>` | open-items patch, 1 Oct 2026 |
-| iOS version | iOS build number was 1 and version 1.0.0; now 1.0.1 (build 2) like Android, and `tests/android-release.mjs` checks all version fields agree | open-items patch, 1 Oct 2026 |
-| Model download | No mobile-data note before the download; the prompts now say the size uses that much data and Wi-Fi is better | open-items patch, 1 Oct 2026 |
-| Build docs | Stale "sign with your own keystore / debug build installs as-is" line in `frontend/MOBILE_BUILD.md` (recheck R8) replaced; iOS versioning and the Play Console specialUse text added | open-items patch, 1 Oct 2026 |
 
 ---
 
@@ -300,4 +298,3 @@ Applies to the Private library and course doubts, on the device and on the serve
 | 30 Sep 2026 | v2.0: rewritten after PR #5, audit follow-ups, PostgreSQL grading fix, APK review and Windows test fixes. Adds grounding rules, completion rule, pop-up policy, notifications, invariants 9–14, Do Not Flag 1–27. Earlier notes that "lessons are generated in the background on the server when a book is uploaded" are **superseded** by device authoring (section 5) |
 | 1 Oct 2026 | v2.1: the PRD is in the repository as `docs/PRD.md`, which is the master copy (header). The Getting Started guide corrections are resolved (`84d65ee`): moved from section 14 to section 15, and the remaining open issues renumbered |
 | 1 Oct 2026 | v2.2: "typecheck and lint on a clean install" added to section 15 (Resolved, `5581194`) |
-| 1 Oct 2026 | v2.3: staffBundle/offline sync, iOS build number, mobile-data note and build docs resolved; Play Console text written (the upload key itself stays open). Section 14 now lists 3 items |
